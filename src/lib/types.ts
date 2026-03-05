@@ -494,3 +494,20 @@ export interface CreateLeadHistoryDTO {
   detalle: string
   metadata?: any
 }
+
+// ----- Landing Tokens -----
+export interface LandingTokenDB {
+  id: string
+  empresa_id: string
+  pipeline_id: string
+  etapa_id: string
+  token: string
+  nombre: string
+  active: boolean
+  prioridad_default: string
+  asignado_a: string
+  empresa_label: string
+  metadata?: Record<string, unknown>
+  created_at?: string
+  updated_at?: string
+}
