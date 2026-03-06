@@ -12,6 +12,7 @@ import { Plus, Funnel, Trash, CaretLeft, CaretRight, Download } from '@phosphor-
 import { LeadDetailSheet } from './LeadDetailSheet'
 import { AddStageDialog } from './AddStageDialog'
 import { AddLeadDialog } from './AddLeadDialog'
+import { AddPipelineDialog } from './AddPipelineDialog'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -106,6 +107,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
   const [moveDialogOpen, setMoveDialogOpen] = useState(false)
   const [moveDialogLead, setMoveDialogLead] = useState<Lead | null>(null)
   const [highlightedLeadId, setHighlightedLeadId] = useState<string | null>(null)
+  const [showAddPipelineDialog, setShowAddPipelineDialog] = useState(false)
   const tabsScrollRef = useRef<HTMLDivElement>(null)
 
   // Ref para acceso síncrono a leads (usado por realtime)
@@ -581,7 +583,17 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
     try {
       // Si el pipeline tiene un ID (es decir, está guardado en BD), lo eliminamos
       if (currentPipeline?.id && !currentPipeline.id.startsWith('pipeline-')) {
-        await deletePipeline(currentPipeline.id)
+        const { error } = await deletePipeline(currentPipeline.id)
+        if (error) {
+          console.error('Error deleting pipeline from DB:', error)
+          // Si el error es por violación de llave foránea (leads asociados)
+          if (error.code === '23503' || error.message?.includes('foreign key constraint')) {
+            toast.error('No se puede eliminar el pipeline porque tiene oportunidades (leads) adentro. Por favor, mueve o elimina los leads primero.')
+          } else {
+            toast.error(`Error al eliminar pipeline: ${error.message || 'Error desconocido'}`)
+          }
+          return
+        }
       }
 
       setPipelines((current) => (current || []).filter(p => p.type !== activePipeline))
@@ -796,6 +808,17 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
                     {p.name}
                   </TabsTrigger>
                 ))}
+
+                {/* Botón Crear Pipeline inline */}
+                <button
+                  type="button"
+                  onClick={() => setShowAddPipelineDialog(true)}
+                  className="inline-flex items-center justify-center whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold text-muted-foreground hover:text-primary hover:bg-background/60 transition-all gap-1.5"
+                  title="Crear nuevo pipeline"
+                >
+                  <Plus size={16} weight="bold" />
+                  <span className="hidden sm:inline">Nuevo</span>
+                </button>
               </TabsList>
             </div>
             {/* Gradient fade indicators for scroll */}
@@ -1013,6 +1036,18 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog para crear nuevo pipeline desde la vista principal */}
+      <AddPipelineDialog
+        open={showAddPipelineDialog}
+        onClose={() => setShowAddPipelineDialog(false)}
+        onAdd={(pipeline) => {
+          setPipelines((current) => [...(current || []), pipeline])
+          setActivePipeline(pipeline.type as PipelineType)
+          setShowAddPipelineDialog(false)
+        }}
+        empresaId={companyId}
+      />
     </div >
   )
 }

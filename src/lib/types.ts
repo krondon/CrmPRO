@@ -142,6 +142,7 @@ export interface Role {
   name: string
   permissions: RolePermission[]
   color: string
+  isSystem?: boolean
 }
 
 export interface TeamMember {

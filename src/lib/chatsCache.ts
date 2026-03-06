@@ -3,6 +3,7 @@
 // Se limpia automáticamente al cerrar el navegador
 
 import { getLeadsPaged } from '@/supabase/services/leads'
+import { detectChannel } from '@/hooks/useLeadsList'
 
 interface CachedLeadsData {
     leads: any[]
@@ -100,7 +101,7 @@ export async function preloadChatsForCompany(companyId: string): Promise<void> {
         }))
 
         const channelMap: Record<string, 'whatsapp' | 'instagram' | 'facebook'> = {}
-        for (const l of mapped) channelMap[l.id] = 'whatsapp'
+        for (const l of mapped) channelMap[l.id] = detectChannel(l)
 
         setCachedLeads(companyId, {
             leads: mapped,

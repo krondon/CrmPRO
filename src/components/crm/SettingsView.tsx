@@ -512,7 +512,7 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
 
         {/* ── Roles ─────────────────────────────────── */}
         <TabsContent value="roles" className="space-y-6 mt-8">
-          <RolesManagement />
+          <RolesManagement companyId={currentCompanyId || ''} />
         </TabsContent>
 
         {/* ── Automatizaciones ─────────────────────────────── */}

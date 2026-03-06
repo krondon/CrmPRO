@@ -300,15 +300,29 @@ serve(async (req) => {
       console.log(`[Super API] Response Body:`, JSON.stringify(responseData, null, 2));
 
       // Verificar si Super API retornó un error en el body aunque el HTTP sea 200
-      if (responseData.error || responseData.status === 'error' || !response.ok) {
+      // Nota: para Instagram, 'error' puede ser booleano false (éxito), no un string
+      const isExplicitError = responseData.error === true ||
+        (typeof responseData.error === 'string' && responseData.error) ||
+        responseData.status === 'error' ||
+        !response.ok;
+
+      if (isExplicitError) {
         const errorMsg = responseData.message || responseData.error || `HTTP ${response.status}`;
         console.error(`[Super API Error] ${errorMsg}`);
         throw new Error(`Super API Error: ${errorMsg}`);
       }
 
       // Verificar si el mensaje fue enviado exitosamente
-      if (responseData.status === 'success' || responseData.sent) {
-        console.log(`✅ [Super API] Mensaje enviado exitosamente`);
+      // Formatos reconocidos:
+      //   - WhatsApp: { status: 'success', sent: true }
+      //   - Instagram/Facebook: { error: false, statusCode: 200, message: 'Message sent' }
+      const isSuccess = responseData.status === 'success' ||
+        responseData.sent === true ||
+        responseData.error === false ||
+        (responseData.statusCode && responseData.statusCode >= 200 && responseData.statusCode < 300);
+
+      if (isSuccess) {
+        console.log(`✅ [Super API] Mensaje enviado exitosamente. Platform: ${platform}`);
       } else {
         console.warn(`⚠️ [Super API] Respuesta inesperada:`, responseData);
       }

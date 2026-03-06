@@ -62,6 +62,8 @@ export async function getLeadsCount(empresaId: string): Promise<number> {
         .from('lead')
         .select('*', { count: 'exact', head: true })
         .eq('empresa_id', empresaId)
+        .eq('archived', false)
+        .not('pipeline_id', 'is', null)
 
     if (error) throw error
     return count ?? 0

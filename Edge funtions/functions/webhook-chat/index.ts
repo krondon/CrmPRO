@@ -583,7 +583,20 @@ serve(async (req) => {
 
       // Resolver plataforma y client_id (para mapear instancia)
       const platformRaw = (payload.platform || (payload.data && payload.data.platform) || '').toString().toLowerCase();
-      const platform = ['instagram', 'facebook', 'whatsapp'].includes(platformRaw) ? platformRaw : (platformRaw === 'wws' ? 'whatsapp' : 'whatsapp');
+      // Prioridad: payload.platform > instancia resuelta > default whatsapp
+      // Esto evita que mensajes de Instagram sin campo 'platform' se traten como WhatsApp
+      let platform: string;
+      if (['instagram', 'facebook', 'whatsapp'].includes(platformRaw)) {
+        platform = platformRaw;
+      } else if (platformRaw === 'wws') {
+        platform = 'whatsapp';
+      } else if (instanceResolved?.plataforma && ['instagram', 'facebook', 'whatsapp'].includes(instanceResolved.plataforma)) {
+        // Fallback: usar la plataforma de la instancia si el payload no trae 'platform'
+        platform = instanceResolved.plataforma;
+        console.log(`📍 [PLATFORM] Platform no detectada en payload, usando plataforma de instancia: ${platform}`);
+      } else {
+        platform = 'whatsapp';
+      }
       const eventDataRaw = payload.data ?? {};
       const eventData =
         typeof eventDataRaw === "string"
@@ -956,14 +969,19 @@ serve(async (req) => {
             .trim();
           if (!cleanPhone) continue;
 
-          console.log(`🔍 Buscando leads con teléfono: ${cleanPhone} en empresa ${targetEmpresaId}`);
+          console.log(`🔍 Buscando leads con teléfono: ${cleanPhone} en empresa ${targetEmpresaId} (platform: ${platform})`);
 
           // BUSCAR SOLO EN LA EMPRESA DETERMINADA POR LAS CREDENCIALES
-          const { data: leads, error } = await supabase
+          // Para Instagram: usar match exacto ya que los IDs son números largos
+          // que podrian hacer falso match con teléfonos WhatsApp via ilike
+          const leadQuery = supabase
             .from("lead")
             .select("id, empresa_id, nombre_completo")
-            .eq("empresa_id", targetEmpresaId)
-            .ilike("telefono", `%${cleanPhone}%`);
+            .eq("empresa_id", targetEmpresaId);
+
+          const { data: leads, error } = platform === 'instagram' || platform === 'facebook'
+            ? await leadQuery.eq("telefono", cleanPhone)
+            : await leadQuery.ilike("telefono", `%${cleanPhone}%`);
 
           if (!error && leads && leads.length > 0) {
             foundAnyLead = true;
@@ -1109,12 +1127,16 @@ serve(async (req) => {
           const sourceIcon = (platform === 'instagram') ? '📷' : '📞';
 
           // 2. BUSCAR SI YA EXISTE EL LEAD
-          let { data: existingLead } = await supabase
+          // Para Instagram/Facebook: match exacto (IDs largos, no teléfonos)
+          // Para WhatsApp: ilike para flexibilidad con prefijos internacionales
+          const existingLeadQuery = supabase
             .from("lead")
             .select("id, nombre_completo")
-            .eq("empresa_id", empresa_id)
-            .ilike("telefono", `%${cleanPhone}%`)
-            .maybeSingle();
+            .eq("empresa_id", empresa_id);
+
+          let { data: existingLead } = platform === 'instagram' || platform === 'facebook'
+            ? await existingLeadQuery.eq("telefono", cleanPhone).maybeSingle()
+            : await existingLeadQuery.ilike("telefono", `%${cleanPhone}%`).maybeSingle();
 
           // 3. LÓGICA DE OBTENCIÓN DE NOMBRE
           // PRIORIDAD 1: Extraer nombre del payload (ya viene en el webhook)

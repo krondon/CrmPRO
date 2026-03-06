@@ -369,6 +369,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             localStorage.removeItem('supabase.auth.token')
             localStorage.removeItem('current-user')
 
+            // Limpiar cache de pipelines para que al re-logear se lea de la BD
+            const keysToRemove: string[] = []
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i)
+                if (key && key.startsWith('pipelines-')) {
+                    keysToRemove.push(key)
+                }
+            }
+            keysToRemove.forEach(key => localStorage.removeItem(key))
+
             toast.success('¡Sesión cerrada!')
         }
     }

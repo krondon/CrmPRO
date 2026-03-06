@@ -96,6 +96,24 @@ export function CRMLayout({ isGuestMode: forcedGuestMode }: CRMLayoutProps) {
         }
     }, [user?.email])
 
+    // Cuando el usuario navega a /notifications, resetear el badge inmediatamente
+    // y re-consultar para asegurar que el conteo está actualizado
+    useEffect(() => {
+        const isOnNotificationsPage = location.pathname.endsWith('/notifications') || location.pathname.endsWith('/notifications/')
+        if (isOnNotificationsPage && user?.email) {
+            // Resetear inmediatamente en UI
+            setUnreadNotificationsCount(0)
+            // También marcar como leídas en BD por si acaso NotificationsView no lo hizo aún
+            supabase
+                .from('notificaciones')
+                .update({ read: true })
+                .eq('usuario_email', user.email)
+                .eq('read', false)
+                .in('type', ['lead_assigned', 'invitation_response'])
+                .then(() => {/* silently update */ })
+        }
+    }, [location.pathname, user?.email])
+
     // Función para manejar cambio de vista
     const handleViewChange = (view: string) => {
         const prefix = isGuestMode ? '/guest' : ''
