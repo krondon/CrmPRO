@@ -24,7 +24,9 @@
 import { useRef, useCallback, Dispatch, SetStateAction } from 'react'
 import { Lead } from '@/lib/types'
 import { updateLead } from '@/supabase/services/leads'
+import { evaluateAndApplyRules } from '@/supabase/helpers/automationEngine'
 import { toast } from 'sonner'
+
 
 // ============================================
 // TIPOS
@@ -102,6 +104,14 @@ export function useDragDrop(options: UseDragDropOptions): UseDragDropReturn {
             try {
                 await updateLead(lead.id, { etapa_id: targetStageId }, currentUserId, actorNombre)
                 toast.success('Lead movido a nueva etapa')
+
+                // 🤖 Automation: fire stage_change trigger (non-blocking)
+                // We pass the lead with the NEW stage so the engine can match rules for that stage
+                const leadWithNewStage = { ...lead, stage: targetStageId, etapa_id: targetStageId } as any
+                evaluateAndApplyRules('stage_change', leadWithNewStage, { fromStageId: originalStageId }).catch(
+                    (err: any) => console.warn('[useDragDrop] Automation eval error:', err)
+                )
+
             } catch (err: any) {
                 console.error('[useDragDrop] Error updating lead stage:', err)
                 toast.error(`Error al mover lead: ${err.message || 'Error desconocido'}`)

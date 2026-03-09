@@ -462,6 +462,20 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
     try {
       const { addTagToLead } = await import('@/supabase/services/tags')
       await addTagToLead(lead.id, lead.tags, newTag)
+
+      // 🤖 Automation: fire tag_added trigger (non-blocking)
+      const { evaluateAndApplyRules } = await import('@/supabase/helpers/automationEngine')
+      const leadAsDB = {
+        id: lead.id,
+        empresa_id: companyId || '',
+        etapa_id: lead.stage,
+        pipeline_id: lead.pipeline as string,
+        nombre_completo: lead.name,
+        archived: lead.archived || false,
+      } as any
+      evaluateAndApplyRules('tag_added', leadAsDB, { tagName: newTag.name }).catch(
+        (err: any) => console.warn('[LeadDetailSheet] Automation eval error (tag_added):', err)
+      )
     } catch (e) {
       console.error('Error saving tag:', e)
       toast.error('Error al guardar la etiqueta en BD')
@@ -486,11 +500,26 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
     try {
       const { addTagToLead } = await import('@/supabase/services/tags')
       await addTagToLead(lead.id, lead.tags, tag)
+
+      // 🤖 Automation: fire tag_added trigger (non-blocking)
+      const { evaluateAndApplyRules } = await import('@/supabase/helpers/automationEngine')
+      const leadAsDB = {
+        id: lead.id,
+        empresa_id: companyId || '',
+        etapa_id: lead.stage,
+        pipeline_id: lead.pipeline as string,
+        nombre_completo: lead.name,
+        archived: lead.archived || false,
+      } as any
+      evaluateAndApplyRules('tag_added', leadAsDB, { tagName: tag.name }).catch(
+        (err: any) => console.warn('[LeadDetailSheet] Automation eval error (tag_added):', err)
+      )
     } catch (e) {
       console.error('Error adding existing tag:', e)
       toast.error('Error al guardar la etiqueta')
     }
   }
+
 
   const removeTag = async (tagId: string) => {
     const updatedLead = {

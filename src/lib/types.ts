@@ -183,16 +183,68 @@ export interface Notification {
   actionUrl?: string
 }
 
+// Trigger type defines what event activates the rule
+export type AutomationTriggerType = 'message_received' | 'tag_added' | 'stage_change' | 'time_in_stage'
+
+// Trigger config shapes (JSONB from DB)
+export interface TriggerConfigMessageReceived {
+  from_stage_id?: string | null // null = any stage
+}
+export interface TriggerConfigTagAdded {
+  tag_name: string
+  from_stage_id?: string | null
+}
+export interface TriggerConfigStageChange {
+  from_stage_id: string // entering this stage triggers the rule
+}
+export interface TriggerConfigTimeInStage {
+  stage_id: string
+  days: number
+}
+
+// Action config (currently only move_stage)
+export interface ActionConfigMoveStage {
+  target_stage_id: string
+  target_pipeline_id?: string | null
+}
+
 export interface AutomationRule {
   id: string
-  name: string
-  trigger: 'tag_added' | 'stage_change' | 'time_based'
-  condition: any
-  actions: Array<{
-    type: 'send_email' | 'send_sms' | 'create_task' | 'move_stage'
-    config: any
-  }>
+  empresa_id: string
+  pipeline_id?: string | null
+  nombre: string
   enabled: boolean
+  trigger_type: AutomationTriggerType
+  trigger_config: TriggerConfigMessageReceived | TriggerConfigTagAdded | TriggerConfigStageChange | TriggerConfigTimeInStage
+  action_type: 'move_stage'
+  action_config: ActionConfigMoveStage
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateAutomationRuleDTO {
+  empresa_id: string
+  pipeline_id?: string | null
+  nombre: string
+  enabled?: boolean
+  trigger_type: AutomationTriggerType
+  trigger_config: Record<string, any>
+  action_type?: 'move_stage'
+  action_config: Record<string, any>
+}
+
+export interface AutomationLog {
+  id: string
+  rule_id: string
+  lead_id: string
+  empresa_id: string
+  trigger_type: AutomationTriggerType
+  action_taken: {
+    from_stage_id?: string
+    to_stage_id: string
+    rule_name: string
+  }
+  created_at: string
 }
 
 export interface Note {

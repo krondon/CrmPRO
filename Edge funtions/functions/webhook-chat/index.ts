@@ -1044,6 +1044,107 @@ serve(async (req) => {
                   }
                 }
                 totalLeadsMatched++;
+
+                // 🤖 AUTOMATIZACIÓN: trigger message_received (solo mensajes entrantes del lead)
+                if (senderRole === 'lead') {
+                  try {
+                    console.log(`[AutomationEngine] Evaluando trigger "message_received" para lead ${lead.id}`);
+
+                    // Obtener datos actuales del lead (etapa actual)
+                    const { data: leadData } = await supabase
+                      .from('lead')
+                      .select('id, empresa_id, etapa_id, pipeline_id, nombre_completo, archived')
+                      .eq('id', lead.id)
+                      .maybeSingle();
+
+                    if (leadData && !leadData.archived) {
+                      // Buscar reglas activas de tipo message_received para esta empresa
+                      const { data: rules } = await supabase
+                        .from('automation_rules')
+                        .select('*')
+                        .eq('empresa_id', leadData.empresa_id)
+                        .eq('trigger_type', 'message_received')
+                        .eq('enabled', true);
+
+                      if (rules && rules.length > 0) {
+                        console.log(`[AutomationEngine] ${rules.length} regla(s) candidate(s) para message_received`);
+
+                        for (const rule of rules) {
+                          const cfg = rule.trigger_config ?? {};
+                          const requiredStage = cfg.from_stage_id || null;
+                          const targetStageId = rule.action_config?.target_stage_id;
+
+                          // Verificar: si hay etapa requerida, el lead debe estar en ella
+                          if (requiredStage && leadData.etapa_id !== requiredStage) {
+                            console.log(`[AutomationEngine] Regla "${rule.nombre}" no aplica (etapa actual ${leadData.etapa_id} ≠ requerida ${requiredStage})`);
+                            continue;
+                          }
+
+                          // Evitar mover a la misma etapa
+                          if (leadData.etapa_id === targetStageId) {
+                            console.log(`[AutomationEngine] Regla "${rule.nombre}" sin efecto (lead ya está en etapa destino)`);
+                            continue;
+                          }
+
+                          if (!targetStageId) {
+                            console.warn(`[AutomationEngine] Regla "${rule.nombre}" sin target_stage_id, omitida`);
+                            continue;
+                          }
+
+                          // ✅ Aplicar la acción: mover el lead
+                          const { error: moveErr } = await supabase
+                            .from('lead')
+                            .update({ etapa_id: targetStageId })
+                            .eq('id', leadData.id);
+
+                          if (moveErr) {
+                            console.error(`[AutomationEngine] Error moviendo lead ${leadData.id}:`, moveErr);
+                            continue;
+                          }
+
+                          console.log(`[AutomationEngine] ✅ Lead ${leadData.id} movido a ${targetStageId} por regla "${rule.nombre}"`);
+
+                          // Registrar en lead_historial
+                          await supabase.from('lead_historial').insert({
+                            lead_id: leadData.id,
+                            usuario_id: '00000000-0000-0000-0000-000000000000',
+                            accion: 'automatizacion',
+                            detalle: `Movido automáticamente por regla: "${rule.nombre}"`,
+                            metadata: {
+                              rule_id: rule.id,
+                              rule_name: rule.nombre,
+                              trigger_type: 'message_received',
+                              from_stage_id: leadData.etapa_id,
+                              to_stage_id: targetStageId,
+                              actor_nombre: 'Sistema (Automatización)'
+                            }
+                          }).catch((err: any) => console.warn('[AutomationEngine] Error escribiendo historial:', err));
+
+                          // Registrar en automation_logs
+                          await supabase.from('automation_logs').insert({
+                            rule_id: rule.id,
+                            lead_id: leadData.id,
+                            empresa_id: leadData.empresa_id,
+                            trigger_type: 'message_received',
+                            action_taken: {
+                              from_stage_id: leadData.etapa_id,
+                              to_stage_id: targetStageId,
+                              rule_name: rule.nombre
+                            }
+                          }).catch((err: any) => console.warn('[AutomationEngine] Error escribiendo automation_log:', err));
+
+                          // Solo aplicar la primera regla que coincida por trigger
+                          break;
+                        }
+                      }
+                    }
+                  } catch (autoErr) {
+                    // Nunca interrumpir el flujo principal por errores de automatización
+                    console.warn('[AutomationEngine] Error evaluando reglas de automatización:', autoErr);
+                  }
+                }
+                // FIN AUTOMATIZACIÓN
+
               }
 
               // Actualizar preferencia de instancia para el lead (siempre guardar la última usada)

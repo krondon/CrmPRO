@@ -1,6 +1,6 @@
 import { useState, useEffect, Dispatch, SetStateAction } from 'react'
 import { usePersistentState } from '@/hooks/usePersistentState'
-import { Pipeline, Stage, AutomationRule, PipelineType } from '@/lib/types'
+import { Pipeline, Stage, PipelineType } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,6 +18,7 @@ import { IDsViewer } from './IDsViewer'
 import { IntegrationsManager } from './settings/IntegrationsManager'
 import { LandingTokensManager } from './settings/LandingTokensManager'
 import { updatePipeline, getPipelines } from '@/supabase/helpers/pipeline'
+import { AutomationsPanel } from './settings/AutomationsPanel'
 import { useAuth } from '@/hooks/useAuth'
 import { toast } from 'sonner'
 
@@ -44,7 +45,6 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
   const { user, updateEmail, updateRecoveryEmail } = useAuth()
 
   const [pipelines, setPipelines] = usePersistentState<Pipeline[]>(`pipelines-${currentCompanyId}`, [])
-  const [automations, setAutomations] = usePersistentState<AutomationRule[]>(`automations-${currentCompanyId}`, [])
   const [showPipelineDialog, setShowPipelineDialog] = useState(false)
   const [editingPipelineId, setEditingPipelineId] = useState<string | null>(null)
   const [editPipelineName, setEditPipelineName] = useState('')
@@ -72,12 +72,6 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
       })
       .catch(err => console.error('[SettingsView] Error loading pipelines:', err))
   }, [currentCompanyId])
-
-  const toggleAutomation = (id: string) => {
-    setAutomations((current) =>
-      (current || []).map(a => a.id === id ? { ...a, enabled: !a.enabled } : a)
-    )
-  }
 
   const handleUpdatePipeline = async (pipelineId: string) => {
     if (!editPipelineName.trim()) {
@@ -517,68 +511,20 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
 
         {/* ── Automatizaciones ─────────────────────────────── */}
         <TabsContent value="automations" className="space-y-6 mt-8">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
-                <Lightning size={20} weight="duotone" className="text-amber-600" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold">Automatizaciones</h2>
-                <p className="text-xs text-muted-foreground">Reglas automáticas para tu flujo de trabajo</p>
-              </div>
-            </div>
-            <Button className="rounded-xl shadow-sm gap-2">
-              <Plus size={16} weight="bold" />
-              Nueva Automatización
-            </Button>
-          </div>
-
-          <div className="grid gap-4">
-            {(automations || []).map(automation => (
-              <Card key={automation.id} className="group border-none shadow-sm rounded-2xl hover:shadow-md transition-all overflow-hidden">
-                <CardHeader className="bg-gradient-to-r from-amber-500/5 to-transparent">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`h-9 w-9 rounded-lg flex items-center justify-center ${automation.enabled ? 'bg-amber-500/10' : 'bg-muted/50'}`}>
-                        <Lightning size={18} weight="duotone" className={automation.enabled ? 'text-amber-600' : 'text-muted-foreground'} />
-                      </div>
-                      <div>
-                        <CardTitle className="text-base font-bold">{automation.name}</CardTitle>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          Trigger: <span className="font-semibold capitalize">{automation.trigger.replace('_', ' ')}</span>
-                        </p>
-                      </div>
-                    </div>
-                    <Switch
-                      checked={automation.enabled}
-                      onCheckedChange={() => toggleAutomation(automation.id)}
-                    />
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-3">
-                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Acciones</Label>
-                  <div className="space-y-1.5 mt-2">
-                    {automation.actions.map((action, idx) => (
-                      <div key={idx} className="text-sm flex items-center gap-2">
-                        <div className="h-1.5 w-1.5 rounded-full bg-amber-500"></div>
-                        <span className="capitalize">{action.type.replace('_', ' ')}</span>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          {(automations || []).length === 0 && (
+          {isAdminOrOwner && currentCompanyId ? (
+            <AutomationsPanel
+              empresaId={currentCompanyId}
+              pipelines={pipelines || []}
+            />
+          ) : (
             <Card className="border-none shadow-sm rounded-2xl">
               <CardContent className="py-16">
                 <div className="flex flex-col items-center justify-center text-center space-y-3 opacity-60">
                   <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
                     <Lightning size={32} className="text-muted-foreground" weight="thin" />
                   </div>
-                  <p className="font-bold text-lg">Sin automatizaciones</p>
-                  <p className="text-sm text-muted-foreground">No hay reglas configuradas aún</p>
+                  <p className="font-bold text-lg">Sin permisos</p>
+                  <p className="text-sm text-muted-foreground">No tienes permisos para gestionar automatizaciones.</p>
                 </div>
               </CardContent>
             </Card>
