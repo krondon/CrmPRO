@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Plus, Trash, PencilSimple, WhatsappLogo, InstagramLogo, FacebookLogo, Funnel, UserPlus, Key, Globe, LinkSimple, CheckCircle, Clock, Prohibit, ChatText } from '@phosphor-icons/react'
+import { Plus, Trash, PencilSimple, WhatsappLogo, InstagramLogo, FacebookLogo, Funnel, UserPlus, Key, Globe, LinkSimple, CheckCircle, Clock, Prohibit, ChatText, FloppyDisk } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { getPipelines } from '@/supabase/helpers/pipeline'
 import type { Pipeline } from '@/lib/types'
@@ -457,8 +457,8 @@ export function InstancesManager({ empresaId }: InstancesManagerProps) {
               <span className="text-sm font-semibold">Instancia activa</span>
             </div>
             <Button onClick={handleCreate} disabled={creating} className="rounded-xl shadow-sm gap-2">
-              <Plus size={16} weight="bold" />
-              {creating ? 'Creando...' : 'Crear Instancia'}
+              <FloppyDisk size={16} weight="bold" />
+              {creating ? 'Guardando...' : 'Guardar Configuración'}
             </Button>
           </div>
         </CardContent>
