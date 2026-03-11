@@ -5,7 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { AddTeamMemberDialog } from './AddTeamMemberDialog'
 import { Button } from '@/components/ui/button'
-import { Trash, Building, Info, Funnel, Users, XCircle, CaretDown, CaretUp, MagnifyingGlass } from '@phosphor-icons/react'
+import { Trash, Building, Info, Funnel, Users, XCircle, CaretDown, CaretUp, MagnifyingGlass, CheckCircle, Clock, UserPlus } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useEffect, useState } from 'react'
@@ -14,6 +14,8 @@ import { getPersonas, createPersona, deletePersona } from '@/supabase/services/p
 import { getPipelines } from '@/supabase/helpers/pipeline'
 import { addPersonaToPipeline, getPipelinesForPersona } from '@/supabase/helpers/personaPipeline'
 import { getLeads } from '@/supabase/services/leads'
+import { getSolicitudesPendientes, aprobarSolicitud, rechazarSolicitud } from '@/supabase/services/solicitudes'
+import type { SolicitudUnionDB } from '@/lib/types'
 import { Input } from '@/components/ui/input'
 import { AllLeadsDialog } from './AllLeadsDialog'
 import { MemberSearchDialog } from './MemberSearchDialog'
@@ -56,6 +58,7 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
   const [teamSearch, setTeamSearch] = useState('')
   const [memberSearch, setMemberSearch] = useState('')
   const [showAllTeams, setShowAllTeams] = useState(false)
+  const [solicitudesPendientes, setSolicitudesPendientes] = useState<SolicitudUnionDB[]>([])
 
   useEffect(() => {
     if (!companyId) return
@@ -67,6 +70,16 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
 
     return () => { cancelled = true }
   }, [companyId])
+
+  // Cargar solicitudes pendientes (solo owner/admin)
+  useEffect(() => {
+    if (!companyId || !isAdminOrOwner) return
+    let cancelled = false
+    getSolicitudesPendientes(companyId).then(data => {
+      if (!cancelled) setSolicitudesPendientes(data)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [companyId, isAdminOrOwner])
 
   useEffect(() => {
     if (!companyId) return
@@ -456,6 +469,66 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
             Limpiar filtro
           </Button>
         </div>
+      )}
+
+      {/* Panel de solicitudes pendientes (solo owner/admin) */}
+      {isAdminOrOwner && solicitudesPendientes.length > 0 && (
+        <Card className="border-yellow-500/30 bg-yellow-50/50 dark:bg-yellow-950/10 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <UserPlus size={18} className="text-yellow-600" />
+              Solicitudes de unión ({solicitudesPendientes.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {solicitudesPendientes.map(sol => (
+              <div key={sol.id} className="flex items-center justify-between p-3 rounded-lg border bg-background">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm truncate">{sol.solicitante_nombre || sol.solicitante_email}</p>
+                  {sol.mensaje && (
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">"{sol.mensaje}"</p>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    <Clock size={12} className="inline mr-1" />
+                    {new Date(sol.created_at).toLocaleDateString('es-ES')}
+                  </p>
+                </div>
+                <div className="flex gap-2 ml-3">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 h-8"
+                    onClick={async () => {
+                      try {
+                        await rechazarSolicitud(sol.id)
+                        setSolicitudesPendientes(prev => prev.filter(s => s.id !== sol.id))
+                        toast.success('Solicitud rechazada')
+                      } catch { toast.error('Error al rechazar') }
+                    }}
+                  >
+                    <XCircle size={14} className="mr-1" />
+                    Rechazar
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-8"
+                    onClick={async () => {
+                      try {
+                        await aprobarSolicitud(sol.id, 'viewer')
+                        setSolicitudesPendientes(prev => prev.filter(s => s.id !== sol.id))
+                        toast.success('Solicitud aprobada — se ha añadido al equipo')
+                        setRefreshTrigger(prev => prev + 1)
+                      } catch { toast.error('Error al aprobar') }
+                    }}
+                  >
+                    <CheckCircle size={14} className="mr-1" />
+                    Aprobar
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       )}
 
       {/* Vista de equipos mejorada */}

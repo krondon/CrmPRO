@@ -133,7 +133,8 @@ export async function getEmpresasByUsuario(usuario_id: string): Promise<EmpresaW
         nombre_empresa,
         usuario_id,
         created_at,
-        logo_url
+        logo_url,
+        codigo_empresa
       )
     `)
         .eq('usuario_id', usuario_id)

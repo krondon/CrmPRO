@@ -411,6 +411,7 @@ export interface EmpresaDB {
   id: string
   nombre_empresa: string
   logo_url?: string
+  codigo_empresa?: string
   created_at: string
   created_by: string
 }
@@ -479,13 +480,33 @@ export interface CreateEquipoDTO {
 }
 
 // ----- Usuario/Persona DTOs -----
+export type AccountType = 'owner' | 'employee'
+
 export interface UsuarioDB {
   id: string
   email: string
   nombre?: string
   avatar_url?: string
   recovery_email?: string | null
+  account_type: AccountType
   created_at: string
+}
+
+export type SolicitudStatus = 'pending' | 'approved' | 'rejected'
+
+export interface SolicitudUnionDB {
+  id: string
+  solicitante_id: string
+  solicitante_email: string
+  solicitante_nombre: string | null
+  mensaje: string | null
+  empresa_id: string
+  status: SolicitudStatus
+  role_asignado: string
+  created_at: string
+  responded_at: string | null
+  responded_by: string | null
+  empresa?: { nombre_empresa: string; logo_url?: string }
 }
 
 export interface PersonaDB {

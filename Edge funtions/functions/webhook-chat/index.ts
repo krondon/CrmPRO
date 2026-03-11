@@ -590,10 +590,6 @@ serve(async (req) => {
         platform = platformRaw;
       } else if (platformRaw === 'wws') {
         platform = 'whatsapp';
-      } else if (instanceResolved?.plataforma && ['instagram', 'facebook', 'whatsapp'].includes(instanceResolved.plataforma)) {
-        // Fallback: usar la plataforma de la instancia si el payload no trae 'platform'
-        platform = instanceResolved.plataforma;
-        console.log(`📍 [PLATFORM] Platform no detectada en payload, usando plataforma de instancia: ${platform}`);
       } else {
         platform = 'whatsapp';
       }
@@ -677,6 +673,12 @@ serve(async (req) => {
         }
       }
 
+      // Si el payload no trajo plataforma válida, usar la de la instancia resuelta.
+      if (!['instagram', 'facebook', 'whatsapp', 'wws'].includes(platformRaw) && instanceResolved?.plataforma && ['instagram', 'facebook', 'whatsapp'].includes(instanceResolved.plataforma)) {
+        platform = instanceResolved.plataforma;
+        console.log(`📍 [PLATFORM] Platform no detectada en payload, usando plataforma de instancia: ${platform}`);
+      }
+
       // supabase ya creado arriba con service role
       // Registrar auditoría de webhook entrante
       try {
@@ -695,10 +697,33 @@ serve(async (req) => {
 
       console.log("📦 [WEBHOOK] Event Data Keys:", Object.keys(eventData));
 
+      // Ignorar eventos de estado/confirmaciones que no representan mensajes reales.
+      const eventTypeRaw = (payload.event || eventData.event || "").toString();
+      const eventType = eventTypeRaw.toLowerCase();
+      const ignoredEvents = new Set(["message_ack", "presence", "status", "statuses", "chat_update"]);
+      const hasMetaStatuses = !!payload?.entry?.[0]?.changes?.[0]?.value?.statuses;
+
+      if (ignoredEvents.has(eventType) || hasMetaStatuses) {
+        console.log(`⏭️ [WEBHOOK] Ignorando evento de estado/confirmación: ${eventTypeRaw || "(empty)"}`);
+        return new Response(JSON.stringify({ success: true, message: "Ignored status event" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 200,
+        });
+      }
+
       // 1. Intentamos sacar el texto normal
       let content = eventData.body ?? payload.body ?? eventData.text ?? payload.text;
 
-      const externalId = eventData.id ?? payload.id;
+      const externalId =
+        eventData.id ??
+        payload.id ??
+        payload?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.id ??
+        eventData?.messages?.[0]?.id ??
+        null;
+
+      if (!externalId) {
+        console.warn("⚠️ [WEBHOOK] No se encontró externalId en el payload. Riesgo de duplicación.");
+      }
 
       // Super API usa 'file' en lugar de 'media'
       const file = eventData.file ?? payload.file;
@@ -828,9 +853,8 @@ serve(async (req) => {
         if (pRemoteJid) phoneCandidates.push({ phone: pRemoteJid, senderRole: "team" });
         if (pPhone) phoneCandidates.push({ phone: pPhone, senderRole: "team" });
         if (pConversationId) phoneCandidates.push({ phone: pConversationId, senderRole: "team" });
-      }
-
-      if (payload.event !== "ai_response") {
+      } else {
+        // Solo mensajes entrantes reales del lead.
         if (pFrom) phoneCandidates.push({ phone: pFrom, senderRole: "lead" });
       }
 
@@ -1028,6 +1052,10 @@ serve(async (req) => {
               });
 
               if (insertError) {
+                if (insertError.code === '23505') {
+                  console.log(`⏭️ [DEDUPE] Mensaje duplicado ignorado para lead ${lead.id} (external_id=${externalId ?? 'null'})`);
+                  continue;
+                }
                 console.error(`❌ Error insertando mensaje para lead ${lead.id}:`, insertError);
               } else {
                 leadsProcessedInPhase1.add(lead.id);
@@ -1401,7 +1429,7 @@ serve(async (req) => {
               const includeFirst = existingLead || (resolvedInstanceConfig ? resolvedInstanceConfig.include_first_message : true);
 
               if (includeFirst) {
-                await supabase.from("mensajes").insert({
+                const { error: phase2InsertError } = await supabase.from("mensajes").insert({
                   lead_id: newLeadInstance.id,
                   content: content,
                   sender: 'lead',
@@ -1413,7 +1441,16 @@ serve(async (req) => {
                     platform: sourceType.toLowerCase()
                   }
                 });
-                console.log(`✅ [Empresa ${empresa_id}] Mensaje guardado para lead: ${newLeadInstance.id} (Fase 2)`);
+
+                if (phase2InsertError) {
+                  if (phase2InsertError.code === '23505') {
+                    console.log(`⏭️ [DEDUPE] Mensaje duplicado ignorado en Fase 2 para lead ${newLeadInstance.id} (external_id=${externalId ?? 'null'})`);
+                  } else {
+                    console.error(`❌ [Empresa ${empresa_id}] Error guardando mensaje para lead ${newLeadInstance.id} (Fase 2):`, phase2InsertError);
+                  }
+                } else {
+                  console.log(`✅ [Empresa ${empresa_id}] Mensaje guardado para lead: ${newLeadInstance.id} (Fase 2)`);
+                }
               } else {
                 console.log(`[Empresa ${empresa_id}] Saltando guardado de mensaje inicial por configuración.`);
               }

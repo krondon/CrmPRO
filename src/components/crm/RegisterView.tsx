@@ -6,16 +6,19 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
-import { CircleNotch, EnvelopeOpen } from '@phosphor-icons/react'
+import { CircleNotch, EnvelopeOpen, Buildings, UserCircle, ArrowLeft } from '@phosphor-icons/react'
+
+type AccountType = 'owner' | 'employee'
 
 interface RegisterViewProps {
-  onRegister: (email: string, password: string, businessName: string) => Promise<void>
+  onRegister: (email: string, password: string, businessName: string, accountType?: AccountType) => Promise<void>
   onSwitchToLogin?: () => void
 }
 
 export function RegisterView({ onRegister, onSwitchToLogin }: RegisterViewProps) {
   const t = useTranslation('es')
   const navigate = useNavigate()
+  const [accountType, setAccountType] = useState<AccountType | null>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -43,7 +46,7 @@ export function RegisterView({ onRegister, onSwitchToLogin }: RegisterViewProps)
 
     setIsLoading(true)
     try {
-      await onRegister(email, password, businessName)
+      await onRegister(email, password, businessName, accountType || 'owner')
       setIsSuccess(true)
     } catch (error) {
       // Error ya manejado en useAuth
@@ -81,9 +84,7 @@ export function RegisterView({ onRegister, onSwitchToLogin }: RegisterViewProps)
             <Button
               className="w-full mt-4"
               variant="outline"
-              onClick={() => {
-                navigate('/login')
-              }}
+              onClick={() => navigate('/login')}
             >
               Ir a Iniciar Sesión
             </Button>
@@ -93,24 +94,108 @@ export function RegisterView({ onRegister, onSwitchToLogin }: RegisterViewProps)
     )
   }
 
+  // Paso 1: Selector de tipo de cuenta
+  if (!accountType) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <Card className="w-full max-w-md animate-in fade-in zoom-in-95 slide-in-from-bottom-4 duration-300">
+          <CardHeader className="text-center">
+            <CardTitle className="text-3xl font-bold text-primary animate-in fade-in slide-in-from-top-2 duration-300 delay-75">CRM Pro</CardTitle>
+            <CardDescription className="text-lg mt-2 animate-in fade-in duration-300 delay-100">¿Cómo deseas registrarte?</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <button
+              onClick={() => setAccountType('owner')}
+              className="w-full p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-primary/5 transition-all duration-200 text-left group"
+            >
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-primary/10 text-primary group-hover:bg-primary/20 transition-colors">
+                  <Buildings size={28} weight="duotone" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-foreground text-base">Soy Dueño / Empresa</h3>
+                  <p className="text-sm text-muted-foreground mt-1">Crear mi propio CRM y gestionar mi negocio</p>
+                </div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setAccountType('employee')}
+              className="w-full p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-primary/5 transition-all duration-200 text-left group"
+            >
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500 group-hover:bg-blue-500/20 transition-colors">
+                  <UserCircle size={28} weight="duotone" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-foreground text-base">Soy Empleado / Invitado</h3>
+                  <p className="text-sm text-muted-foreground mt-1">Unirme al CRM de otra empresa</p>
+                </div>
+              </div>
+            </button>
+
+            <div className="text-center pt-2">
+              <Link
+                to="/login"
+                onClick={(e) => {
+                  if (onSwitchToLogin) {
+                    e.preventDefault()
+                    onSwitchToLogin()
+                  }
+                }}
+                className="text-sm text-primary hover:underline"
+              >
+                ¿Ya tienes cuenta? Iniciar sesión
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Paso 2: Formulario según tipo
+  const isOwner = accountType === 'owner'
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md animate-in fade-in zoom-in-95 slide-in-from-bottom-4 duration-300">
         <CardHeader className="text-center">
-          <CardTitle className="text-3xl font-bold text-primary animate-in fade-in slide-in-from-top-2 duration-300 delay-75">CRM Pro</CardTitle>
-          <CardDescription className="text-lg mt-2 animate-in fade-in duration-300 delay-100">{t.auth.createAccount}</CardDescription>
+          <button
+            onClick={() => setAccountType(null)}
+            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-2"
+          >
+            <ArrowLeft size={16} />
+            Cambiar tipo de cuenta
+          </button>
+          <CardTitle className="text-3xl font-bold text-primary">CRM Pro</CardTitle>
+          <CardDescription className="text-lg mt-2">
+            {isOwner ? 'Registro de Empresa' : 'Registro de Empleado'}
+          </CardDescription>
+          <div className="flex items-center justify-center gap-2 mt-2">
+            <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${
+              isOwner
+                ? 'bg-primary/10 text-primary'
+                : 'bg-blue-500/10 text-blue-500'
+            }`}>
+              {isOwner ? <Buildings size={14} /> : <UserCircle size={14} />}
+              {isOwner ? 'Dueño / Empresa' : 'Empleado / Invitado'}
+            </span>
+          </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300 delay-75">
             <div>
-              <Label htmlFor="register-business">Nombre</Label>
+              <Label htmlFor="register-business">
+                {isOwner ? 'Nombre de la empresa' : 'Tu nombre'}
+              </Label>
               <Input
                 id="register-business"
                 value={businessName}
                 onChange={(e) => {
                   if (e.target.value.length <= 30) setBusinessName(e.target.value)
                 }}
-                placeholder="Nombre de la empresa"
+                placeholder={isOwner ? 'Nombre de la empresa' : 'Tu nombre completo'}
                 disabled={isLoading}
               />
             </div>
@@ -121,7 +206,7 @@ export function RegisterView({ onRegister, onSwitchToLogin }: RegisterViewProps)
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="tu@empresa.com"
+                placeholder="tu@correo.com"
                 disabled={isLoading}
               />
             </div>
@@ -147,13 +232,20 @@ export function RegisterView({ onRegister, onSwitchToLogin }: RegisterViewProps)
                 disabled={isLoading}
               />
             </div>
+
+            {!isOwner && (
+              <p className="text-xs text-muted-foreground bg-muted/50 p-3 rounded-lg">
+                Después de registrarte, podrás buscar un CRM por código y enviar una solicitud para unirte.
+              </p>
+            )}
+
             <Button type="submit" className="w-full transition-all duration-300 hover:scale-[1.02]" size="lg" disabled={isLoading}>
               {isLoading ? (
-                  <>
-                      <CircleNotch size={20} className="animate-spin mr-2" />
-                      Creando cuenta...
-                  </>
-              ) : t.auth.register}
+                <>
+                  <CircleNotch size={20} className="animate-spin mr-2" />
+                  Creando cuenta...
+                </>
+              ) : isOwner ? 'Crear mi CRM' : 'Crear cuenta'}
             </Button>
             <div className="text-center mt-4">
               <Link
