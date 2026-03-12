@@ -79,7 +79,7 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
     let cancelled = false
     getSolicitudesPendientes(companyId).then(data => {
       if (!cancelled) setSolicitudesPendientes(data)
-    }).catch(() => {})
+    }).catch(() => { })
 
     return () => { cancelled = true }
   }, [companyId, isAdminOrOwner])
@@ -560,35 +560,6 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
         </Card>
       )}
 
-      {/* Usuarios aprobados sin equipo (solo owner/admin) */}
-      {isAdminOrOwner && approvedMembers.length > 0 && (
-        <Card className="border-green-500/30 bg-green-50/50 dark:bg-green-950/10 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <CheckCircle size={18} className="text-green-600" />
-              Usuarios del CRM ({approvedMembers.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {approvedMembers.map(member => (
-              <div key={member.id} className="flex items-center justify-between p-3 rounded-lg border bg-background">
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm truncate">{member.nombre || member.email}</p>
-                  <p className="text-xs text-muted-foreground">{member.email}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    <Badge variant="outline" className="text-[10px] mr-1">{member.role}</Badge>
-                    Desde {new Date(member.created_at).toLocaleDateString('es-ES')}
-                  </p>
-                </div>
-              </div>
-            ))}
-            <p className="text-xs text-muted-foreground pt-1">
-              Estos usuarios tienen acceso al CRM pero aún no están asignados a ningún equipo.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Vista de equipos mejorada */}
       <div className="rounded-xl border border-border/30 p-4 space-y-3 bg-muted/5 shadow-sm">
         <div className="flex items-center justify-between">
@@ -857,6 +828,64 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
           </div>
         )}
       </div>
+
+      {/* Usuarios aprobados sin equipo (solo owner/admin) */}
+      {isAdminOrOwner && approvedMembers.length > 0 && (
+        <div className="mt-8 pt-6 border-t border-border/50">
+          <div className="flex items-center gap-2 mb-4">
+            <Users size={20} className="text-green-600" />
+            <h2 className="text-lg font-bold tracking-tight">Usuarios Registrados (App) ({approvedMembers.length})</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {approvedMembers.map(member => (
+              <Card key={member.id} className="overflow-hidden border border-border/30 shadow-sm hover:shadow-md transition-all duration-200 rounded-xl group bg-green-50/20 dark:bg-green-950/5">
+                <CardHeader>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-start max-w-full">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Avatar className="h-14 w-14 shrink-0 ring-2 ring-primary/10 ring-offset-2 bg-background">
+                        <AvatarFallback className="bg-gradient-to-br from-primary/20 to-primary/5 text-primary font-bold text-lg">
+                          {(member.nombre || member.email).split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0 overflow-hidden">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <CardTitle className="text-base font-bold truncate tracking-tight flex-1" title={member.nombre || member.email}>
+                            {member.nombre || member.email}
+                          </CardTitle>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1 min-w-0">
+                          <p className="text-sm text-muted-foreground truncate flex-1 min-w-0" title={member.email}>
+                            {member.email}
+                          </p>
+                          {/* Rol oculto temporalmente por solicitud del usuario
+                          <Badge variant="outline" className="text-xs shrink-0 capitalize flex-none">
+                            {member.role || 'viewer'}
+                          </Badge>
+                          */}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Registro</span>
+                      <span className="font-medium truncate ml-2 text-xs text-right">
+                        {new Date(member.created_at).toLocaleDateString('es-ES')}
+                      </span>
+                    </div>
+                    {/* Sección 'Equipo' eliminada temporalmente por solicitud del usuario */}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground pt-4 mt-2">
+            Estos usuarios ingresaron mediante la nueva funcionalidad de login (App/CRM). Se muestran aquí con este identificativo de forma temporal.
+          </p>
+        </div>
+      )}
     </div>
   )
 }

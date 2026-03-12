@@ -130,10 +130,7 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
             <Buildings size={14} weight="duotone" />
             Empresas
           </TabsTrigger>
-          <TabsTrigger value="catalog" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold">
-            <ShoppingCart size={14} weight="duotone" />
-            Catálogo
-          </TabsTrigger>
+
           <TabsTrigger value="tags" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold">
             <Tag size={14} weight="duotone" />
             Etiquetas

@@ -8,7 +8,6 @@ import { ArrowRight, CalendarBlank, CaretDown, CheckCircle, Clock, Envelope, Fun
 import { format, isToday, isBefore, isAfter, startOfDay } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { useState, useEffect } from 'react'
-import { VoiceRecorder } from './VoiceRecorder'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { AddTaskDialog } from './tasks/AddTaskDialog'
@@ -41,7 +40,6 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [members, setMembers] = useState<CompanyMember[]>([])
   const [notifications] = usePersistentState<NotificationType[]>(`notifications-${companyId}`, [])
-  const [showVoiceRecorder, setShowVoiceRecorder] = useState(false)
   const [pipelinesCount, setPipelinesCount] = useState(0)
   const [showExpiredTasks, setShowExpiredTasks] = useState(false)
 
@@ -286,14 +284,6 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
         </div>
         <div className="flex items-center gap-3">
           <Button
-            onClick={() => setShowVoiceRecorder(true)}
-            variant="outline"
-            className="h-10 px-4 gap-2 rounded-xl border-primary/20 hover:bg-primary/5 hover:border-primary/40 transition-all font-semibold"
-          >
-            <Microphone size={20} weight="duotone" className="text-primary" />
-            <span className="hidden sm:inline">Voice Task</span>
-          </Button>
-          <Button
             onClick={onShowNotifications}
             className="h-10 px-4 gap-2 rounded-xl bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20 transition-all font-semibold relative"
           >
@@ -492,7 +482,7 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
                     </div>
 
                     {/* Actions Hover Layer */}
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1 transition-opacity">
                       <Button
                         variant="ghost"
                         size="icon"
@@ -703,18 +693,6 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
           </Card>
         )}
       </div>
-
-      <Dialog open={showVoiceRecorder} onOpenChange={setShowVoiceRecorder}>
-        <DialogContent className="max-w-md rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-bold flex items-center gap-2">
-              <Microphone size={24} className="text-primary" weight="duotone" />
-              Crear tarea con voz
-            </DialogTitle>
-          </DialogHeader>
-          <VoiceRecorder onClose={() => setShowVoiceRecorder(false)} />
-        </DialogContent>
-      </Dialog>
 
       <ExpiredTasksDialog
         open={showExpiredTasks}
