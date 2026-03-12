@@ -93,7 +93,7 @@ export function ContactsView({ companyId, currentUserId }: ContactsViewProps) {
                     </h1>
                     <div className="flex gap-1.5 md:gap-2 flex-shrink-0">
                         {/* aqui estaba el boton de migrar contactos */}
-                        {/*
+                       
                         <Button
                             onClick={() => setIsCreateDialogOpen(true)}
                             className="bg-primary hover:bg-primary/90 h-8 md:h-9 text-xs md:text-sm px-2.5 md:px-4"
@@ -103,7 +103,7 @@ export function ContactsView({ companyId, currentUserId }: ContactsViewProps) {
                             <span className="hidden sm:inline">Nuevo Contacto</span>
                             <span className="sm:hidden">Nuevo</span>
                         </Button>
-                        */}
+                        
                     </div>
                 </div>
 

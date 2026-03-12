@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { TeamMember, Stage, EmpresaInstanciaDB } from '@/lib/types'
+import { TeamMember, Stage, EmpresaInstanciaDB, ContactDB } from '@/lib/types'
 import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
 
@@ -40,6 +40,8 @@ interface SingleLeadFormProps {
     onSubmit: (data: SingleLeadFormData) => void | Promise<void>
     isSubmitting?: boolean
     whatsappInstances?: Pick<EmpresaInstanciaDB, 'id' | 'label'>[]
+    /** Contacto seleccionado para pre-llenar el formulario */
+    selectedContact?: ContactDB | null
 }
 
 export function SingleLeadForm({
@@ -49,7 +51,8 @@ export function SingleLeadForm({
     defaultAssignedTo,
     onSubmit,
     isSubmitting = false,
-    whatsappInstances = []
+    whatsappInstances = [],
+    selectedContact
 }: SingleLeadFormProps) {
     const t = useTranslation('es')
 
@@ -77,6 +80,17 @@ export function SingleLeadForm({
     useEffect(() => {
         if (defaultAssignedTo) setAssignedTo(defaultAssignedTo)
     }, [defaultAssignedTo])
+
+    // Pre-fill form when a contact is selected
+    useEffect(() => {
+        if (selectedContact) {
+            setName(selectedContact.nombre || '')
+            setEmail(selectedContact.email || '')
+            setPhone(selectedContact.telefono || '')
+            setCompany(selectedContact.empresa_nombre || '')
+            setLocation(selectedContact.ubicacion || '')
+        }
+    }, [selectedContact])
 
     const handleSubmit = async () => {
         if (!name.trim()) {
@@ -172,7 +186,7 @@ export function SingleLeadForm({
                     onChange={(e) => {
                         if (e.target.value.length <= 30) setName(e.target.value)
                     }}
-                    placeholder="Nombre del Lead"
+                    placeholder="Nombre de la oportunidad"
                 />
             </div>
 

@@ -179,7 +179,7 @@ export function PipelineColumn({
                                 size="sm"
                                 onClick={() => onLoadMore(stage.id)}
                                 disabled={!stagePages[stage.id]?.hasMore}
-                                title={`Cargar más leads de esta etapa (quedan ${remainingStageLeads})`}
+                                title={`Cargar más oportunidades de esta etapa (quedan ${remainingStageLeads})`}
                                 className="text-[11px] h-6 px-3 text-muted-foreground hover:text-foreground w-full font-semibold bg-background/50 hover:bg-background"
                             >
                                 Cargar más ({remainingStageLeads} restantes)

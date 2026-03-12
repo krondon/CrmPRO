@@ -137,7 +137,7 @@ export function ContactLeadsTab({ contact, companyId }: ContactLeadsTabProps) {
             {/* Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <Card className="px-4 py-3">
-                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Total Leads</div>
+                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Total Oportunidades</div>
                     <div className="text-xl font-bold text-foreground mt-0.5">{stats.total}</div>
                 </Card>
                 <Card className="px-4 py-3">
@@ -171,7 +171,7 @@ export function ContactLeadsTab({ contact, companyId }: ContactLeadsTabProps) {
                 <Card className="p-8 text-center">
                     <Kanban size={48} className="mx-auto text-muted-foreground/30 mb-3" />
                     <h3 className="font-semibold text-foreground mb-1">
-                        No hay leads asociados
+                        No hay oportunidades asociadas
                     </h3>
                     <p className="text-sm text-muted-foreground mb-4">
                         Este contacto no tiene chats ni oportunidades activas.

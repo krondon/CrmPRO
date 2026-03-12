@@ -1,11 +1,10 @@
 import { useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { House, Kanban, ChartBar, CalendarBlank, Users, Gear, Bell, SignOut, Microphone, Buildings, ChatCircleDots, AddressBook } from '@phosphor-icons/react'
+import { House, Kanban, ChartBar, CalendarBlank, Users, Gear, Bell, SignOut, Microphone, Buildings, ChatCircleDots, AddressBook, ClockCounterClockwise } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
-import { VoiceRecorder } from './VoiceRecorder'
 import { useTranslation } from '@/lib/i18n'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Company } from './CompanyManagement'
@@ -31,7 +30,6 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
   const t = useTranslation('es')
   const location = useLocation()
   const navigate = useNavigate()
-  const [showVoiceRecorder, setShowVoiceRecorder] = useState(false)
   const [showCompanySelector, setShowCompanySelector] = useState(false)
 
   const unreadCount = notificationCount || 0
@@ -57,6 +55,7 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
     { id: 'pipeline', icon: Kanban, label: t.nav.pipeline },
     { id: 'chats', icon: ChatCircleDots, label: 'Chats' },
     { id: 'contacts', icon: AddressBook, label: 'Contactos' },
+    { id: 'historial', icon: ClockCounterClockwise, label: 'Historial' },
     { id: 'analytics', icon: ChartBar, label: t.nav.analytics },
     { id: 'calendar', icon: CalendarBlank, label: t.nav.calendar },
     { id: 'team', icon: Users, label: t.nav.team },
@@ -182,13 +181,6 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
         </nav>
 
         <div className="p-4 border-t border-border/50 space-y-1.5 flex-none bg-muted/10">
-          <button
-            onClick={() => setShowVoiceRecorder(true)}
-            className="w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-semibold text-foreground/70 hover:bg-primary/5 hover:text-primary transition-all group"
-          >
-            <Microphone size={20} weight="bold" className="text-muted-foreground group-hover:text-primary" />
-            <span>{t.nav.voice}</span>
-          </button>
 
           <NavLink
             to={getPath('notifications')}
@@ -274,25 +266,8 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
               </NavLink>
             )
           })}
-
-          <button
-            onClick={() => setShowVoiceRecorder(true)}
-            className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg text-xs font-medium text-primary bg-primary/10 min-w-fit"
-          >
-            <Microphone size={20} weight="fill" />
-            <span className="text-[9px]">{t.nav.voice}</span>
-          </button>
         </nav>
       </div>
-
-      <Dialog open={showVoiceRecorder} onOpenChange={setShowVoiceRecorder}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t.nav.voice}</DialogTitle>
-          </DialogHeader>
-          <VoiceRecorder onClose={() => setShowVoiceRecorder(false)} />
-        </DialogContent>
-      </Dialog>
 
       {/* Dialog para selector de empresa en móvil */}
       <Dialog open={showCompanySelector} onOpenChange={setShowCompanySelector}>

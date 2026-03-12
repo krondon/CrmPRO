@@ -119,7 +119,7 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
           <p className="text-xs font-black uppercase tracking-widest text-muted-foreground mb-1">{label}</p>
           <p className="text-sm font-bold text-primary flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-primary" />
-            {payload[0].value.toLocaleString()} {payload[0].name === 'count' ? 'Leads' : ''}
+            {payload[0].value.toLocaleString()} {payload[0].name === 'count' ? 'Oportunidades' : ''}
           </p>
         </div>
       );
@@ -162,7 +162,7 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
         <KpiCard
           title="Promedio Oferta"
           value={`$${Math.round(metrics.avgDealSize).toLocaleString()}`}
-          subtitle="Valor medio por lead"
+          subtitle="Valor medio por oportunidad"
           icon={<TrendUp size={20} weight="bold" className="text-purple-600" />}
           gradient="bg-gradient-to-br from-purple-500/20 to-transparent border-purple-100/50"
           themeColor="text-purple-600"
@@ -171,7 +171,7 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
           trendUp={metrics.dealSizeTrend >= 0}
         />
         <KpiCard
-          title="Leads Nuevos"
+          title="Oportunidades Nuevas"
           value={metrics.activeLeads.toString()}
           subtitle="En periodo seleccionado"
           icon={<Users size={20} weight="bold" className="text-emerald-600" />}
@@ -202,7 +202,7 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
             <div className="space-y-1">
               <CardTitle className="text-xl font-black tracking-tight flex items-center gap-2">
                 <ChartBar size={24} weight="duotone" className="text-primary" />
-                Leads por Pipeline
+                Oportunidades por Pipeline
               </CardTitle>
               <p className="text-sm text-muted-foreground font-medium">Distribución volumétrica por etapa</p>
             </div>
@@ -252,7 +252,7 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
                 <ChartPieSlice size={24} weight="duotone" className="text-primary" />
                 Distribución Prioritaria
               </CardTitle>
-              <p className="text-sm text-muted-foreground font-medium">Análisis de criticidad de leads</p>
+              <p className="text-sm text-muted-foreground font-medium">Análisis de criticidad de oportunidades</p>
             </div>
           </CardHeader>
           <CardContent className="p-8 flex flex-col items-center">
@@ -278,7 +278,7 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
               </ResponsiveContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                 <span className="text-3xl font-black">{(leads || []).length}</span>
-                <span className="text-[10px] uppercase font-black tracking-[0.2em] text-muted-foreground">Total Leads</span>
+                <span className="text-[10px] uppercase font-black tracking-[0.2em] text-muted-foreground">Total Oportunidades</span>
               </div>
             </div>
 

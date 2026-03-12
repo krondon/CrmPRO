@@ -62,6 +62,8 @@ export async function getLeadsCount(empresaId: string): Promise<number> {
         .from('lead')
         .select('*', { count: 'exact', head: true })
         .eq('empresa_id', empresaId)
+        .eq('archived', false)
+        .not('pipeline_id', 'is', null)
 
     if (error) throw error
     return count ?? 0
@@ -163,10 +165,12 @@ export async function searchLeads(
     return data ?? []
 }
 
+import { createHistoryEntry } from './history'
+
 /**
  * Crea un nuevo lead
  */
-export async function createLead(lead: CreateLeadDTO): Promise<LeadDB> {
+export async function createLead(lead: CreateLeadDTO, actorId?: string, actorNombre?: string): Promise<LeadDB> {
     const { data, error } = await supabase
         .from('lead')
         .insert(lead)
@@ -174,26 +178,63 @@ export async function createLead(lead: CreateLeadDTO): Promise<LeadDB> {
         .single()
 
     if (error) throw error
+
+    // Log creation
+    if (actorId && data) {
+        try {
+            await createHistoryEntry({
+                lead_id: data.id,
+                usuario_id: actorId,
+                accion: 'creacion',
+                detalle: `Creó la oportunidad "${data.nombre_completo}"`,
+                metadata: actorNombre ? { actor_nombre: actorNombre } : undefined
+            })
+        } catch (e) {
+            console.error('[createLead] Error logging history:', e)
+        }
+    }
+
     return data
 }
 
 /**
  * Crea múltiples leads en una sola operación
  */
-export async function createLeadsBulk(leads: CreateLeadDTO[]): Promise<LeadDB[]> {
+export async function createLeadsBulk(leads: CreateLeadDTO[], actorId?: string, actorNombre?: string): Promise<LeadDB[]> {
     const { data, error } = await supabase
         .from('lead')
         .insert(leads)
         .select()
 
     if (error) throw error
+
+    // Log creation for each lead if actor provided
+    if (actorId && data && data.length > 0) {
+        try {
+            const historyEntries = data.map(lead => ({
+                lead_id: lead.id,
+                usuario_id: actorId,
+                accion: 'creacion' as const,
+                detalle: `Importó la oportunidad "${lead.nombre_completo}"`,
+                metadata: actorNombre ? { actor_nombre: actorNombre } : undefined
+            }))
+
+            await Promise.all(historyEntries.map(entry => createHistoryEntry(entry)))
+        } catch (e) {
+            console.error('[createLeadsBulk] Error logging history:', e)
+        }
+    }
+
     return data ?? []
 }
 
 /**
  * Actualiza un lead
  */
-export async function updateLead(id: string, updates: UpdateLeadDTO): Promise<LeadDB> {
+export async function updateLead(id: string, updates: UpdateLeadDTO, actorId?: string, actorNombre?: string): Promise<LeadDB> {
+    // Get current state to compare if it's an assignment change
+    const { data: currentLead } = await supabase.from('lead').select('asignado_a, nombre_completo').eq('id', id).single()
+
     const { data, error } = await supabase
         .from('lead')
         .update(updates)
@@ -202,18 +243,41 @@ export async function updateLead(id: string, updates: UpdateLeadDTO): Promise<Le
         .single()
 
     if (error) throw error
-    return data
+
+    // Log assignment change if applicable
+    if (actorId && data && updates.asignado_a !== undefined && updates.asignado_a !== currentLead?.asignado_a) {
+        try {
+            const isFirstAssignment = !currentLead?.asignado_a || currentLead?.asignado_a === '00000000-0000-0000-0000-000000000000'
+            const accion = isFirstAssignment ? 'asignacion' : 'reasignacion'
+
+            await createHistoryEntry({
+                lead_id: id,
+                usuario_id: actorId,
+                accion: accion,
+                detalle: isFirstAssignment ? 'Asignó la oportunidad' : 'Reasignó la oportunidad',
+                metadata: {
+                    prev_assigned_to: currentLead?.asignado_a,
+                    new_assigned_to: updates.asignado_a,
+                    ...(actorNombre ? { actor_nombre: actorNombre } : {})
+                }
+            })
+        } catch (e) {
+            console.error('[updateLead] Error logging history:', e)
+        }
+    }
+
+    return data as LeadDB
 }
 
 /**
  * Archiva o desarchiva un lead
  */
-export async function setLeadArchived(id: string, archived: boolean): Promise<LeadDB> {
+export async function setLeadArchived(id: string, archived: boolean, actorId?: string, actorNombre?: string): Promise<LeadDB> {
     const updates: UpdateLeadDTO = {
         archived,
         archived_at: archived ? new Date().toISOString() : null
     }
-    return updateLead(id, updates)
+    return updateLead(id, updates, actorId, actorNombre)
 }
 
 /**

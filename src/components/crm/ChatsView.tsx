@@ -5,6 +5,13 @@ import { ChatSettingsDialog } from './ChatSettingsDialog'
 import { useLeadsList } from '@/hooks/useLeadsList'
 import { useLeadsRealtime } from '@/hooks/useLeadsRealtime'
 import { MessageInput, ChatList, ChatWindow } from './chats'
+import { usePersistentState } from '@/hooks/usePersistentState'
+
+interface User {
+  id: string
+  email: string
+  businessName: string
+}
 
 interface ChatsViewProps {
   companyId: string
@@ -40,6 +47,8 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
     setSearchTerm,
     isSearching
   } = useLeadsList({ companyId })
+
+  const [currentUser] = usePersistentState<User | null>('current-user', null)
 
   // Estados UI locales (no relacionados con datos de leads)
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null)
@@ -142,7 +151,8 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
   async function handleArchiveToggle(lead: Lead | undefined, nextState: boolean) {
     if (!lead) return
     try {
-      await toggleArchive(lead, nextState)
+      const actorNombre = currentUser?.businessName || (currentUser as any)?.nombre || currentUser?.email
+      await toggleArchive(lead, nextState, currentUser?.id, actorNombre)
       if (selectedLeadId === lead.id && ((nextState && chatScope === 'active') || (!nextState && chatScope === 'archived'))) {
         setSelectedLeadId(null)
       }

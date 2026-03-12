@@ -5,15 +5,16 @@ interface CreateUsuarioDTO {
     id: string
     email: string
     nombre: string
+    account_type?: 'owner' | 'employee'
 }
 
 /**
  * Crea un nuevo usuario en la tabla usuarios
  */
-export async function createUsuario({ id, email, nombre }: CreateUsuarioDTO): Promise<UsuarioDB> {
+export async function createUsuario({ id, email, nombre, account_type = 'owner' }: CreateUsuarioDTO): Promise<UsuarioDB> {
     const { data, error } = await supabase
         .from('usuarios')
-        .insert({ id, email, nombre })
+        .insert({ id, email, nombre, account_type })
         .select()
         .single()
 

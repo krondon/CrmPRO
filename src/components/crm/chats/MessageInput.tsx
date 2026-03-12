@@ -18,7 +18,8 @@ import {
     Smiley,
     Stop,
     Spinner,
-    X
+    X,
+    DeviceMobile
 } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -31,6 +32,7 @@ interface MessageInputProps {
     leadId: string
     channel: 'whatsapp' | 'instagram' | 'facebook'
     disabled?: boolean
+    instanceLabel?: string | null
     onMessageSent?: () => void
 }
 
@@ -38,6 +40,7 @@ export function MessageInput({
     leadId,
     channel,
     disabled = false,
+    instanceLabel,
     onMessageSent
 }: MessageInputProps) {
     const [messageInput, setMessageInput] = useState('')
@@ -157,6 +160,15 @@ export function MessageInput({
 
     return (
         <div className="shrink-0 border-t bg-background px-4 py-4">
+            {/* Indicador de instancia activa */}
+            {instanceLabel && (
+                <div className="flex items-center gap-1.5 mb-2 px-1">
+                    <DeviceMobile size={12} className="text-emerald-600 shrink-0" weight="fill" />
+                    <span className="text-[11px] text-muted-foreground">
+                        Responderás desde: <strong className="text-emerald-600 font-semibold">{instanceLabel}</strong>
+                    </span>
+                </div>
+            )}
             {/* Preview de imágenes pendientes */}
             {pendingImages.length > 0 && (
                 <div className="flex gap-2 mb-3 overflow-x-auto pb-2 scrollbar-thin">

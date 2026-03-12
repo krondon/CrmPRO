@@ -12,6 +12,7 @@ import { Plus, Funnel, Trash, CaretLeft, CaretRight, Download } from '@phosphor-
 import { LeadDetailSheet } from './LeadDetailSheet'
 import { AddStageDialog } from './AddStageDialog'
 import { AddLeadDialog } from './AddLeadDialog'
+import { AddPipelineDialog } from './AddPipelineDialog'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -62,7 +63,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
         </div>
         <h2 className="text-2xl font-bold mb-2">No hay empresa seleccionada</h2>
         <p className="text-muted-foreground max-w-md mb-6">
-          Debes crear o seleccionar una empresa para gestionar pipelines y leads.
+          Debes crear o seleccionar una empresa para gestionar pipelines y oportunidades.
         </p>
       </div>
     )
@@ -106,6 +107,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
   const [moveDialogOpen, setMoveDialogOpen] = useState(false)
   const [moveDialogLead, setMoveDialogLead] = useState<Lead | null>(null)
   const [highlightedLeadId, setHighlightedLeadId] = useState<string | null>(null)
+  const [showAddPipelineDialog, setShowAddPipelineDialog] = useState(false)
   const tabsScrollRef = useRef<HTMLDivElement>(null)
 
   // Ref para acceso síncrono a leads (usado por realtime)
@@ -318,7 +320,9 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
   } = useDragDrop({
     setLeads,
     setStageCounts,
-    canEditLeads
+    canEditLeads,
+    currentUserId: user?.id,
+    actorNombre: user?.businessName || (user as any)?.nombre || user?.email
   })
 
   // Drag & Drop de Etapas (reordenar columnas)
@@ -350,7 +354,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
         ...prev,
         [lead.stage]: (prev[lead.stage] || 0) + 1
       }))
-      toast.success(`Nuevo lead agregado: ${lead.name}`)
+      toast.success(`Nueva oportunidad agregada: ${lead.name}`)
     },
     onUpdate: (lead) => {
       const oldLead = leadsRef.current.find(l => l.id === lead.id)
@@ -362,7 +366,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
         }))
       }
       setLeads((current) => current.map(l => l.id === lead.id ? lead : l));
-      toast.info(`Lead actualizado: ${lead.name}`);
+      toast.info(`Oportunidad actualizada: ${lead.name}`);
     },
     onDelete: (leadId) => {
       const leadToDelete = leadsRef.current.find(l => l.id === leadId)
@@ -373,7 +377,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
         }))
       }
       setLeads((current) => current.filter(l => l.id !== leadId));
-      toast.error(`Lead eliminado`);
+      toast.error(`Oportunidad eliminada`);
     }
   });
 
@@ -579,7 +583,17 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
     try {
       // Si el pipeline tiene un ID (es decir, está guardado en BD), lo eliminamos
       if (currentPipeline?.id && !currentPipeline.id.startsWith('pipeline-')) {
-        await deletePipeline(currentPipeline.id)
+        const { error } = await deletePipeline(currentPipeline.id)
+        if (error) {
+          console.error('Error deleting pipeline from DB:', error)
+          // Si el error es por violación de llave foránea (leads asociados)
+          if (error.code === '23503' || error.message?.includes('foreign key constraint')) {
+            toast.error('No se puede eliminar el pipeline porque tiene oportunidades (leads) adentro. Por favor, mueve o elimina los leads primero.')
+          } else {
+            toast.error(`Error al eliminar pipeline: ${error.message || 'Error desconocido'}`)
+          }
+          return
+        }
       }
 
       setPipelines((current) => (current || []).filter(p => p.type !== activePipeline))
@@ -626,7 +640,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
             <div className="flex flex-col items-center gap-4 p-8 bg-card rounded-xl shadow-2xl border border-border">
               <div className="h-8 w-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
               <div className="flex flex-col items-center gap-1">
-                <p className="text-base font-semibold">Navegando al lead...</p>
+                <p className="text-base font-semibold">Navegando a la oportunidad...</p>
                 <p className="text-xs text-muted-foreground">Cargando pipeline {pendingNavigation.pipelineType}...</p>
               </div>
             </div>
@@ -794,6 +808,17 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
                     {p.name}
                   </TabsTrigger>
                 ))}
+
+                {/* Botón Crear Pipeline inline */}
+                <button
+                  type="button"
+                  onClick={() => setShowAddPipelineDialog(true)}
+                  className="inline-flex items-center justify-center whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold text-muted-foreground hover:text-primary hover:bg-background/60 transition-all gap-1.5"
+                  title="Crear nuevo pipeline"
+                >
+                  <Plus size={16} weight="bold" />
+                  <span className="hidden sm:inline">Nuevo</span>
+                </button>
               </TabsList>
             </div>
             {/* Gradient fade indicators for scroll */}
@@ -841,7 +866,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
           </Select>
           {filterByMember !== 'all' && (
             <Badge variant="secondary" className="bg-primary/10 text-primary border border-primary/20 text-xs font-semibold rounded-full px-3">
-              {pipelineLeads.length} de {allPipelineLeads.length} leads
+              {pipelineLeads.length} de {allPipelineLeads.length} oportunidades
             </Badge>
           )}
         </div>
@@ -921,6 +946,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
               // Guardar en BD en segundo plano
               try {
                 const NIL_UUID = '00000000-0000-0000-0000-000000000000'
+                const actorNombre = user?.businessName || (user as any)?.nombre || user?.email
                 await updateLead(updated.id, {
                   nombre_completo: updated.name,
                   empresa: updated.company,
@@ -930,7 +956,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
                   prioridad: updated.priority,
                   presupuesto: updated.budget,
                   asignado_a: updated.assignedTo === 'todos' ? NIL_UUID : updated.assignedTo || NIL_UUID
-                })
+                }, user?.id, actorNombre)
 
                 // Si cambió la asignación y aplica, enviar notificación
                 const assignmentChanged = prevSelected && prevSelected.assignedTo !== updated.assignedTo
@@ -1010,6 +1036,18 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog para crear nuevo pipeline desde la vista principal */}
+      <AddPipelineDialog
+        open={showAddPipelineDialog}
+        onClose={() => setShowAddPipelineDialog(false)}
+        onAdd={(pipeline) => {
+          setPipelines((current) => [...(current || []), pipeline])
+          setActivePipeline(pipeline.type as PipelineType)
+          setShowAddPipelineDialog(false)
+        }}
+        empresaId={companyId}
+      />
     </div >
   )
 }

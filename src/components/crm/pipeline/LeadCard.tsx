@@ -117,7 +117,7 @@ function LeadCardComponent({
                     </div>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 shrink-0 opacity-0 group-hover/card:opacity-100 transition-opacity">
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 shrink-0 text-muted-foreground hover:text-foreground transition-colors">
                                 <DotsThree size={14} />
                             </Button>
                         </DropdownMenuTrigger>

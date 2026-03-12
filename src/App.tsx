@@ -9,8 +9,10 @@ import { CalendarView } from '@/components/crm/CalendarView'
 import { TeamView } from '@/components/crm/TeamView'
 import { SettingsView } from '@/components/crm/SettingsView'
 import { NotificationsView } from '@/components/crm/NotificationsView'
+import { HistorialView } from '@/components/crm/HistorialView'
 import LoginView from '@/components/crm/LoginView'
 import { RegisterView } from '@/components/crm/RegisterView'
+import { JoinCRMView } from '@/components/crm/JoinCRMView'
 import { JoinTeam } from '@/components/crm/JoinTeam'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import { UpdatePasswordView } from '@/components/auth/UpdatePasswordView'
@@ -22,7 +24,7 @@ import { toast } from 'sonner'
 import { verifyEmpresaTable, testInsertEmpresa, listEmpresasCurrentUser, testRLSViolation } from '@/supabase/diagnostics/empresaDebug'
 
 function App() {
-  const { user, isLoading, login, register, companies, currentCompanyId, setCurrentCompanyId, fetchCompanies, resetPassword } = useAuth()
+  const { user, isLoading, login, register, logout, companies, currentCompanyId, setCurrentCompanyId, fetchCompanies, resetPassword } = useAuth()
 
   // Debug tools
   useEffect(() => {
@@ -52,11 +54,18 @@ function App() {
           )
         } />
         <Route path="/register" element={
-          user ? <Navigate to="/dashboard" replace /> : (
+          user ? <Navigate to={user.accountType === 'employee' && companies.length === 0 ? '/join-crm' : '/dashboard'} replace /> : (
             <RegisterView
               onRegister={register}
             />
           )
+        } />
+
+        {/* Join CRM Route - for employees without a company */}
+        <Route path="/join-crm" element={
+          user ? (
+            <JoinCRMView onLogout={logout} />
+          ) : <Navigate to="/login" replace />
         } />
 
         {/* Password Recovery Route */}
@@ -65,8 +74,12 @@ function App() {
         {/* Join Team Route */}
         <Route path="/join" element={<JoinTeamWrapper />} />
 
-        {/* Protected CRM Routes */}
-        <Route element={<ProtectedRoute><CRMLayout /></ProtectedRoute>}>
+        {/* Protected CRM Routes - redirect employees without company to join-crm */}
+        <Route element={
+          user?.accountType === 'employee' && companies.length === 0
+            ? <Navigate to="/join-crm" replace />
+            : <ProtectedRoute><CRMLayout /></ProtectedRoute>
+        }>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={
             <DashboardWrapper />
@@ -103,6 +116,9 @@ function App() {
           } />
           <Route path="/notifications" element={
             <NotificationsViewWrapper />
+          } />
+          <Route path="/historial" element={
+            <HistorialView companyId={currentCompanyId} />
           } />
         </Route>
 
@@ -144,6 +160,9 @@ function App() {
           } />
           <Route path="notifications" element={
             <NotificationsViewWrapper />
+          } />
+          <Route path="historial" element={
+            <HistorialView companyId={currentCompanyId} />
           } />
         </Route>
 

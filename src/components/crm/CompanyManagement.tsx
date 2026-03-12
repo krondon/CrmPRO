@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Plus, Upload, Trash, Building, Check, Eye, Pencil, X } from '@phosphor-icons/react'
+import { Plus, Upload, Trash, Building, Check, Eye, Pencil, X, Copy } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { createEmpresa, deleteEmpresa, updateEmpresaLogo, updateEmpresa } from '@/supabase/services/empresa'
@@ -20,6 +20,7 @@ export interface Company {
   ownerId: string
   createdAt: Date
   role?: string // 'owner' | 'admin' | 'viewer'
+  codigoEmpresa?: string
 }
 
 interface CompanyManagementProps {
@@ -434,6 +435,25 @@ export function CompanyManagement({ currentUserId, currentCompanyId, onCompanyCh
                       <p className="text-xs text-muted-foreground mt-1">
                         Creada el {new Date(company.createdAt).toLocaleDateString('es-ES')}
                       </p>
+                      {company.role === 'owner' && company.codigoEmpresa && (
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <span className="text-xs text-muted-foreground">Código:</span>
+                          <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded select-all">
+                            {company.codigoEmpresa}
+                          </code>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5"
+                            onClick={() => {
+                              navigator.clipboard.writeText(company.codigoEmpresa!)
+                              toast.success('Código copiado')
+                            }}
+                          >
+                            <Copy size={12} />
+                          </Button>
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex gap-2">

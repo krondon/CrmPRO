@@ -75,7 +75,7 @@ export function generateFileName(format: ExportFormat, companyName?: string, sta
     const stage = stageName ? `${stageName}_` : ''
     const extension = format === 'excel' ? 'xlsx' : 'pdf'
 
-    return `${company}${stage}Leads_${timestamp}.${extension}`
+    return `${company}${stage}Oportunidades_${timestamp}.${extension}`
 }
 
 /**

@@ -37,8 +37,12 @@ function mapAuthError(error: AuthError | null): string {
 /**
  * Registra un nuevo usuario con email y contraseña
  */
-export async function register(email: string, password: string): Promise<User> {
-    const { data, error } = await supabase.auth.signUp({ email, password })
+export async function register(email: string, password: string, metadata?: Record<string, string>): Promise<User> {
+    const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: metadata ? { data: metadata } : undefined
+    })
 
     if (error) {
         const friendly = mapAuthError(error)

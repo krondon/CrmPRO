@@ -72,7 +72,7 @@ interface UseLeadsListReturn {
     /** Agregar un nuevo lead al inicio de la lista */
     addLead: (lead: Lead) => void
     /** Archivar/Desarchivar un lead */
-    toggleArchive: (lead: Lead, archive: boolean) => Promise<void>
+    toggleArchive: (lead: Lead, archive: boolean, actorId?: string, actorNombre?: string) => Promise<void>
     /** Eliminar un lead */
     removeLead: (leadId: string) => Promise<void>
     /** Actualizar orden de un lead (cuando llega mensaje) */
@@ -90,13 +90,19 @@ interface UseLeadsListReturn {
 }
 
 // Detecta el canal del lead basado en el teléfono y metadata
-export function detectChannel(lead: Lead): ChannelType {
-    const company = (lead.company || '').toLowerCase()
-    const name = (lead.name || '').toLowerCase()
-    const email = (lead.email || '').toLowerCase()
-    const phone = (lead.phone || '').replace(/\D/g, '')
+export function detectChannel(lead: Lead | any): ChannelType {
+    // 0. PRIORIDAD MÁXIMA: Campo 'fuente' (source) que el webhook guarda con la plataforma exacta
+    const fuente = ((lead as any).fuente || (lead as any).source || '').toLowerCase()
+    if (fuente === 'instagram') return 'instagram'
+    if (fuente === 'facebook') return 'facebook'
+    if (fuente === 'whatsapp') return 'whatsapp'
 
-    // 1. Prioridad: Revisar campo empresa/company (donde el webhook guarda "[Plataforma] Contact")
+    const company = (lead.company || (lead as any).empresa || '').toLowerCase()
+    const name = (lead.name || (lead as any).nombre_completo || '').toLowerCase()
+    const email = (lead.email || (lead as any).correo_electronico || '').toLowerCase()
+    const phone = (lead.phone || (lead as any).telefono || '').replace(/\D/g, '')
+
+    // 1. Revisar campo empresa/company (donde el webhook guarda "[Plataforma] Contact" o similar)
     if (company.includes('facebook')) return 'facebook'
     if (company.includes('instagram')) return 'instagram'
     if (company.includes('whatsapp')) return 'whatsapp'
@@ -109,10 +115,7 @@ export function detectChannel(lead: Lead): ChannelType {
     if (name.includes('facebook')) return 'facebook'
     if (name.includes('instagram')) return 'instagram'
 
-    // 4. Fallback: Longitud del ID (Instagram y Facebook suelen tener IDs largos, pero WhatsApp no)
-    // Si llegamos aquí y no detectamos plataforma por nombre/email, 
-    // y el ID es muy largo, es probable que sea Instagram/Facebook.
-    // Como default para IDs largos sin keywords, mantenemos instagram pero es el último recurso.
+    // 4. Fallback: Longitud del teléfono (Instagram/Facebook usan IDs numéricos largos)
     if (phone.length >= 15) return 'instagram'
 
     // default
@@ -438,9 +441,9 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
     /**
      * Archivar/Desarchivar lead
      */
-    const toggleArchive = useCallback(async (lead: Lead, archive: boolean) => {
+    const toggleArchive = useCallback(async (lead: Lead, archive: boolean, actorId?: string, actorNombre?: string) => {
         try {
-            await setLeadArchived(lead.id, archive)
+            await setLeadArchived(lead.id, archive, actorId, actorNombre)
             invalidateLeadsCache(companyId)
             toast.success(archive ? 'Chat archivado' : 'Chat restaurado')
 

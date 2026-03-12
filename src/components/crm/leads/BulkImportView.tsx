@@ -1,5 +1,5 @@
 /**
- * BulkImportView - Vista para importación masiva de leads desde Excel/PDF
+ * BulkImportView - Vista para importación masiva de oportunidades desde Excel/PDF
  * 
  * Extracted from AddLeadDialog.tsx for better separation of concerns.
  * Uses useExcelImport and usePdfImport hooks for parsing logic.
@@ -82,13 +82,13 @@ export function BulkImportView({
     // Handle import button click
     const handleImportClick = async () => {
         if (!stageId) {
-            toast.error('Debes seleccionar una etapa inicial para los leads')
+            toast.error('Debes seleccionar una etapa inicial para las oportunidades')
             return
         }
 
         const validRows = previewData.filter(r => r.isValid)
         if (validRows.length === 0) {
-            toast.error('No hay leads válidos para importar')
+            toast.error('No hay oportunidades válidas para importar')
             return
         }
 
@@ -97,7 +97,7 @@ export function BulkImportView({
         try {
             await onImport(validRows)
             setImportStatus('success')
-            toast.success(`${validRows.length} leads importados exitosamente`)
+            toast.success(`${validRows.length} oportunidades importadas exitosamente`)
 
             // Auto reset after success
             setTimeout(() => {
@@ -105,7 +105,7 @@ export function BulkImportView({
             }, 2000)
         } catch (err) {
             console.error('Import error:', err)
-            toast.error('Error al importar los leads')
+            toast.error('Error al importar las oportunidades')
             setImportStatus('preview')
         }
     }
@@ -119,7 +119,7 @@ export function BulkImportView({
         <div className="space-y-4 h-full flex flex-col">
             {/* Stage selector */}
             <div className="space-y-2">
-                <Label>Etapa Inicial para los Leads</Label>
+                <Label>Etapa Inicial para las Oportunidades</Label>
                 <Select value={stageId} onValueChange={onStageChange}>
                     <SelectTrigger>
                         <SelectValue />
@@ -302,7 +302,7 @@ export function BulkImportView({
                                 className="w-full"
                                 disabled={previewData.filter(r => r.isValid).length === 0}
                             >
-                                Importar {previewData.filter(r => r.isValid).length} Leads
+                                Importar {previewData.filter(r => r.isValid).length} Oportunidades
                             </Button>
                         )}
                         {importStatus === 'importing' && (

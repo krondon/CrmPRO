@@ -157,14 +157,14 @@ async function resolveBySecret(
   supabase: ReturnType<typeof createClient>,
   secret: string,
   provider: string
-): Promise<{ empresa_id: string; integracion_id: string; metadata?: any; apiToken?: string; instanciaId: string } | null> {
+): Promise<{ empresa_id: string; integracion_id: string; metadata?: any; apiToken?: string; instanciaId: string; instanceConfig: { auto_create_lead: boolean; default_pipeline_id: string | null; default_stage_id: string | null; default_lead_name: string; include_first_message: boolean } } | null> {
   if (!secret) return null;
 
   console.log(`🔍 [resolveBySecret] Buscando webhook_secret en empresa_instancias...`);
 
   const { data: instancia, error } = await supabase
     .from('empresa_instancias')
-    .select('id, empresa_id, plataforma, api_token')
+    .select('id, empresa_id, plataforma, api_token, auto_create_lead, default_pipeline_id, default_stage_id, default_lead_name, include_first_message')
     .eq('webhook_secret', secret)
     .eq('active', true)
     .order('created_at', { ascending: false })
@@ -181,7 +181,7 @@ async function resolveBySecret(
     return null;
   }
 
-  // Obtener metadata de la integración de esta empresa (pipeline, etapa, auto_create, etc.)
+  // Obtener metadata de la integración de esta empresa (se mantiene para allowed_phone y otros)
   const { data: integracion } = await supabase
     .from('integraciones')
     .select('id, metadata')
@@ -190,6 +190,7 @@ async function resolveBySecret(
     .maybeSingle();
 
   console.log(`✅ [resolveBySecret] Resolución exitosa - Empresa: ${instancia.empresa_id}, Instancia: ${instancia.id}`);
+  console.log(`✅ [resolveBySecret] Instance config: auto_create=${instancia.auto_create_lead}, pipeline=${instancia.default_pipeline_id}, stage=${instancia.default_stage_id}`);
 
   return {
     empresa_id: instancia.empresa_id,
@@ -197,6 +198,13 @@ async function resolveBySecret(
     metadata: integracion?.metadata || {},
     apiToken: instancia.api_token || undefined,
     instanciaId: instancia.id,
+    instanceConfig: {
+      auto_create_lead: instancia.auto_create_lead !== false,
+      default_pipeline_id: instancia.default_pipeline_id || null,
+      default_stage_id: instancia.default_stage_id || null,
+      default_lead_name: instancia.default_lead_name || 'Nuevo lead',
+      include_first_message: instancia.include_first_message !== false,
+    },
   };
 }
 
@@ -356,6 +364,7 @@ serve(async (req) => {
   const integrationMetadata = resolved?.metadata || {};
   const apiTokenResolved = resolved?.apiToken;
   const instanciaIdFromSecret = resolved?.instanciaId || null;
+  const instanceConfig = resolved?.instanceConfig || null;
 
   console.log("🔍 [DEBUG] integrationMetadata resolviendo:", JSON.stringify(integrationMetadata, null, 2));
 
@@ -518,7 +527,7 @@ serve(async (req) => {
       const cleanConfiguredPhone = configuredPhone.replace(/[\s\-\+\(\)]/g, "").trim();
 
       if (hashHex !== receivedSignature) {
-        console.log(`⚠️ Signature Mismatch - verificando por número de teléfono...`);
+        console.log(`⚠️ Signature Mismatch - verificando autenticación...`);
         console.log(`Received signature: '${receivedSignature.substring(0, 20)}...'`);
         console.log(`Calculated: '${hashHex.substring(0, 20)}...'`);
 
@@ -534,9 +543,13 @@ serve(async (req) => {
           console.log(`🤖 [AI] Evento ai_response/message_create detectado - saltando validación de número WhatsApp`);
         }
 
-        // Si la firma no coincide, verificamos que el mensaje sea de/para nuestro número de producción
-        // PERO solo para WhatsApp saliente normal (no para Instagram ni para respuestas de IA)
-        if (cleanConfiguredPhone && !isInstagramMessage && !isAiResponse) {
+        // ✅ FIX MULTI-INSTANCIA: Si la empresa ya fue resuelta por webhook_secret, el mensaje
+        // está autenticado — no hace falta filtrar por allowed_phone.
+        // Esto evita que mensajes de instancias secundarias sean descartados erróneamente.
+        if (empresaFromSecret) {
+          console.log(`✅ [MULTI-INSTANCE] Empresa resuelta por webhook_secret (${empresaFromSecret}) — saltando filtro de teléfono.`);
+        } else if (cleanConfiguredPhone && !isInstagramMessage && !isAiResponse) {
+          // Solo aplicar filtro de teléfono si NO se validó por webhook_secret (modo legado / single-instancia)
           const eventData = typeof payload.data === "string" ? JSON.parse(payload.data || "{}") : (payload.data ?? {});
           // Normalizar teléfonos: quitar @c.us, @s.whatsapp.net, espacios, guiones, +
           // y también quitar prefijo de país (58) para poder comparar con formato local (0414...)
@@ -570,7 +583,16 @@ serve(async (req) => {
 
       // Resolver plataforma y client_id (para mapear instancia)
       const platformRaw = (payload.platform || (payload.data && payload.data.platform) || '').toString().toLowerCase();
-      const platform = ['instagram', 'facebook', 'whatsapp'].includes(platformRaw) ? platformRaw : (platformRaw === 'wws' ? 'whatsapp' : 'whatsapp');
+      // Prioridad: payload.platform > instancia resuelta > default whatsapp
+      // Esto evita que mensajes de Instagram sin campo 'platform' se traten como WhatsApp
+      let platform: string;
+      if (['instagram', 'facebook', 'whatsapp'].includes(platformRaw)) {
+        platform = platformRaw;
+      } else if (platformRaw === 'wws') {
+        platform = 'whatsapp';
+      } else {
+        platform = 'whatsapp';
+      }
       const eventDataRaw = payload.data ?? {};
       const eventData =
         typeof eventDataRaw === "string"
@@ -651,6 +673,12 @@ serve(async (req) => {
         }
       }
 
+      // Si el payload no trajo plataforma válida, usar la de la instancia resuelta.
+      if (!['instagram', 'facebook', 'whatsapp', 'wws'].includes(platformRaw) && instanceResolved?.plataforma && ['instagram', 'facebook', 'whatsapp'].includes(instanceResolved.plataforma)) {
+        platform = instanceResolved.plataforma;
+        console.log(`📍 [PLATFORM] Platform no detectada en payload, usando plataforma de instancia: ${platform}`);
+      }
+
       // supabase ya creado arriba con service role
       // Registrar auditoría de webhook entrante
       try {
@@ -669,10 +697,33 @@ serve(async (req) => {
 
       console.log("📦 [WEBHOOK] Event Data Keys:", Object.keys(eventData));
 
+      // Ignorar eventos de estado/confirmaciones que no representan mensajes reales.
+      const eventTypeRaw = (payload.event || eventData.event || "").toString();
+      const eventType = eventTypeRaw.toLowerCase();
+      const ignoredEvents = new Set(["message_ack", "presence", "status", "statuses", "chat_update"]);
+      const hasMetaStatuses = !!payload?.entry?.[0]?.changes?.[0]?.value?.statuses;
+
+      if (ignoredEvents.has(eventType) || hasMetaStatuses) {
+        console.log(`⏭️ [WEBHOOK] Ignorando evento de estado/confirmación: ${eventTypeRaw || "(empty)"}`);
+        return new Response(JSON.stringify({ success: true, message: "Ignored status event" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 200,
+        });
+      }
+
       // 1. Intentamos sacar el texto normal
       let content = eventData.body ?? payload.body ?? eventData.text ?? payload.text;
 
-      const externalId = eventData.id ?? payload.id;
+      const externalId =
+        eventData.id ??
+        payload.id ??
+        payload?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.id ??
+        eventData?.messages?.[0]?.id ??
+        null;
+
+      if (!externalId) {
+        console.warn("⚠️ [WEBHOOK] No se encontró externalId en el payload. Riesgo de duplicación.");
+      }
 
       // Super API usa 'file' en lugar de 'media'
       const file = eventData.file ?? payload.file;
@@ -802,9 +853,8 @@ serve(async (req) => {
         if (pRemoteJid) phoneCandidates.push({ phone: pRemoteJid, senderRole: "team" });
         if (pPhone) phoneCandidates.push({ phone: pPhone, senderRole: "team" });
         if (pConversationId) phoneCandidates.push({ phone: pConversationId, senderRole: "team" });
-      }
-
-      if (payload.event !== "ai_response") {
+      } else {
+        // Solo mensajes entrantes reales del lead.
         if (pFrom) phoneCandidates.push({ phone: pFrom, senderRole: "lead" });
       }
 
@@ -836,8 +886,8 @@ serve(async (req) => {
       } else if (empresaFromSecret) {
         empresasConfig = [{
           empresa_id: empresaFromSecret,
-          pipeline_id: integrationMetadata?.unregistered_pipeline_id || undefined,
-          etapa_id: integrationMetadata?.unregistered_stage_id || undefined
+          pipeline_id: instanceConfig?.default_pipeline_id || undefined,
+          etapa_id: instanceConfig?.default_stage_id || undefined
         }];
         console.log(`✅ [EMPRESA] Usando empresa resuelta por secreto: ${empresaFromSecret}`);
       }
@@ -943,14 +993,19 @@ serve(async (req) => {
             .trim();
           if (!cleanPhone) continue;
 
-          console.log(`🔍 Buscando leads con teléfono: ${cleanPhone} en empresa ${targetEmpresaId}`);
+          console.log(`🔍 Buscando leads con teléfono: ${cleanPhone} en empresa ${targetEmpresaId} (platform: ${platform})`);
 
           // BUSCAR SOLO EN LA EMPRESA DETERMINADA POR LAS CREDENCIALES
-          const { data: leads, error } = await supabase
+          // Para Instagram: usar match exacto ya que los IDs son números largos
+          // que podrian hacer falso match con teléfonos WhatsApp via ilike
+          const leadQuery = supabase
             .from("lead")
             .select("id, empresa_id, nombre_completo")
-            .eq("empresa_id", targetEmpresaId)
-            .ilike("telefono", `%${cleanPhone}%`);
+            .eq("empresa_id", targetEmpresaId);
+
+          const { data: leads, error } = platform === 'instagram' || platform === 'facebook'
+            ? await leadQuery.eq("telefono", cleanPhone)
+            : await leadQuery.ilike("telefono", `%${cleanPhone}%`);
 
           if (!error && leads && leads.length > 0) {
             foundAnyLead = true;
@@ -997,6 +1052,10 @@ serve(async (req) => {
               });
 
               if (insertError) {
+                if (insertError.code === '23505') {
+                  console.log(`⏭️ [DEDUPE] Mensaje duplicado ignorado para lead ${lead.id} (external_id=${externalId ?? 'null'})`);
+                  continue;
+                }
                 console.error(`❌ Error insertando mensaje para lead ${lead.id}:`, insertError);
               } else {
                 leadsProcessedInPhase1.add(lead.id);
@@ -1013,6 +1072,107 @@ serve(async (req) => {
                   }
                 }
                 totalLeadsMatched++;
+
+                // 🤖 AUTOMATIZACIÓN: trigger message_received (solo mensajes entrantes del lead)
+                if (senderRole === 'lead') {
+                  try {
+                    console.log(`[AutomationEngine] Evaluando trigger "message_received" para lead ${lead.id}`);
+
+                    // Obtener datos actuales del lead (etapa actual)
+                    const { data: leadData } = await supabase
+                      .from('lead')
+                      .select('id, empresa_id, etapa_id, pipeline_id, nombre_completo, archived')
+                      .eq('id', lead.id)
+                      .maybeSingle();
+
+                    if (leadData && !leadData.archived) {
+                      // Buscar reglas activas de tipo message_received para esta empresa
+                      const { data: rules } = await supabase
+                        .from('automation_rules')
+                        .select('*')
+                        .eq('empresa_id', leadData.empresa_id)
+                        .eq('trigger_type', 'message_received')
+                        .eq('enabled', true);
+
+                      if (rules && rules.length > 0) {
+                        console.log(`[AutomationEngine] ${rules.length} regla(s) candidate(s) para message_received`);
+
+                        for (const rule of rules) {
+                          const cfg = rule.trigger_config ?? {};
+                          const requiredStage = cfg.from_stage_id || null;
+                          const targetStageId = rule.action_config?.target_stage_id;
+
+                          // Verificar: si hay etapa requerida, el lead debe estar en ella
+                          if (requiredStage && leadData.etapa_id !== requiredStage) {
+                            console.log(`[AutomationEngine] Regla "${rule.nombre}" no aplica (etapa actual ${leadData.etapa_id} ≠ requerida ${requiredStage})`);
+                            continue;
+                          }
+
+                          // Evitar mover a la misma etapa
+                          if (leadData.etapa_id === targetStageId) {
+                            console.log(`[AutomationEngine] Regla "${rule.nombre}" sin efecto (lead ya está en etapa destino)`);
+                            continue;
+                          }
+
+                          if (!targetStageId) {
+                            console.warn(`[AutomationEngine] Regla "${rule.nombre}" sin target_stage_id, omitida`);
+                            continue;
+                          }
+
+                          // ✅ Aplicar la acción: mover el lead
+                          const { error: moveErr } = await supabase
+                            .from('lead')
+                            .update({ etapa_id: targetStageId })
+                            .eq('id', leadData.id);
+
+                          if (moveErr) {
+                            console.error(`[AutomationEngine] Error moviendo lead ${leadData.id}:`, moveErr);
+                            continue;
+                          }
+
+                          console.log(`[AutomationEngine] ✅ Lead ${leadData.id} movido a ${targetStageId} por regla "${rule.nombre}"`);
+
+                          // Registrar en lead_historial
+                          await supabase.from('lead_historial').insert({
+                            lead_id: leadData.id,
+                            usuario_id: '00000000-0000-0000-0000-000000000000',
+                            accion: 'automatizacion',
+                            detalle: `Movido automáticamente por regla: "${rule.nombre}"`,
+                            metadata: {
+                              rule_id: rule.id,
+                              rule_name: rule.nombre,
+                              trigger_type: 'message_received',
+                              from_stage_id: leadData.etapa_id,
+                              to_stage_id: targetStageId,
+                              actor_nombre: 'Sistema (Automatización)'
+                            }
+                          }).catch((err: any) => console.warn('[AutomationEngine] Error escribiendo historial:', err));
+
+                          // Registrar en automation_logs
+                          await supabase.from('automation_logs').insert({
+                            rule_id: rule.id,
+                            lead_id: leadData.id,
+                            empresa_id: leadData.empresa_id,
+                            trigger_type: 'message_received',
+                            action_taken: {
+                              from_stage_id: leadData.etapa_id,
+                              to_stage_id: targetStageId,
+                              rule_name: rule.nombre
+                            }
+                          }).catch((err: any) => console.warn('[AutomationEngine] Error escribiendo automation_log:', err));
+
+                          // Solo aplicar la primera regla que coincida por trigger
+                          break;
+                        }
+                      }
+                    }
+                  } catch (autoErr) {
+                    // Nunca interrumpir el flujo principal por errores de automatización
+                    console.warn('[AutomationEngine] Error evaluando reglas de automatización:', autoErr);
+                  }
+                }
+                // FIN AUTOMATIZACIÓN
+
               }
 
               // Actualizar preferencia de instancia para el lead (siempre guardar la última usada)
@@ -1052,9 +1212,42 @@ serve(async (req) => {
           const targetPhone = inboundCandidate.phone;
           const cleanPhone = targetPhone.replace("@c.us", "").replace("@s.whatsapp.net", "").replace("+", "").trim();
 
-          // Buscar configuración de pipeline/etapa para esta empresa
-          const targetConfig = empresasConfig.find(c => c.empresa_id === targetEmpresaId) || { empresa_id: targetEmpresaId, pipeline_id: null, etapa_id: null };
-          const { empresa_id, pipeline_id, etapa_id } = targetConfig;
+          // Resolver config de instancia correcta para crear el lead
+          // Si targetEmpresaId viene de instanceResolved (client_id) Y es una instancia diferente al webhook_secret,
+          // re-fetchar su configuración para obtener el pipeline/etapa real configurado.
+          let resolvedInstanceConfig = instanceConfig; // default: config del webhook_secret
+
+          if (instanceResolved && instanceResolved.id && instanceResolved.id !== instanciaIdFromSecret) {
+            console.log(`🔄 [INSTANCE-CONFIG] instanceResolved (${instanceResolved.id}) difiere del secret (${instanciaIdFromSecret}), re-leyendo config...`);
+            try {
+              const { data: instConfigData } = await supabase
+                .from('empresa_instancias')
+                .select('auto_create_lead, default_pipeline_id, default_stage_id, default_lead_name, include_first_message')
+                .eq('id', instanceResolved.id)
+                .maybeSingle();
+
+              if (instConfigData) {
+                resolvedInstanceConfig = {
+                  auto_create_lead: instConfigData.auto_create_lead !== false,
+                  default_pipeline_id: instConfigData.default_pipeline_id || null,
+                  default_stage_id: instConfigData.default_stage_id || null,
+                  default_lead_name: instConfigData.default_lead_name || 'Nuevo lead',
+                  include_first_message: instConfigData.include_first_message !== false,
+                };
+                console.log(`✅ [INSTANCE-CONFIG] Config re-leída para instancia ${instanceResolved.id}: pipeline=${resolvedInstanceConfig.default_pipeline_id}, stage=${resolvedInstanceConfig.default_stage_id}`);
+              }
+            } catch (e) {
+              console.warn('[INSTANCE-CONFIG] Error re-leyendo config de instancia:', e);
+            }
+          }
+
+          // Construir pipeline/etapa combinando params de URL (mayor prioridad) + config de instancia
+          const targetConfigFromUrl = empresasConfig.find(c => c.empresa_id === targetEmpresaId);
+          const empresa_id = targetEmpresaId;
+          const pipeline_id = targetConfigFromUrl?.pipeline_id || resolvedInstanceConfig?.default_pipeline_id || null;
+          const etapa_id = targetConfigFromUrl?.etapa_id || resolvedInstanceConfig?.default_stage_id || null;
+
+          console.log(`🔍 [LEAD-CONFIG] empresa=${empresa_id}, pipeline=${pipeline_id}, etapa=${etapa_id} (fromUrl=${!!targetConfigFromUrl?.pipeline_id}, fromInstance=${!!resolvedInstanceConfig?.default_pipeline_id})`);
 
           console.log(`🔍 [Empresa ${empresa_id}] Verificando si existe lead con teléfono ${cleanPhone}...`);
 
@@ -1063,12 +1256,16 @@ serve(async (req) => {
           const sourceIcon = (platform === 'instagram') ? '📷' : '📞';
 
           // 2. BUSCAR SI YA EXISTE EL LEAD
-          let { data: existingLead } = await supabase
+          // Para Instagram/Facebook: match exacto (IDs largos, no teléfonos)
+          // Para WhatsApp: ilike para flexibilidad con prefijos internacionales
+          const existingLeadQuery = supabase
             .from("lead")
             .select("id, nombre_completo")
-            .eq("empresa_id", empresa_id)
-            .ilike("telefono", `%${cleanPhone}%`)
-            .maybeSingle();
+            .eq("empresa_id", empresa_id);
+
+          let { data: existingLead } = platform === 'instagram' || platform === 'facebook'
+            ? await existingLeadQuery.eq("telefono", cleanPhone).maybeSingle()
+            : await existingLeadQuery.ilike("telefono", `%${cleanPhone}%`).maybeSingle();
 
           // 3. LÓGICA DE OBTENCIÓN DE NOMBRE
           // PRIORIDAD 1: Extraer nombre del payload (ya viene en el webhook)
@@ -1127,14 +1324,14 @@ serve(async (req) => {
           let lastMinuteCheck = false;
 
           if (!existingLead) {
-            // VERIFICAR SI SE DEBE CREAR AUTOMÁTICAMENTE
-            const autoCreate = integrationMetadata?.unregistered_auto_create !== false; // por defecto true para mantener retrocompatibilidad if no existe el campo
+            // VERIFICAR SI SE DEBE CREAR AUTOMÁTICAMENTE (lee de la instancia)
+            const autoCreate = resolvedInstanceConfig ? resolvedInstanceConfig.auto_create_lead : true;
 
-            console.log(`🔍 [DEBUG] unregistered_auto_create value:`, integrationMetadata?.unregistered_auto_create);
+            console.log(`🔍 [DEBUG] instanceConfig.auto_create_lead:`, instanceConfig?.auto_create_lead);
             console.log(`🔍 [DEBUG] Calculated autoCreate boolean:`, autoCreate);
 
             if (!autoCreate) {
-              console.log(`[Empresa ${empresa_id}] Auto-creación desactivada para números desconocidos. Saltando.`);
+              console.log(`[Empresa ${empresa_id}] Auto-creación desactivada para esta instancia. Saltando.`);
               return new Response(JSON.stringify({ success: true, message: "Auto-create disabled" }), {
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
                 status: 200,
@@ -1145,15 +1342,15 @@ serve(async (req) => {
             // 5. CREACIÓN DE NUEVO LEAD (Si llegamos aquí, es nuevo)
             // ==========================================================
 
-            // Determinar Pipeline
-            let targetPipelineId = pipeline_id || integrationMetadata?.unregistered_pipeline_id || null;
+            // Determinar Pipeline (prioridad: URL param > instancia > fallback)
+            let targetPipelineId = pipeline_id || resolvedInstanceConfig?.default_pipeline_id || null;
             if (!targetPipelineId) {
               const { data: pipeline } = await supabase.from('pipeline').select('id').eq('empresa_id', empresa_id).order('created_at', { ascending: true }).limit(1).maybeSingle();
               if (pipeline) targetPipelineId = pipeline.id;
             }
 
-            // Determinar Etapa
-            let targetEtapaId = etapa_id || integrationMetadata?.unregistered_stage_id || null;
+            // Determinar Etapa (prioridad: URL param > instancia > fallback)
+            let targetEtapaId = etapa_id || resolvedInstanceConfig?.default_stage_id || null;
             if (targetPipelineId && !targetEtapaId) {
               const { data: etapa } = await supabase.from('etapas').select('id, nombre').eq('pipeline_id', targetPipelineId).or('nombre.ilike.%inicial%,nombre.ilike.%nuevo%,nombre.ilike.%new%').order('orden', { ascending: true, nullsFirst: false }).limit(1).maybeSingle();
               if (etapa) targetEtapaId = etapa.id;
@@ -1163,8 +1360,8 @@ serve(async (req) => {
               }
             }
 
-            // Nombre por defecto si no se obtuvo uno real
-            const defaultName = integrationMetadata?.unregistered_default_name || "Nuevo Lead";
+            // Nombre por defecto si no se obtuvo uno real (lee de la instancia correcta)
+            const defaultName = resolvedInstanceConfig?.default_lead_name || "Nuevo Lead";
             if (finalName.startsWith("Nuevo Lead") && defaultName !== "Nuevo Lead") {
               finalName = `${defaultName} ${sourceType} ${cleanPhone}`;
             }
@@ -1228,11 +1425,11 @@ serve(async (req) => {
 
             // SOLO INSERTAR SI NO SE PROCESÓ EN LA FASE 1
             if (!leadsProcessedInPhase1.has(newLeadInstance.id)) {
-              // Verificar si se debe incluir el primer mensaje (si el lead es nuevo)
-              const includeFirst = existingLead || integrationMetadata?.unregistered_include_first_message !== false;
+              // Verificar si se debe incluir el primer mensaje (lee de la instancia)
+              const includeFirst = existingLead || (resolvedInstanceConfig ? resolvedInstanceConfig.include_first_message : true);
 
               if (includeFirst) {
-                await supabase.from("mensajes").insert({
+                const { error: phase2InsertError } = await supabase.from("mensajes").insert({
                   lead_id: newLeadInstance.id,
                   content: content,
                   sender: 'lead',
@@ -1244,7 +1441,16 @@ serve(async (req) => {
                     platform: sourceType.toLowerCase()
                   }
                 });
-                console.log(`✅ [Empresa ${empresa_id}] Mensaje guardado para lead: ${newLeadInstance.id} (Fase 2)`);
+
+                if (phase2InsertError) {
+                  if (phase2InsertError.code === '23505') {
+                    console.log(`⏭️ [DEDUPE] Mensaje duplicado ignorado en Fase 2 para lead ${newLeadInstance.id} (external_id=${externalId ?? 'null'})`);
+                  } else {
+                    console.error(`❌ [Empresa ${empresa_id}] Error guardando mensaje para lead ${newLeadInstance.id} (Fase 2):`, phase2InsertError);
+                  }
+                } else {
+                  console.log(`✅ [Empresa ${empresa_id}] Mensaje guardado para lead: ${newLeadInstance.id} (Fase 2)`);
+                }
               } else {
                 console.log(`[Empresa ${empresa_id}] Saltando guardado de mensaje inicial por configuración.`);
               }

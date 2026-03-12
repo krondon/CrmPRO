@@ -130,14 +130,24 @@ export function InlineEdit({
           value={editValue}
           placeholder={placeholder}
           onChange={(e) => {
+            const newValue = e.target.value
+
             if (type === 'number') {
-              const val = parseFloat(e.target.value)
+              const val = parseFloat(newValue)
               if (!isNaN(val)) {
                 if (min !== undefined && val < min) return
                 if (max !== undefined && val > max) return
               }
             }
-            setEditValue(e.target.value)
+
+            if (type === 'tel') {
+              // Permitir solo números, +, espacios, guiones y paréntesis
+              if (newValue && !/^[\d\+\-\s\(\)]*$/.test(newValue)) {
+                return // Ignora el cambio si contiene letras u otros caracteres
+              }
+            }
+
+            setEditValue(newValue)
           }}
           onKeyDown={handleKeyDown}
           className={className}

@@ -199,7 +199,8 @@ export function usePipelineLeadActions({
                     return
                 }
 
-                const created = await createLead(payload)
+                const actorNombre = user?.businessName || (user as any)?.nombre || user?.email
+                const created = await createLead(payload, user?.id, actorNombre)
 
                 toast.success('Lead guardado en BD')
 

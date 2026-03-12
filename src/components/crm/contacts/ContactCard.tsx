@@ -125,7 +125,7 @@ export function ContactCard({ contact, isSelected, onClick }: ContactCardProps) 
                         </p>
                         {contact.leadsCount !== undefined && contact.leadsCount > 0 && (
                             <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
-                                {contact.leadsCount} {contact.leadsCount === 1 ? 'lead' : 'leads'}
+                                {contact.leadsCount} {contact.leadsCount === 1 ? 'oportunidad' : 'oportunidades'}
                             </Badge>
                         )}
                     </div>

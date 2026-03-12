@@ -161,7 +161,7 @@ export function LeadSearchDialog({ leads = [], pipelines = [], onSelectLead, can
     const handleDeleteSelected = async () => {
         if (selectedLeads.size === 0 || !onDeleteLeads) return
 
-        if (!confirm(`¿Estás seguro de que deseas eliminar ${selectedLeads.size} leads seleccionados? Esta acción no se puede deshacer.`)) {
+        if (!confirm(`¿Estás seguro de que deseas eliminar ${selectedLeads.size} oportunidades seleccionadas? Esta acción no se puede deshacer.`)) {
             return
         }
 
@@ -174,10 +174,10 @@ export function LeadSearchDialog({ leads = [], pipelines = [], onSelectLead, can
             if (onSearch) {
                 setSearchResults(prev => prev.filter(l => !selectedLeads.has(l.id)))
             }
-            toast.success(`Se eliminaron ${selectedLeads.size} leads`)
+            toast.success(`Se eliminaron ${selectedLeads.size} oportunidades`)
         } catch (error) {
             console.error(error)
-            toast.error('Error al eliminar leads')
+            toast.error('Error al eliminar oportunidades')
         } finally {
             setIsDeleting(false)
         }
@@ -192,13 +192,13 @@ export function LeadSearchDialog({ leads = [], pipelines = [], onSelectLead, can
                 className="gap-1.5 text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted/80 font-medium transition-all h-9 px-4 rounded-full border border-border/50"
             >
                 <MagnifyingGlass size={16} className="text-muted-foreground" />
-                <span className="hidden sm:inline text-sm">Buscar Lead</span>
+                <span className="hidden sm:inline text-sm">Buscar Oportunidad</span>
             </Button>
 
             <Dialog open={open} onOpenChange={setOpen}>
                 <DialogContent className="max-w-2xl">
                     <DialogHeader>
-                        <DialogTitle>Buscar Leads</DialogTitle>
+                        <DialogTitle>Buscar Oportunidades</DialogTitle>
                     </DialogHeader>
 
                     <div className="space-y-4">
@@ -249,7 +249,7 @@ export function LeadSearchDialog({ leads = [], pipelines = [], onSelectLead, can
                             {searchTerm.trim() === '' ? (
                                 <div className="text-center py-12 text-muted-foreground">
                                     <MagnifyingGlass size={48} className="mx-auto mb-3 opacity-50" />
-                                    <p>Escribe para buscar leads</p>
+                                    <p>Escribe para buscar oportunidades</p>
                                 </div>
                             ) : displayLeads.length === 0 && !isSearching ? (
                                 <div className="text-center py-12 text-muted-foreground">
@@ -373,7 +373,7 @@ export function LeadSearchDialog({ leads = [], pipelines = [], onSelectLead, can
                                                             }}
                                                         >
                                                             <MapPin size={14} />
-                                                            Ver ubicación lead
+                                                            Ver ubicación oportunidad
                                                         </Button>
                                                     </div>
                                                 )}
