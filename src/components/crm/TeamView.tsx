@@ -16,6 +16,7 @@ import { addPersonaToPipeline, getPipelinesForPersona } from '@/supabase/helpers
 import { getLeads } from '@/supabase/services/leads'
 import { getSolicitudesPendientes, aprobarSolicitud, rechazarSolicitud } from '@/supabase/services/solicitudes'
 import type { SolicitudUnionDB } from '@/lib/types'
+import { supabase } from '@/supabase/client'
 import { Input } from '@/components/ui/input'
 import { AllLeadsDialog } from './AllLeadsDialog'
 import { MemberSearchDialog } from './MemberSearchDialog'
@@ -59,6 +60,7 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
   const [memberSearch, setMemberSearch] = useState('')
   const [showAllTeams, setShowAllTeams] = useState(false)
   const [solicitudesPendientes, setSolicitudesPendientes] = useState<SolicitudUnionDB[]>([])
+  const [approvedMembers, setApprovedMembers] = useState<{ id: string; email: string; nombre: string | null; role: string; created_at: string }[]>([])
 
   useEffect(() => {
     if (!companyId) return
@@ -78,8 +80,35 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
     getSolicitudesPendientes(companyId).then(data => {
       if (!cancelled) setSolicitudesPendientes(data)
     }).catch(() => {})
+
     return () => { cancelled = true }
   }, [companyId, isAdminOrOwner])
+
+  // Cargar miembros aprobados desde empresa_miembros (efecto independiente para evitar race condition con isAdminOrOwner)
+  useEffect(() => {
+    if (!companyId) return
+    let cancelled = false
+
+    supabase
+      .from('empresa_miembros')
+      .select('id, email, role, created_at')
+      .eq('empresa_id', companyId)
+      .then(({ data, error }) => {
+        console.log('[TeamView] empresa_miembros data:', data, 'error:', error)
+        if (!cancelled && data) {
+          setApprovedMembers(data.map((m: any) => ({
+            id: m.id,
+            email: m.email,
+            nombre: null,
+            role: m.role || 'viewer',
+            created_at: m.created_at
+          })))
+        }
+      })
+      .catch((e) => console.error('[TeamView] error cargando miembros aprobados:', e))
+
+    return () => { cancelled = true }
+  }, [companyId])
 
   useEffect(() => {
     if (!companyId) return
@@ -527,6 +556,35 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
                 </div>
               </div>
             ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Usuarios aprobados sin equipo (solo owner/admin) */}
+      {isAdminOrOwner && approvedMembers.length > 0 && (
+        <Card className="border-green-500/30 bg-green-50/50 dark:bg-green-950/10 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <CheckCircle size={18} className="text-green-600" />
+              Usuarios del CRM ({approvedMembers.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {approvedMembers.map(member => (
+              <div key={member.id} className="flex items-center justify-between p-3 rounded-lg border bg-background">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm truncate">{member.nombre || member.email}</p>
+                  <p className="text-xs text-muted-foreground">{member.email}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    <Badge variant="outline" className="text-[10px] mr-1">{member.role}</Badge>
+                    Desde {new Date(member.created_at).toLocaleDateString('es-ES')}
+                  </p>
+                </div>
+              </div>
+            ))}
+            <p className="text-xs text-muted-foreground pt-1">
+              Estos usuarios tienen acceso al CRM pero aún no están asignados a ningún equipo.
+            </p>
           </CardContent>
         </Card>
       )}

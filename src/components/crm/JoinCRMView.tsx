@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import { CircleNotch, MagnifyingGlass, Buildings, PaperPlaneTilt, Clock, CheckCircle, XCircle, SignOut } from '@phosphor-icons/react'
-import { buscarEmpresaPorCodigo, crearSolicitud, getMisSolicitudes } from '@/supabase/services/solicitudes'
+import { buscarEmpresaPorId, crearSolicitud, getMisSolicitudes } from '@/supabase/services/solicitudes'
 import type { SolicitudUnionDB } from '@/lib/types'
 
 interface JoinCRMViewProps {
@@ -14,7 +14,7 @@ interface JoinCRMViewProps {
 }
 
 export function JoinCRMView({ onLogout }: JoinCRMViewProps) {
-  const [codigo, setCodigo] = useState('')
+  const [empresaId, setEmpresaId] = useState('')
   const [searching, setSearching] = useState(false)
   const [empresaEncontrada, setEmpresaEncontrada] = useState<{ id: string; nombre_empresa: string } | null>(null)
   const [mensaje, setMensaje] = useState('')
@@ -40,20 +40,20 @@ export function JoinCRMView({ onLogout }: JoinCRMViewProps) {
 
   async function handleBuscar(e: React.FormEvent) {
     e.preventDefault()
-    const trimmed = codigo.trim()
+    const trimmed = empresaId.trim()
     if (!trimmed) {
-      toast.error('Ingresa un código de empresa')
+      toast.error('Ingresa el ID de la empresa')
       return
     }
 
     setSearching(true)
     setEmpresaEncontrada(null)
     try {
-      const empresa = await buscarEmpresaPorCodigo(trimmed)
+      const empresa = await buscarEmpresaPorId(trimmed)
       if (empresa) {
         setEmpresaEncontrada(empresa)
       } else {
-        toast.error('No se encontró ninguna empresa con ese código')
+        toast.error('No se encontró ninguna empresa con ese ID')
       }
     } catch {
       toast.error('Error al buscar la empresa')
@@ -70,7 +70,7 @@ export function JoinCRMView({ onLogout }: JoinCRMViewProps) {
       await crearSolicitud(empresaEncontrada.id, empresaEncontrada.nombre_empresa, mensaje || undefined)
       toast.success('Solicitud enviada correctamente')
       setEmpresaEncontrada(null)
-      setCodigo('')
+      setEmpresaId('')
       setMensaje('')
       await loadSolicitudes()
     } catch (err: any) {
@@ -117,18 +117,18 @@ export function JoinCRMView({ onLogout }: JoinCRMViewProps) {
           </div>
           <CardTitle className="text-xl">Unirte a un CRM</CardTitle>
           <CardDescription>
-            Ingresa el código de empresa que te proporcionó tu jefe o administrador.
+            Ingresa el ID de la empresa que te compartió el administrador para poder solicitar acceso.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <form onSubmit={handleBuscar} className="flex gap-2">
             <div className="flex-1">
-              <Label htmlFor="codigo-empresa" className="sr-only">Código de empresa</Label>
+              <Label htmlFor="empresa-id" className="sr-only">ID de empresa</Label>
               <Input
-                id="codigo-empresa"
-                value={codigo}
-                onChange={(e) => setCodigo(e.target.value)}
-                placeholder="Ej: ABC123XYZ"
+                id="empresa-id"
+                value={empresaId}
+                onChange={(e) => setEmpresaId(e.target.value)}
+                placeholder="Ej: a1b2c3d4-e5f6-..."
                 disabled={searching}
               />
             </div>

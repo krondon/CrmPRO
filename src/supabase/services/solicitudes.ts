@@ -2,14 +2,17 @@ import { supabase } from '../client'
 import type { SolicitudUnionDB } from '@/lib/types'
 
 /**
- * Buscar empresa por código público (usa RPC con SECURITY DEFINER para no abrir la tabla empresa)
+ * Buscar empresa por ID (UUID) para el flujo de solicitud de unión
+ * Usa RPC con SECURITY DEFINER para acceder a la tabla empresa sin exponer otras filas
  */
-export async function buscarEmpresaPorCodigo(codigo: string) {
+export async function buscarEmpresaPorId(empresaId: string) {
+    const trimmedId = empresaId.trim()
+    if (!trimmedId) return null
+
     const { data, error } = await supabase
-        .rpc('buscar_empresa_por_codigo', { p_codigo: codigo.trim() })
+        .rpc('buscar_empresa_por_id', { p_id: trimmedId })
 
     if (error) throw error
-    // RPC retorna un array, tomamos el primero
     return data && data.length > 0 ? data[0] : null
 }
 
@@ -158,7 +161,7 @@ export async function aprobarSolicitud(
 
     if (updateErr) throw updateErr
 
-    // 4. Notificar al solicitante
+    // 5. Notificar al solicitante
     try {
         const { data: empresa } = await supabase
             .from('empresa')
@@ -177,6 +180,7 @@ export async function aprobarSolicitud(
         console.warn('[SOLICITUDES] Error notificando aprobación:', notifErr)
     }
 }
+
 
 /**
  * Rechazar solicitud
