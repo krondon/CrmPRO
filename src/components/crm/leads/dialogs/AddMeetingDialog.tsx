@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,9 +8,10 @@ import { TeamMember, Lead } from '@/lib/types'
 import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
-import { X, Calendar as CalendarIcon } from '@phosphor-icons/react'
+import { X, Calendar as CalendarIcon, MagnifyingGlass, Spinner } from '@phosphor-icons/react'
 import { createLeadMeeting } from '@/supabase/services/reuniones'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { searchLeads as searchLeadsAPI, getLeadsPaged } from '@/supabase/services/leads'
+import { mapDBToLead } from '@/hooks/useLeadsList'
 import { format } from 'date-fns'
 
 export interface AddMeetingFormData {
@@ -63,6 +64,76 @@ export function AddMeetingDialog(props: AddMeetingDialogProps) {
   const [selectedParticipants, setSelectedParticipants] = useState<string[]>([])
   const [participantInput, setParticipantInput] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [leadSearch, setLeadSearch] = useState('')
+  const [leadDropdownOpen, setLeadDropdownOpen] = useState(false)
+  const [searchResults, setSearchResults] = useState<Lead[]>([])
+  const [isSearchingLeads, setIsSearchingLeads] = useState(false)
+  const [selectedLeadData, setSelectedLeadData] = useState<Lead | null>(null)
+  const leadDropdownRef = useRef<HTMLDivElement>(null)
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Server-side search with debounce
+  const doSearch = useCallback(async (term: string) => {
+    if (!empresaId) return
+    setIsSearchingLeads(true)
+    try {
+      if (!term.trim()) {
+        // Load recent leads when no search term
+        const { data } = await getLeadsPaged({ empresaId, limit: 20, offset: 0, archived: false })
+        setSearchResults((data || []).map(mapDBToLead))
+      } else {
+        const results = await searchLeadsAPI(empresaId, term, { limit: 30, archived: false })
+        setSearchResults(results.map(mapDBToLead))
+      }
+    } catch (err) {
+      console.error('Error searching leads:', err)
+    }
+    setIsSearchingLeads(false)
+  }, [empresaId])
+
+  // Debounced search effect
+  useEffect(() => {
+    if (!leadDropdownOpen) return
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+    searchTimeoutRef.current = setTimeout(() => doSearch(leadSearch), 250)
+    return () => { if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current) }
+  }, [leadSearch, leadDropdownOpen, doSearch])
+
+  // Load initial results when dropdown opens
+  useEffect(() => {
+    if (leadDropdownOpen && searchResults.length === 0) {
+      doSearch('')
+    }
+  }, [leadDropdownOpen])
+
+  // Also use passed leads as fallback/merge
+  const displayLeads = useMemo(() => {
+    if (searchResults.length > 0) return searchResults
+    if (leads && leads.length > 0) return leads.slice(0, 30)
+    return []
+  }, [searchResults, leads])
+
+  const selectedLeadName = useMemo(() => {
+    if (selectedLeadData) return selectedLeadData.nombre || selectedLeadData.name || 'Sin nombre'
+    if (!selectedLeadId) return ''
+    // Try from current results or passed leads
+    const fromResults = searchResults.find(l => l.id === selectedLeadId)
+    if (fromResults) return fromResults.nombre || fromResults.name || 'Sin nombre'
+    const fromLeads = (leads || []).find(l => l.id === selectedLeadId)
+    if (fromLeads) return fromLeads.nombre || fromLeads.name || 'Sin nombre'
+    return ''
+  }, [selectedLeadId, selectedLeadData, searchResults, leads])
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (leadDropdownRef.current && !leadDropdownRef.current.contains(e.target as Node)) {
+        setLeadDropdownOpen(false)
+      }
+    }
+    if (leadDropdownOpen) document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [leadDropdownOpen])
 
   const handleAddParticipant = () => {
     if (participantInput.trim() && !selectedParticipants.includes(participantInput.trim())) {
@@ -77,7 +148,7 @@ export function AddMeetingDialog(props: AddMeetingDialogProps) {
 
   const handleSubmit = async () => {
     if (!selectedLeadId) {
-        toast.error('Debe seleccionar un lead')
+        toast.error('Debe seleccionar una oportunidad')
         return
     }
 
@@ -139,21 +210,70 @@ export function AddMeetingDialog(props: AddMeetingDialogProps) {
           <DialogTitle>{t.meeting.addMeeting}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
-          {!initialLeadId && leads && leads.length > 0 && (
-            <div>
-              <Label>Lead *</Label>
-              <Select value={selectedLeadId} onValueChange={setSelectedLeadId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar Lead" />
-                </SelectTrigger>
-                <SelectContent className="max-h-[200px]">
-                  {leads.map((lead) => (
-                    <SelectItem key={lead.id} value={lead.id}>
-                      {lead.nombre || lead.name || 'Sin nombre'}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {!initialLeadId && (
+            <div ref={leadDropdownRef} className="relative">
+              <Label>Oportunidad *</Label>
+              <div
+                className="flex items-center border rounded-md px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors"
+                onClick={() => setLeadDropdownOpen(!leadDropdownOpen)}
+              >
+                <span className={selectedLeadId ? "text-foreground flex-1 truncate" : "text-muted-foreground flex-1"}>
+                  {selectedLeadName || "Seleccionar oportunidad..."}
+                </span>
+                <MagnifyingGlass size={16} className="text-muted-foreground shrink-0 ml-2" />
+              </div>
+              {leadDropdownOpen && (
+                <div className="absolute z-50 mt-1 w-full bg-popover border rounded-lg shadow-lg overflow-hidden">
+                  <div className="p-2 border-b relative">
+                    <Input
+                      placeholder="Buscar por nombre, email, teléfono, empresa..."
+                      value={leadSearch}
+                      onChange={(e) => setLeadSearch(e.target.value)}
+                      autoFocus
+                      className="h-8 text-sm pr-8"
+                    />
+                    {isSearchingLeads && (
+                      <Spinner className="absolute right-4 top-1/2 -translate-y-1/2 animate-spin h-4 w-4 text-primary" />
+                    )}
+                  </div>
+                  <div className="max-h-[200px] overflow-y-auto">
+                    {displayLeads.length === 0 && !isSearchingLeads ? (
+                      <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                        No se encontraron oportunidades
+                      </div>
+                    ) : displayLeads.length === 0 && isSearchingLeads ? (
+                      <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                        Buscando...
+                      </div>
+                    ) : (
+                      displayLeads.map((lead) => (
+                        <div
+                          key={lead.id}
+                          className={`px-3 py-2 text-sm cursor-pointer hover:bg-accent transition-colors flex items-center justify-between ${selectedLeadId === lead.id ? 'bg-accent font-medium' : ''}`}
+                          onClick={() => {
+                            setSelectedLeadId(lead.id)
+                            setSelectedLeadData(lead)
+                            setLeadDropdownOpen(false)
+                            setLeadSearch('')
+                          }}
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate font-medium">{lead.nombre || lead.name || 'Sin nombre'}</div>
+                            {(lead.email || lead.company) && (
+                              <div className="text-xs text-muted-foreground truncate">
+                                {[lead.company, lead.email].filter(Boolean).join(' · ')}
+                              </div>
+                            )}
+                          </div>
+                          {selectedLeadId === lead.id && (
+                            <span className="text-primary shrink-0 ml-2">✓</span>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
           <div>

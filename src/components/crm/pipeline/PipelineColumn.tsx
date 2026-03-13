@@ -1,8 +1,9 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Plus, Trash } from '@phosphor-icons/react'
+import { Input } from '@/components/ui/input'
+import { Plus, Trash, PencilSimple, Check, X } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { Lead, Pipeline, PipelineType, TeamMember, Stage } from '@/lib/types'
 import { AddLeadDialog } from '@/components/crm/AddLeadDialog'
@@ -42,6 +43,7 @@ interface PipelineColumnProps {
     onDragOver: (e: React.DragEvent) => void
     onDrop: (e: React.DragEvent, stageId: string) => void
     onDeleteStage: (stageId: string) => void
+    onEditStage: (stageId: string, updates: { name?: string; color?: string }) => void
     onAddLead: (lead: Lead) => void
     onImportLeads: (leads: Lead[]) => void
     onLoadMore: (stageId: string) => void
@@ -85,6 +87,7 @@ export function PipelineColumn({
     onDragOver,
     onDrop,
     onDeleteStage,
+    onEditStage,
     onAddLead,
     onImportLeads,
     onLoadMore,
@@ -104,6 +107,40 @@ export function PipelineColumn({
     const totalStageLeads = stageCounts[stage.id] ?? allPipelineLeads.filter(l => l.stage === stage.id).length
     const remainingStageLeads = Math.max(0, totalStageLeads - stageLeads.length)
 
+    const [isEditing, setIsEditing] = useState(false)
+    const [editName, setEditName] = useState(stage.name)
+    const [editColor, setEditColor] = useState(stage.color)
+    const editInputRef = useRef<HTMLInputElement>(null)
+
+    const predefinedColors = [
+        '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b',
+        '#10b981', '#06b6d4', '#6366f1', '#ef4444'
+    ]
+
+    const handleStartEdit = () => {
+        setEditName(stage.name)
+        setEditColor(stage.color)
+        setIsEditing(true)
+        setTimeout(() => editInputRef.current?.focus(), 50)
+    }
+
+    const handleSaveEdit = () => {
+        if (!editName.trim()) return
+        const updates: { name?: string; color?: string } = {}
+        if (editName.trim() !== stage.name) updates.name = editName.trim()
+        if (editColor !== stage.color) updates.color = editColor
+        if (Object.keys(updates).length > 0) {
+            onEditStage(stage.id, updates)
+        }
+        setIsEditing(false)
+    }
+
+    const handleCancelEdit = () => {
+        setEditName(stage.name)
+        setEditColor(stage.color)
+        setIsEditing(false)
+    }
+
     return (
         <div
             className="w-full md:w-80 md:h-full flex flex-col shrink-0 bg-muted/10 rounded-2xl overflow-hidden border border-border/30 shadow-sm hover:shadow-md transition-shadow duration-200"
@@ -122,6 +159,36 @@ export function PipelineColumn({
                     onDrop={(e) => onStageDropOnHeader(e, stage.id)}
                 >
                     {/* Row 1: Stage Name and Count */}
+                    {isEditing ? (
+                        <div className="mb-2 space-y-2">
+                            <div className="flex items-center gap-1.5">
+                                <Input
+                                    ref={editInputRef}
+                                    value={editName}
+                                    onChange={(e) => { if (e.target.value.length <= 30) setEditName(e.target.value) }}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') handleSaveEdit(); if (e.key === 'Escape') handleCancelEdit() }}
+                                    className="h-8 text-sm font-bold flex-1"
+                                />
+                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-green-600 hover:text-green-700 hover:bg-green-50" onClick={handleSaveEdit}>
+                                    <Check size={16} weight="bold" />
+                                </Button>
+                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive" onClick={handleCancelEdit}>
+                                    <X size={16} weight="bold" />
+                                </Button>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                                {predefinedColors.map(c => (
+                                    <button
+                                        key={c}
+                                        className={cn('w-5 h-5 rounded-full border-2 transition-all', editColor === c ? 'border-foreground scale-110' : 'border-border/50')}
+                                        style={{ backgroundColor: c }}
+                                        onClick={() => setEditColor(c)}
+                                    />
+                                ))}
+                                <input type="color" value={editColor} onChange={(e) => setEditColor(e.target.value)} className="w-5 h-5 p-0 border-0 rounded-full cursor-pointer" />
+                            </div>
+                        </div>
+                    ) : (
                     <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2 min-w-0 flex-1">
                             <div className={cn('w-3 h-3 rounded-full shrink-0')} style={{ backgroundColor: stage.color, boxShadow: `0 0 6px ${stage.color}40` }} />
@@ -130,6 +197,17 @@ export function PipelineColumn({
                         </div>
                         {/* Action buttons on the right of title row */}
                         <div className="flex items-center gap-1 shrink-0">
+                            {isAdminOrOwner && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 w-7 p-0 text-muted-foreground hover:text-primary"
+                                    onClick={handleStartEdit}
+                                    title="Editar etapa"
+                                >
+                                    <PencilSimple size={15} weight="bold" />
+                                </Button>
+                            )}
                             {isAdminOrOwner && (
                                 <Button
                                     variant="ghost"
@@ -170,6 +248,7 @@ export function PipelineColumn({
                             )}
                         </div>
                     </div>
+                    )}
 
                     {/* Row 2: Load More Controls (Moved to bottom of column but kept here if desired, let's keep it here but styled better) */}
                     {remainingStageLeads > 0 && (
