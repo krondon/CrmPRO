@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import {
     format,
     startOfMonth,
@@ -22,7 +22,8 @@ import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { AddMeetingDialog, AddMeetingFormData } from './leads/dialogs/AddMeetingDialog'
 import { useAppointments } from '@/hooks/useAppointments'
-import { useLeadsList } from '@/hooks/useLeadsList'
+import { getLeadsPaged } from '@/supabase/services/leads'
+import { mapDBToLead } from '@/hooks/useLeadsList'
 import { cn } from '@/lib/utils'
 import {
     Plus,
@@ -35,6 +36,7 @@ import {
     VideoCamera,
     CheckCircle,
     XCircle,
+    Trash,
 } from '@phosphor-icons/react'
 
 
@@ -46,9 +48,30 @@ export function CalendarView({ companyId, user }: { companyId?: string, user?: a
     const [viewMode, setViewMode] = useState<'month' | 'agenda'>('month')
     const [showAddDialog, setShowAddDialog] = useState(false)
 
+    const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+
     // --- Data Fetching ---
-    const { appointments, fetchAppointments, isLoading: isLoadingAppointments } = useAppointments(companyId || '')
-    const { leads } = useLeadsList({ companyId: companyId || '', autoLoad: true })
+    const { appointments, fetchAppointments, removeAppointment, isLoading: isLoadingAppointments } = useAppointments(companyId || '')
+
+    // Lightweight lead cache — only loads leads referenced by appointments
+    const [leadCache, setLeadCache] = useState<Record<string, Lead>>({})
+    useEffect(() => {
+        if (!companyId || !appointments || appointments.length === 0) return
+        const neededIds = [...new Set(appointments.map(a => a.leadId).filter(Boolean))]
+        const missingIds = neededIds.filter(id => !leadCache[id])
+        if (missingIds.length === 0) return
+
+        getLeadsPaged({ empresaId: companyId, limit: 500, offset: 0, archived: false })
+            .then(({ data }) => {
+                const map: Record<string, Lead> = { ...leadCache }
+                for (const d of (data || [])) {
+                    const lead = mapDBToLead(d)
+                    if (neededIds.includes(lead.id)) map[lead.id] = lead
+                }
+                setLeadCache(map)
+            })
+            .catch(() => { /* ignore */ })
+    }, [companyId, appointments])
 
     // --- Helpers ---
     const handleAddMeeting = async () => {
@@ -58,7 +81,18 @@ export function CalendarView({ companyId, user }: { companyId?: string, user?: a
         setShowAddDialog(false)
     }
 
-    const getLead = (leadId: string) => (leads || []).find(l => l.id === leadId)
+    const getLead = (leadId: string) => leadCache[leadId] || undefined
+
+    const handleDeleteAppointment = async (id: string, e?: React.MouseEvent) => {
+        e?.stopPropagation()
+        if (confirmDeleteId === id) {
+            await removeAppointment(id)
+            setConfirmDeleteId(null)
+        } else {
+            setConfirmDeleteId(id)
+            setTimeout(() => setConfirmDeleteId(prev => prev === id ? null : prev), 3000)
+        }
+    }
 
     const getStatusColor = (status: string) => {
         switch (status) {
@@ -148,14 +182,26 @@ export function CalendarView({ companyId, user }: { companyId?: string, user?: a
                         <div
                             key={appt.id}
                             className={cn(
-                                "px-1.5 py-0.5 rounded text-[10px] font-medium truncate flex items-center gap-1 border border-l-[3px]",
+                                "px-1.5 py-0.5 rounded text-[10px] font-medium truncate flex items-center gap-1 border border-l-[3px] group/chip relative",
                                 appt.status === 'completed' ? "bg-green-50 border-green-200 border-l-green-500 text-green-700" :
                                     appt.status === 'cancelled' ? "bg-red-50 border-red-200 border-l-red-500 text-red-700" :
                                         "bg-blue-50 border-blue-200 border-l-blue-500 text-blue-700"
                             )}
                         >
                             <span className="shrink-0 font-bold">{format(new Date(appt.startTime), 'h:mmaaa')}</span>
-                            <span className="truncate">{appt.title}</span>
+                            <span className="truncate flex-1">{appt.title}</span>
+                            <button
+                                onClick={(e) => handleDeleteAppointment(appt.id, e)}
+                                className={cn(
+                                    "shrink-0 rounded p-0.5 transition-all",
+                                    confirmDeleteId === appt.id
+                                        ? "bg-red-500 text-white visible"
+                                        : "invisible group-hover/chip:visible hover:bg-red-100 text-red-500"
+                                )}
+                                title={confirmDeleteId === appt.id ? 'Click para confirmar' : 'Eliminar cita'}
+                            >
+                                <Trash size={10} weight="bold" />
+                            </button>
                         </div>
                     ))}
                     {dayAppts.length > 3 && (
@@ -308,9 +354,21 @@ export function CalendarView({ companyId, user }: { companyId?: string, user?: a
                             <ScrollArea className="h-[120px]">
                                 <div className="space-y-2 pr-2">
                                     {selectedDayAppointments.map(appt => (
-                                        <div key={appt.id} className="flex gap-2 text-xs items-center">
+                                        <div key={appt.id} className="flex gap-2 text-xs items-center group/side">
                                             <span className="font-mono text-muted-foreground shrink-0">{format(new Date(appt.startTime), 'HH:mm')}</span>
                                             <span className="truncate flex-1 font-medium">{appt.title}</span>
+                                            <button
+                                                onClick={(e) => handleDeleteAppointment(appt.id, e)}
+                                                className={cn(
+                                                    "shrink-0 rounded p-0.5 transition-all",
+                                                    confirmDeleteId === appt.id
+                                                        ? "bg-red-500 text-white visible"
+                                                        : "invisible group-hover/side:visible hover:bg-red-100 text-red-500"
+                                                )}
+                                                title={confirmDeleteId === appt.id ? 'Click para confirmar' : 'Eliminar cita'}
+                                            >
+                                                <Trash size={12} weight="bold" />
+                                            </button>
                                         </div>
                                     ))}
                                 </div>
@@ -424,6 +482,20 @@ export function CalendarView({ companyId, user }: { companyId?: string, user?: a
                                                                                 <span className="font-medium text-xs">Reunión Virtual</span>
                                                                             </div>
                                                                         )}
+
+                                                                        <button
+                                                                            onClick={() => handleDeleteAppointment(appt.id)}
+                                                                            className={cn(
+                                                                                "flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-all ml-auto",
+                                                                                confirmDeleteId === appt.id
+                                                                                    ? "bg-red-500 text-white"
+                                                                                    : "opacity-0 group-hover:opacity-100 hover:bg-red-50 text-red-500"
+                                                                            )}
+                                                                            title={confirmDeleteId === appt.id ? 'Click para confirmar' : 'Eliminar cita'}
+                                                                        >
+                                                                            <Trash size={14} weight="bold" />
+                                                                            <span>{confirmDeleteId === appt.id ? 'Confirmar' : 'Eliminar'}</span>
+                                                                        </button>
                                                                     </div>
                                                                 </div>
                                                             </div>
@@ -448,7 +520,6 @@ export function CalendarView({ companyId, user }: { companyId?: string, user?: a
                 open={showAddDialog}
                 onClose={() => setShowAddDialog(false)}
                 onAdd={handleAddMeeting}
-                leads={leads}
                 empresaId={companyId || ''}
                 defaultDate={selectedDate || new Date()}
             />

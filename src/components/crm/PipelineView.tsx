@@ -34,7 +34,7 @@ import { deleteLead, getLeads, getLeadsPaged, updateLead, searchLeads } from '@/
 import { getEquipos } from '@/supabase/services/equipos'
 import { getPersonas } from '@/supabase/services/persona'
 import { getPipelinesForPersona } from '@/supabase/helpers/personaPipeline'
-import { createEtapa, deleteEtapa } from '@/supabase/helpers/etapas'
+import { createEtapa, deleteEtapa, updateEtapa } from '@/supabase/helpers/etapas'
 import { getUnreadMessagesCount, subscribeToAllMessages, markMessagesAsRead } from '@/supabase/services/mensajes'
 import { getNotasCountByLeads } from '@/supabase/services/notas'
 import { supabase } from '@/lib/supabase'
@@ -573,6 +573,47 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
     toast.success('Etapa eliminada')
   }
 
+  const handleEditStage = async (stageId: string, updates: { name?: string; color?: string }) => {
+    if (!isAdminOrOwner) {
+      toast.error('No tienes permisos para editar etapas')
+      return
+    }
+
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(stageId)
+
+    if (isUUID) {
+      try {
+        const payload: Record<string, string> = {}
+        if (updates.name) payload.nombre = updates.name
+        if (updates.color) payload.color = updates.color
+        const { error } = await updateEtapa(stageId, payload)
+        if (error) throw error
+      } catch (err: any) {
+        console.error('Error updating stage:', err)
+        toast.error(`Error al actualizar etapa: ${err.message || 'Error desconocido'}`)
+        return
+      }
+    }
+
+    setPipelines((current) => {
+      const pipelines = current || []
+      const pipelineIndex = pipelines.findIndex(p => p.type === activePipeline)
+      if (pipelineIndex === -1) return pipelines
+
+      const updatedPipelines = [...pipelines]
+      updatedPipelines[pipelineIndex] = {
+        ...updatedPipelines[pipelineIndex],
+        stages: updatedPipelines[pipelineIndex].stages.map(s =>
+          s.id === stageId
+            ? { ...s, ...(updates.name ? { name: updates.name } : {}), ...(updates.color ? { color: updates.color } : {}) }
+            : s
+        )
+      }
+      return updatedPipelines
+    })
+    toast.success('Etapa actualizada')
+  }
+
   const handleDeletePipeline = async () => {
     if (!isAdminOrOwner) {
       toast.error('No tienes permisos para eliminar pipelines')
@@ -896,6 +937,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
         onDragOver={handleDragOver}
         onDrop={handleDrop}
         onDeleteStage={handleDeleteStage}
+        onEditStage={handleEditStage}
         onAddLead={handleLeadAddedToState}
         onImportLeads={handleImportLeads}
         onLoadMore={handleLoadMoreStage}
