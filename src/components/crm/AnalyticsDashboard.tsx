@@ -1,11 +1,9 @@
-import { usePersistentState } from '@/hooks/usePersistentState'
-import { Task } from '@/lib/types'
-import { usePipelineData } from '@/hooks/usePipelineData'
-import { useAuth } from '@/hooks/useAuth'
+import { Lead } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
-import { useEffect, useState } from 'react'
-import { getLeadsCount } from '@/supabase/services/leads'
+import { useEffect, useState, useMemo } from 'react'
+import { getLeads } from '@/supabase/services/leads'
+import { getPipelines } from '@/supabase/helpers/pipeline'
 import {
   CurrencyDollar,
   TrendUp,
@@ -19,28 +17,56 @@ import {
 import { cn } from '@/lib/utils'
 
 export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
-  const { user } = useAuth()
-  const { leads, pipelines } = usePipelineData({
-    companyId: companyId || '',
-    userId: user?.id
-  })
-  const [tasks] = usePersistentState<Task[]>(`tasks-${companyId}`, [])
+  const [allLeads, setAllLeads] = useState<Lead[]>([])
+  const [pipelinesData, setPipelinesData] = useState<{ id: string; name: string; stageNames: Record<string, string> }[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
-  const [dateRange, setDateRange] = useState<'30days' | 'quarter' | 'year'>('30days')
-  const [metrics, setMetrics] = useState({
-    totalRevenue: 0,
-    revenueTrend: 0,
-    avgDealSize: 0,
-    dealSizeTrend: 0,
-    activeLeads: 0,
-    leadsTrend: 0,
-    completionRate: 0,
-    tasksTrend: 0
-  })
+  const [dateRange, setDateRange] = useState<'30days' | 'quarter'>('30days')
 
+  // Fetch ALL leads and pipelines for this company
   useEffect(() => {
-    if (!leads.length) return
+    if (!companyId) return
+    setIsLoading(true)
 
+    const mapLead = (l: any): Lead => ({
+      id: l.id,
+      name: l.nombre_completo || 'Sin Nombre',
+      email: l.correo_electronico || '',
+      phone: l.telefono || '',
+      company: l.empresa || '',
+      location: l.ubicacion,
+      evento: l.evento,
+      membresia: l.membresia,
+      budget: l.presupuesto || 0,
+      stage: l.etapa_id,
+      pipeline: l.pipeline_id || 'sales',
+      priority: l.prioridad || 'medium',
+      assignedTo: l.asignado_a || '',
+      tags: l.tags || [],
+      createdAt: new Date(l.created_at),
+      lastContact: l.last_message_at ? new Date(l.last_message_at) : new Date(l.created_at),
+      archived: l.archived,
+      archivedAt: l.archived_at ? new Date(l.archived_at) : undefined
+    })
+
+    Promise.all([
+      getLeads(companyId),
+      getPipelines(companyId)
+    ]).then(([leadsRaw, pipelinesRes]) => {
+      const mapped = (leadsRaw || []).filter(l => !l.archived).map(mapLead)
+      setAllLeads(mapped)
+
+      const pipes = (pipelinesRes.data || []).map((p: any) => ({
+        id: p.id,
+        name: p.nombre || 'Sin Nombre',
+        stageNames: Object.fromEntries((p.etapas || []).map((s: any) => [s.id, s.nombre]))
+      }))
+      setPipelinesData(pipes)
+    }).finally(() => setIsLoading(false))
+  }, [companyId])
+
+  // Compute metrics based on date range
+  const metrics = useMemo(() => {
     const now = new Date()
     let startDate = new Date()
     let prevStartDate = new Date()
@@ -48,69 +74,51 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
     if (dateRange === '30days') {
       startDate.setDate(now.getDate() - 30)
       prevStartDate.setDate(now.getDate() - 60)
-    } else if (dateRange === 'quarter') {
+    } else {
       startDate.setMonth(now.getMonth() - 3)
       prevStartDate.setMonth(now.getMonth() - 6)
-    } else {
-      startDate.setFullYear(now.getFullYear() - 1)
-      prevStartDate.setFullYear(now.getFullYear() - 2)
     }
 
-    // Filter current period
-    const currentLeads = leads.filter(l => new Date(l.createdAt) >= startDate)
-    const prevLeads = leads.filter(l => {
-      const d = new Date(l.createdAt)
-      return d >= prevStartDate && d < startDate
-    })
+    const currentLeads = allLeads.filter(l => l.createdAt >= startDate)
+    const prevLeads = allLeads.filter(l => l.createdAt >= prevStartDate && l.createdAt < startDate)
 
-    // Calculate Metrics
     const currentRevenue = currentLeads.reduce((acc, l) => acc + (l.budget || 0), 0)
     const prevRevenue = prevLeads.reduce((acc, l) => acc + (l.budget || 0), 0)
 
     const currentAvgDeal = currentLeads.length ? currentRevenue / currentLeads.length : 0
     const prevAvgDeal = prevLeads.length ? prevRevenue / prevLeads.length : 0
 
-    const currentTasks = (tasks || []).filter(t => new Date(t.dueDate) >= startDate && t.completed).length
-    const totalCurrentTasks = (tasks || []).filter(t => new Date(t.dueDate) >= startDate).length
-    const taskRate = totalCurrentTasks ? Math.round((currentTasks / totalCurrentTasks) * 100) : 0
-
     const calcTrend = (curr: number, prev: number) => {
       if (!prev) return curr > 0 ? 100 : 0
       return Math.round(((curr - prev) / prev) * 100)
     }
 
-    setMetrics({
+    return {
       totalRevenue: currentRevenue,
       revenueTrend: calcTrend(currentRevenue, prevRevenue),
       avgDealSize: currentAvgDeal,
       dealSizeTrend: calcTrend(currentAvgDeal, prevAvgDeal),
       activeLeads: currentLeads.length,
       leadsTrend: calcTrend(currentLeads.length, prevLeads.length),
-      completionRate: taskRate,
-      tasksTrend: 0 // Mock for now as tasks don't have prev data easily accessible here
-    })
+      totalLeads: allLeads.length
+    }
+  }, [allLeads, dateRange])
 
-    // Update charts data based on filtered leads...
-  }, [leads, tasks, dateRange])
-
-  const pipelineData = (pipelines || []).map(pipeline => ({
-    name: pipeline.name,
-    count: (leads || []).filter(l => l.pipeline === pipeline.id).length
-  }))
+  const pipelineData = useMemo(() =>
+    pipelinesData.map(p => ({
+      name: p.name,
+      count: allLeads.filter(l => l.pipeline === p.id).length
+    })),
+    [allLeads, pipelinesData]
+  )
 
   const pipelineChartWidth = Math.max(100 + (pipelineData.length * 120), 600)
 
-  const priorityData = [
-    { name: 'Alta', value: (leads || []).filter(l => l.priority === 'high').length, color: '#f43f5e' },
-    { name: 'Media', value: (leads || []).filter(l => l.priority === 'medium').length, color: '#f59e0b' },
-    { name: 'Baja', value: (leads || []).filter(l => l.priority === 'low').length, color: '#10b981' }
-  ]
-
-  const totalRevenue = (leads || []).reduce((sum, lead) => sum + (lead.budget || 0), 0)
-  const avgDealSize = totalRevenue / ((leads || []).length || 1)
-  const completedTasks = (tasks || []).filter(t => t.completed).length
-  const totalTasks = (tasks || []).length
-  const completionRate = Math.round((completedTasks / (totalTasks || 1)) * 100)
+  const priorityData = useMemo(() => [
+    { name: 'Alta', value: allLeads.filter(l => l.priority === 'high').length, color: '#f43f5e' },
+    { name: 'Media', value: allLeads.filter(l => l.priority === 'medium').length, color: '#f59e0b' },
+    { name: 'Baja', value: allLeads.filter(l => l.priority === 'low').length, color: '#10b981' }
+  ], [allLeads])
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -149,7 +157,7 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <KpiCard
-          title="Ingresos Totales"
+          title="Valor Oportunidades"
           value={`$${metrics.totalRevenue.toLocaleString()}`}
           subtitle="En periodo seleccionado"
           icon={<CurrencyDollar size={20} weight="bold" className="text-blue-600" />}
@@ -182,14 +190,14 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
           trendUp={metrics.leadsTrend >= 0}
         />
         <KpiCard
-          title="Tasa Completitud"
-          value={`${metrics.completionRate}%`}
-          subtitle="Tareas completadas"
+          title="Total Oportunidades"
+          value={metrics.totalLeads.toString()}
+          subtitle="Todas las oportunidades activas"
           icon={<CheckCircle size={20} weight="bold" className="text-rose-600" />}
           gradient="bg-gradient-to-br from-rose-500/20 to-transparent border-rose-100/50"
           themeColor="text-rose-600"
           bgIcon={CheckCircle}
-          trend="0%"
+          trend={`${pipelinesData.length} pipelines`}
           trendUp={true}
         />
       </div>
@@ -277,7 +285,7 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
                 </PieChart>
               </ResponsiveContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-3xl font-black">{(leads || []).length}</span>
+                <span className="text-3xl font-black">{allLeads.length}</span>
                 <span className="text-[10px] uppercase font-black tracking-[0.2em] text-muted-foreground">Total Oportunidades</span>
               </div>
             </div>
