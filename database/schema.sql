@@ -1597,3 +1597,63 @@ BEGIN
 END
 $$;
 
+
+
+-- ============================================================
+-- TABLA: saved_tags — Etiquetas persistentes por empresa
+-- Las etiquetas se guardan aquí y sobreviven aunque se eliminen
+-- todos los leads que las usaban.
+-- ============================================================
+-- SEGURO: Solo crea si no existe. No modifica tablas existentes.
+
+CREATE TABLE IF NOT EXISTS saved_tags (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    empresa_id  UUID NOT NULL REFERENCES empresa(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    color       TEXT NOT NULL DEFAULT '#6366f1',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    -- No duplicar nombre dentro de la misma empresa
+    UNIQUE(empresa_id, name)
+);
+
+-- Índice para consultas rápidas por empresa
+CREATE INDEX IF NOT EXISTS idx_saved_tags_empresa ON saved_tags(empresa_id);
+
+-- ============================================================
+-- RLS: Solo miembros de la empresa pueden leer/escribir
+-- Usa empresa_miembros.usuario_id = auth.uid()
+-- ============================================================
+ALTER TABLE saved_tags ENABLE ROW LEVEL SECURITY;
+
+-- Leer: miembros de la empresa
+CREATE POLICY "saved_tags_select" ON saved_tags
+    FOR SELECT USING (
+        empresa_id IN (
+            SELECT empresa_id FROM empresa_miembros WHERE usuario_id = auth.uid()
+        )
+    );
+
+-- Insertar: miembros de la empresa
+CREATE POLICY "saved_tags_insert" ON saved_tags
+    FOR INSERT WITH CHECK (
+        empresa_id IN (
+            SELECT empresa_id FROM empresa_miembros WHERE usuario_id = auth.uid()
+        )
+    );
+
+-- Actualizar: miembros de la empresa
+CREATE POLICY "saved_tags_update" ON saved_tags
+    FOR UPDATE USING (
+        empresa_id IN (
+            SELECT empresa_id FROM empresa_miembros WHERE usuario_id = auth.uid()
+        )
+    );
+
+-- Eliminar: miembros de la empresa
+CREATE POLICY "saved_tags_delete" ON saved_tags
+    FOR DELETE USING (
+        empresa_id IN (
+            SELECT empresa_id FROM empresa_miembros WHERE usuario_id = auth.uid()
+        )
+    );
