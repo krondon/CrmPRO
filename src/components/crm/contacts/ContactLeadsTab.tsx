@@ -11,8 +11,11 @@ import { Button } from '@/components/ui/button'
 import { Kanban, Plus, Spinner, CurrencyDollar, ArrowRight, ChatCircle } from '@phosphor-icons/react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/supabase/client'
+import { createLead } from '@/supabase/services/leads'
+import { getPipelines as getPipelinesWithStages } from '@/supabase/helpers/pipeline'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { toast } from 'sonner'
 
 interface ContactLeadsTabProps {
     contact: Contact
@@ -39,10 +42,69 @@ interface LeadData {
     }
 }
 
+interface PipelineWithStages {
+    id: string
+    nombre: string
+    tipo?: string
+    etapas?: Array<{
+        id: string
+        nombre: string
+        orden: number
+        color?: string
+    }>
+}
+
+interface DefaultLeadTarget {
+    pipelineId: string
+    pipelineName: string
+    pipelineType: string
+    stageId?: string
+    stageName?: string
+}
+
 export function ContactLeadsTab({ contact, companyId }: ContactLeadsTabProps) {
     const navigate = useNavigate()
     const [leads, setLeads] = useState<LeadData[]>([])
     const [isLoading, setIsLoading] = useState(true)
+    const [isCreatingLead, setIsCreatingLead] = useState(false)
+    const [defaultTarget, setDefaultTarget] = useState<DefaultLeadTarget | null>(null)
+
+    useEffect(() => {
+        const fetchDefaultTarget = async () => {
+            if (!companyId) {
+                setDefaultTarget(null)
+                return
+            }
+
+            try {
+                const { data, error } = await getPipelinesWithStages(companyId)
+                if (error) throw error
+
+                const pipelines = (data || []) as PipelineWithStages[]
+                if (pipelines.length === 0) {
+                    setDefaultTarget(null)
+                    return
+                }
+
+                const firstPipeline = pipelines[0]
+                const sortedStages = [...(firstPipeline.etapas || [])].sort((a, b) => a.orden - b.orden)
+                const firstStage = sortedStages[0]
+
+                setDefaultTarget({
+                    pipelineId: firstPipeline.id,
+                    pipelineName: firstPipeline.nombre,
+                    pipelineType: firstPipeline.tipo || 'sales',
+                    stageId: firstStage?.id,
+                    stageName: firstStage?.nombre
+                })
+            } catch (error) {
+                console.error('Error loading default pipeline/stage:', error)
+                setDefaultTarget(null)
+            }
+        }
+
+        fetchDefaultTarget()
+    }, [companyId])
 
     useEffect(() => {
         const fetchContactLeads = async () => {
@@ -114,6 +176,58 @@ export function ContactLeadsTab({ contact, companyId }: ContactLeadsTabProps) {
         fetchContactLeads()
     }, [contact, companyId])
 
+    const handleCreateOpportunity = async () => {
+        if (!companyId) {
+            toast.error('No se pudo identificar la empresa')
+            return
+        }
+
+        if (!defaultTarget?.pipelineId) {
+            toast.error('No hay pipelines disponibles para crear una oportunidad')
+            return
+        }
+
+        setIsCreatingLead(true)
+        try {
+            const created = await createLead({
+                nombre_completo: (contact.name || '').trim() || 'Nueva oportunidad',
+                correo_electronico: contact.email?.trim() || undefined,
+                telefono: contact.phone?.trim() || undefined,
+                empresa: contact.company?.trim() || undefined,
+                ubicacion: contact.location?.trim() || undefined,
+                empresa_id: companyId,
+                pipeline_id: defaultTarget.pipelineId,
+                etapa_id: defaultTarget.stageId,
+                asignado_a: '00000000-0000-0000-0000-000000000000',
+                prioridad: 'medium'
+            })
+
+            const createdLead: LeadData = {
+                id: created.id,
+                nombre_completo: created.nombre_completo || contact.name || 'Nueva oportunidad',
+                empresa: created.empresa || contact.company || '',
+                correo_electronico: created.correo_electronico || contact.email || '',
+                telefono: created.telefono || contact.phone || '',
+                presupuesto: created.presupuesto || 0,
+                prioridad: created.prioridad || 'medium',
+                etapa_id: created.etapa_id || defaultTarget.stageId || '',
+                pipeline_id: created.pipeline_id || defaultTarget.pipelineId,
+                created_at: created.created_at || new Date().toISOString(),
+                archived: false,
+                etapas: defaultTarget.stageName ? { nombre: defaultTarget.stageName } : undefined,
+                pipeline: { nombre: defaultTarget.pipelineName }
+            }
+
+            setLeads(prev => [createdLead, ...prev])
+            toast.success('Oportunidad creada desde contacto')
+        } catch (error) {
+            console.error('Error creating lead from contact:', error)
+            toast.error('No se pudo crear la oportunidad')
+        } finally {
+            setIsCreatingLead(false)
+        }
+    }
+
     const stats = {
         total: leads.length,
         won: leads.filter(l => l.etapas?.nombre?.toLowerCase().includes('ganado')).length,
@@ -176,13 +290,30 @@ export function ContactLeadsTab({ contact, companyId }: ContactLeadsTabProps) {
                     <p className="text-sm text-muted-foreground mb-4">
                         Este contacto no tiene chats ni oportunidades activas.
                     </p>
-                    <Button
-                        variant="outline"
-                        onClick={() => navigate('/pipeline')}
-                    >
-                        <Plus size={18} weight="bold" className="mr-2" />
-                        Crear Oportunidad
-                    </Button>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                        <Button
+                            onClick={handleCreateOpportunity}
+                            disabled={!defaultTarget || isCreatingLead}
+                        >
+                            {isCreatingLead ? (
+                                <Spinner size={16} className="animate-spin mr-2" />
+                            ) : (
+                                <Plus size={18} weight="bold" className="mr-2" />
+                            )}
+                            Crear Oportunidad
+                        </Button>
+                        <Button
+                            variant="outline"
+                            onClick={() => navigate('/pipeline')}
+                        >
+                            Ir a Pipeline
+                        </Button>
+                    </div>
+                    {!defaultTarget && (
+                        <p className="text-xs text-muted-foreground mt-3">
+                            Debes tener al menos un pipeline con etapas para crear oportunidades desde contactos.
+                        </p>
+                    )}
                 </Card>
             ) : (
                 <div className="space-y-2">

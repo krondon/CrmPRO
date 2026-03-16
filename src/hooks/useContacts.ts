@@ -8,6 +8,7 @@ import { Contact, ContactDB } from '@/lib/types'
 import {
     getContacts,
     createContact as createContactService,
+    createContactsBulk as createContactsBulkService,
     updateContact as updateContactService,
     deleteContact as deleteContactService,
     archiveContact as archiveContactService
@@ -194,6 +195,33 @@ export function useContacts(companyId?: string) {
         }
     }, [companyId])
 
+    const importContactsBulk = useCallback(async (items: Partial<Contact>[]): Promise<number> => {
+        if (!companyId || !items.length) return 0
+
+        try {
+            const dbPayload = items
+                .map(item => mapContactToDB(item, companyId))
+                .filter(item => !!item.nombre)
+
+            if (!dbPayload.length) {
+                toast.error('No hay contactos válidos para importar')
+                return 0
+            }
+
+            const created = await createContactsBulkService(dbPayload)
+            const mappedCreated = created.map(mapDBToContact)
+
+            setContacts(prev => [...mappedCreated, ...prev])
+            setTotalContacts(prev => prev + mappedCreated.length)
+            toast.success(`${mappedCreated.length} contactos importados exitosamente`)
+            return mappedCreated.length
+        } catch (err) {
+            console.error('Error importing contacts:', err)
+            toast.error('Error al importar contactos')
+            return 0
+        }
+    }, [companyId])
+
     const deleteContact = useCallback(async (id: string): Promise<boolean> => {
         try {
             await deleteContactService(id)
@@ -228,6 +256,7 @@ export function useContacts(companyId?: string) {
         error,
         refetch: () => fetchContacts(false),
         createContact,
+        importContactsBulk,
         updateContact,
         deleteContact,
         archiveContact,
