@@ -13,6 +13,7 @@ import { HistorialView } from '@/components/crm/HistorialView'
 import LoginView from '@/components/crm/LoginView'
 import { RegisterView } from '@/components/crm/RegisterView'
 import { JoinCRMView } from '@/components/crm/JoinCRMView'
+import { CreateEmpresaView } from '@/components/crm/CreateEmpresaView'
 import { JoinTeam } from '@/components/crm/JoinTeam'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import { UpdatePasswordView } from '@/components/auth/UpdatePasswordView'
@@ -74,10 +75,21 @@ function App() {
         {/* Join Team Route */}
         <Route path="/join" element={<JoinTeamWrapper />} />
 
-        {/* Protected CRM Routes - redirect employees without company to join-crm */}
+        {/* Owner without company - show create empresa screen */}
+        <Route path="/create-empresa" element={
+          user ? (
+            companies.length === 0
+              ? <CreateEmpresaView onLogout={logout} />
+              : <Navigate to="/dashboard" replace />
+          ) : <Navigate to="/login" replace />
+        } />
+
+        {/* Protected CRM Routes - redirect to setup if no company */}
         <Route element={
           user?.accountType === 'employee' && companies.length === 0
             ? <Navigate to="/join-crm" replace />
+            : user?.accountType === 'owner' && companies.length === 0
+            ? <Navigate to="/create-empresa" replace />
             : <ProtectedRoute><CRMLayout /></ProtectedRoute>
         }>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />

@@ -5,7 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { AddTeamMemberDialog } from './AddTeamMemberDialog'
 import { Button } from '@/components/ui/button'
-import { Trash, Building, Info, Funnel, Users, XCircle, CaretDown, CaretUp, MagnifyingGlass, CheckCircle, Clock, UserPlus } from '@phosphor-icons/react'
+import { Trash, Building, Info, Funnel, Users, XCircle, CaretDown, CheckCircle, Clock, UserPlus, PencilSimple } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useEffect, useState } from 'react'
@@ -18,6 +18,7 @@ import { getSolicitudesPendientes, aprobarSolicitud, rechazarSolicitud } from '@
 import type { SolicitudUnionDB } from '@/lib/types'
 import { supabase } from '@/supabase/client'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AllLeadsDialog } from './AllLeadsDialog'
 import { MemberSearchDialog } from './MemberSearchDialog'
 import { TeamManagerDialog } from './TeamManagerDialog'
@@ -60,7 +61,10 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
   const [memberSearch, setMemberSearch] = useState('')
   const [showAllTeams, setShowAllTeams] = useState(false)
   const [solicitudesPendientes, setSolicitudesPendientes] = useState<SolicitudUnionDB[]>([])
-  const [approvedMembers, setApprovedMembers] = useState<{ id: string; email: string; nombre: string | null; role: string; created_at: string }[]>([])
+  const [approvedMembers, setApprovedMembers] = useState<{ id: string; email: string; nombre: string | null; role: string; usuario_id: string | null; created_at: string }[]>([])
+  const [solicitudRoles, setSolicitudRoles] = useState<Record<string, string>>({})
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null)
+  const [editingMemberRole, setEditingMemberRole] = useState<string>('viewer')
 
   useEffect(() => {
     if (!companyId) return
@@ -70,6 +74,52 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
       if (!cancelled && data) setDbPipelines(data)
     })
 
+    return () => { cancelled = true }
+  }, [companyId])
+
+  // Cargar miembros de empresa_miembros con nombre real del usuario
+  useEffect(() => {
+    if (!companyId) return
+    let cancelled = false
+
+    const loadMembers = async () => {
+      try {
+        const { data: membersData } = await supabase
+          .from('empresa_miembros')
+          .select('id, email, role, created_at, usuario_id')
+          .eq('empresa_id', companyId)
+
+        if (!membersData || cancelled) return
+
+        // Obtener nombres reales de la tabla usuarios
+        const userIds = membersData.filter(m => m.usuario_id).map(m => m.usuario_id)
+        let usersMap: Record<string, string> = {}
+        if (userIds.length > 0) {
+          const { data: usersData } = await supabase
+            .from('usuarios')
+            .select('id, nombre')
+            .in('id', userIds)
+          if (usersData) {
+            usersMap = Object.fromEntries(usersData.map((u: any) => [u.id, u.nombre]))
+          }
+        }
+
+        if (!cancelled) {
+          setApprovedMembers(membersData.map((m: any) => ({
+            id: m.id,
+            email: m.email,
+            nombre: usersMap[m.usuario_id] || null,
+            role: m.role || 'viewer',
+            usuario_id: m.usuario_id || null,
+            created_at: m.created_at
+          })))
+        }
+      } catch (e: any) {
+        console.error('[TeamView] error cargando miembros:', e)
+      }
+    }
+
+    loadMembers()
     return () => { cancelled = true }
   }, [companyId])
 
@@ -84,31 +134,6 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
     return () => { cancelled = true }
   }, [companyId, isAdminOrOwner])
 
-  // Cargar miembros aprobados desde empresa_miembros (efecto independiente para evitar race condition con isAdminOrOwner)
-  useEffect(() => {
-    if (!companyId) return
-    let cancelled = false
-
-    supabase
-      .from('empresa_miembros')
-      .select('id, email, role, created_at')
-      .eq('empresa_id', companyId)
-      .then(({ data, error }) => {
-        console.log('[TeamView] empresa_miembros data:', data, 'error:', error)
-        if (!cancelled && data) {
-          setApprovedMembers(data.map((m: any) => ({
-            id: m.id,
-            email: m.email,
-            nombre: null,
-            role: m.role || 'viewer',
-            created_at: m.created_at
-          })))
-        }
-      })
-      .catch((e) => console.error('[TeamView] error cargando miembros aprobados:', e))
-
-    return () => { cancelled = true }
-  }, [companyId])
 
   useEffect(() => {
     if (!companyId) return
@@ -182,9 +207,14 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
 
           if (cancelled) return
 
-          // Obtener roles de miembros activos
-          const { getCompanyMembers } = await import('@/supabase/services/empresa')
-          const companyMembers = await getCompanyMembers(companyId)
+          // Obtener roles de miembros activos (con fallback si falla el join con roles)
+          let companyMembers: any[] = []
+          try {
+            const { getCompanyMembers } = await import('@/supabase/services/empresa')
+            companyMembers = await getCompanyMembers(companyId)
+          } catch (memberErr: any) {
+            console.warn('[TeamView] getCompanyMembers falló (probablemente FK roles faltante), continuando sin roles:', memberErr.message)
+          }
 
           if (cancelled) return
 
@@ -202,7 +232,8 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
               pipelines: resolvedPipelines,
               avatar: '',
               status: 'pending',
-              permissionRole: inv.permission_role || 'viewer'
+              permissionRole: inv.permission_role || 'viewer',
+              teamId: inv.equipo_id || null
             }
           })
 
@@ -407,6 +438,41 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
     }
   }
 
+  const handleUpdateApprovedMemberRole = async (member: typeof approvedMembers[0]) => {
+    try {
+      const { updateCompanyMemberRole } = await import('@/supabase/services/empresa')
+      await updateCompanyMemberRole(companyId!, { email: member.email, role: editingMemberRole })
+      setApprovedMembers(prev => prev.map(m => m.id === member.id ? { ...m, role: editingMemberRole } : m))
+      setEditingMemberId(null)
+      toast.success('Rol actualizado')
+    } catch (e: any) {
+      toast.error(e.message || 'Error al actualizar rol')
+    }
+  }
+
+  const handleDeleteApprovedMember = async (member: typeof approvedMembers[0]) => {
+    if (!confirm(`¿Eliminar a ${member.nombre || member.email} de la empresa? Esta acción revocará su acceso.`)) return
+    try {
+      const { removeMemberFromCompany } = await import('@/supabase/services/empresa')
+      await removeMemberFromCompany(companyId!, member.email)
+      setApprovedMembers(prev => prev.filter(m => m.id !== member.id))
+      toast.success('Miembro eliminado')
+    } catch (e: any) {
+      toast.error(e.message || 'Error al eliminar miembro')
+    }
+  }
+
+  // Miembros en empresa_miembros que NO tienen persona activa (no aparecen en teamMembers)
+  const activeEmails = new Set((teamMembers || []).map(m => m.email?.toLowerCase()))
+  const onlyApprovedMembers = approvedMembers.filter(
+    m => !activeEmails.has(m.email?.toLowerCase())
+  )
+
+  const getApprovedLeadsCount = (usuarioId: string | null) => {
+    if (!usuarioId) return 0
+    return leads.filter(l => l.assignedTo === usuarioId).length
+  }
+
   const filteredTeams = (equipos || []).filter(eq =>
     eq.nombre_equipo.toLowerCase().includes(teamSearch.toLowerCase())
   )
@@ -522,7 +588,19 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
                     {new Date(sol.created_at).toLocaleDateString('es-ES')}
                   </p>
                 </div>
-                <div className="flex gap-2 ml-3">
+                <div className="flex items-center gap-2 ml-3 flex-wrap">
+                  <Select
+                    value={solicitudRoles[sol.id] || 'viewer'}
+                    onValueChange={(val) => setSolicitudRoles(prev => ({ ...prev, [sol.id]: val }))}
+                  >
+                    <SelectTrigger className="w-28 h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="viewer">Lector</SelectItem>
+                      <SelectItem value="admin">Administrador</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <Button
                     size="sm"
                     variant="outline"
@@ -543,7 +621,7 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
                     className="h-8"
                     onClick={async () => {
                       try {
-                        await aprobarSolicitud(sol.id, 'viewer')
+                        await aprobarSolicitud(sol.id, solicitudRoles[sol.id] || 'viewer')
                         setSolicitudesPendientes(prev => prev.filter(s => s.id !== sol.id))
                         toast.success('Solicitud aprobada — se ha añadido al equipo')
                         setRefreshTrigger(prev => prev + 1)
@@ -640,14 +718,14 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
           return (
             <Card key={member.id} className="overflow-hidden border border-border/30 shadow-sm hover:shadow-md transition-all duration-200 rounded-xl group">
               <CardHeader>
-                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-start max-w-full">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <Avatar className="h-14 w-14 shrink-0 ring-2 ring-primary/10 ring-offset-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <Avatar className="h-12 w-12 shrink-0 ring-2 ring-primary/10 ring-offset-2">
                       <AvatarImage src={member.avatar} />
                       <AvatarFallback className="bg-gradient-to-br from-primary/20 to-primary/5 text-primary font-bold text-lg">{member.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
                     </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 min-w-0">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <CardTitle className="text-base font-bold truncate tracking-tight">{member.name}</CardTitle>
                         {(member as any).status === 'pending' && (
                           <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-300 shrink-0">
@@ -660,55 +738,45 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
                           </Badge>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 mt-1 min-w-0">
-                        <p className="text-sm text-muted-foreground truncate">{member.role}</p>
-                        {roleInfo && (
-                          <Badge
-                            variant="outline"
-                            className="text-xs shrink-0"
-                            style={{ borderColor: roleInfo.color, color: roleInfo.color }}
-                          >
-                            {roleInfo.name}
-                          </Badge>
-                        )}
-                      </div>
+                      <p className="text-sm text-muted-foreground truncate mt-0.5">{member.role}</p>
                     </div>
                   </div>
                   {isAdminOrOwner && (
-                    (member as any).status === 'pending' ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-destructive hover:bg-destructive/10 sm:self-auto self-start sm:ml-auto"
-                        onClick={() => handleDeleteMember(member.id)}
-                        title="Cancelar invitación"
-                      >
-                        <XCircle size={16} />
-                      </Button>
-                    ) : (
-                      // Hide delete button for self
-                      // We check if the member being rendered is the current user (by ID or Email)
-                      // Note: currentUserId is passed as prop. We also check against the user's email if available.
-                      (member.userId !== currentUserId && member.email !== currentUserEmail) && (
-                        <div className="flex items-center gap-2 sm:self-auto self-start sm:ml-auto">
-                          <EditTeamMemberDialog
-                            member={member}
-                            companyId={companyId!}
-                            onUpdated={() => setRefreshTrigger(prev => prev + 1)}
-                            canEditRole={isAdminOrOwner}
-                          />
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-destructive hover:bg-destructive/10"
-                            onClick={() => handleDeleteMember(member.id)}
-                            title="Eliminar miembro"
-                          >
-                            <Trash size={16} />
-                          </Button>
-                        </div>
-                      )
-                    )
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {(member as any).status === 'pending' ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-destructive hover:bg-destructive/10"
+                          onClick={() => handleDeleteMember(member.id)}
+                          title="Cancelar invitación"
+                        >
+                          <XCircle size={16} />
+                        </Button>
+                      ) : (
+                        (member.userId !== currentUserId && member.email !== currentUserEmail) && (
+                          <>
+                            {isOwnerById && (
+                              <EditTeamMemberDialog
+                                member={member}
+                                companyId={companyId!}
+                                onUpdated={() => setRefreshTrigger(prev => prev + 1)}
+                                canEditRole={true}
+                              />
+                            )}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-destructive hover:bg-destructive/10"
+                              onClick={() => handleDeleteMember(member.id)}
+                              title="Eliminar miembro"
+                            >
+                              <Trash size={16} />
+                            </Button>
+                          </>
+                        )
+                      )}
+                    </div>
                   )}
                 </div>
               </CardHeader>
@@ -815,7 +883,7 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
           )
         })}
 
-        {filteredMembers.length === 0 && (
+        {filteredMembers.length === 0 && onlyApprovedMembers.length === 0 && (
           <div className="col-span-full flex flex-col items-center justify-center py-16 text-center">
             <div className="p-4 rounded-full bg-muted/30 mb-4">
               <Users size={32} className="text-muted-foreground/40" />
@@ -823,69 +891,103 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
             <p className="text-muted-foreground/70 font-medium">
               {selectedTeamFilter
                 ? "No hay miembros en este equipo"
-                : "No team members added yet"}
+                : "Aún no se han agregado miembros al equipo"}
             </p>
           </div>
         )}
-      </div>
 
-      {/* Usuarios aprobados sin equipo (solo owner/admin) */}
-      {isAdminOrOwner && approvedMembers.length > 0 && (
-        <div className="mt-8 pt-6 border-t border-border/50">
-          <div className="flex items-center gap-2 mb-4">
-            <Users size={20} className="text-green-600" />
-            <h2 className="text-lg font-bold tracking-tight">Usuarios Registrados (App) ({approvedMembers.length})</h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {approvedMembers.map(member => (
-              <Card key={member.id} className="overflow-hidden border border-border/30 shadow-sm hover:shadow-md transition-all duration-200 rounded-xl group bg-green-50/20 dark:bg-green-950/5">
-                <CardHeader>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-start max-w-full">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <Avatar className="h-14 w-14 shrink-0 ring-2 ring-primary/10 ring-offset-2 bg-background">
-                        <AvatarFallback className="bg-gradient-to-br from-primary/20 to-primary/5 text-primary font-bold text-lg">
-                          {(member.nombre || member.email).split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1 min-w-0 overflow-hidden">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <CardTitle className="text-base font-bold truncate tracking-tight flex-1" title={member.nombre || member.email}>
-                            {member.nombre || member.email}
-                          </CardTitle>
-                        </div>
-                        <div className="flex items-center gap-2 mt-1 min-w-0">
-                          <p className="text-sm text-muted-foreground truncate flex-1 min-w-0" title={member.email}>
-                            {member.email}
-                          </p>
-                          {/* Rol oculto temporalmente por solicitud del usuario
-                          <Badge variant="outline" className="text-xs shrink-0 capitalize flex-none">
-                            {member.role || 'viewer'}
-                          </Badge>
-                          */}
-                        </div>
-                      </div>
-                    </div>
+        {/* Miembros sin equipo asignado (solo en empresa_miembros) */}
+        {onlyApprovedMembers.map(member => (
+          <Card key={member.id} className="overflow-hidden border border-border/30 shadow-sm hover:shadow-md transition-all duration-200 rounded-xl group">
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2 w-full min-w-0">
+                <Avatar className="h-10 w-10 shrink-0 ring-2 ring-primary/10 ring-offset-1">
+                  <AvatarFallback className="bg-gradient-to-br from-primary/20 to-primary/5 text-primary font-bold text-sm">
+                    {(member.nombre || member.email).substring(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1 overflow-hidden">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <CardTitle className="text-sm font-bold truncate tracking-tight min-w-0">
+                      {member.nombre || member.email}
+                    </CardTitle>
+                    <Badge variant="secondary" className="text-[10px] shrink-0 rounded-full px-2 font-bold">
+                      {member.role === 'admin' ? 'Admin' : member.role === 'owner' ? 'Propietario' : 'Viewer'}
+                    </Badge>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground mt-0.5">Colaborador</p>
+                </div>
+                {isAdminOrOwner &&
+                  member.email?.toLowerCase() !== currentUserEmail?.toLowerCase() &&
+                  member.usuario_id !== currentUserId && (
+                  <div className="flex items-center gap-1 shrink-0 ml-1">
+                    {isOwnerById && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => { setEditingMemberId(member.id); setEditingMemberRole(member.role) }}
+                        title="Editar rol"
+                      >
+                        <PencilSimple size={14} />
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10"
+                      onClick={() => handleDeleteApprovedMember(member)}
+                      title="Eliminar miembro"
+                    >
+                      <Trash size={14} />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {editingMemberId === member.id ? (
+                  <div className="flex items-center gap-2">
+                    <Select value={editingMemberRole} onValueChange={setEditingMemberRole}>
+                      <SelectTrigger className="h-8 text-xs flex-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="viewer">Lector</SelectItem>
+                        <SelectItem value="admin">Administrador</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button size="sm" className="h-8" onClick={() => handleUpdateApprovedMemberRole(member)}>
+                      Guardar
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-8" onClick={() => setEditingMemberId(null)}>
+                      Cancelar
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Email</span>
+                      <span className="font-medium truncate ml-2">{member.email}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground font-medium">Tareas Activas</span>
+                      <Badge variant="secondary" className="text-sm font-semibold px-2 py-0.5">
+                        {getApprovedLeadsCount(member.usuario_id)}
+                      </Badge>
+                    </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Registro</span>
-                      <span className="font-medium truncate ml-2 text-xs text-right">
-                        {new Date(member.created_at).toLocaleDateString('es-ES')}
-                      </span>
+                      <span className="text-xs font-medium">{new Date(member.created_at).toLocaleDateString('es-ES')}</span>
                     </div>
-                    {/* Sección 'Equipo' eliminada temporalmente por solicitud del usuario */}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground pt-4 mt-2">
-            Estos usuarios ingresaron mediante la nueva funcionalidad de login (App/CRM). Se muestran aquí con este identificativo de forma temporal.
-          </p>
-        </div>
-      )}
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </div>
   )
 }

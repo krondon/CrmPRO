@@ -196,7 +196,7 @@ export function CompanyManagement({ currentUserId, currentCompanyId, onCompanyCh
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <Eye size={20} className="text-primary" />
-            <h2 className="text-xl font-bold tracking-tight">Empresa Actual (Modo Invitado)</h2>
+            <h2 className="text-xl font-bold tracking-tight">Empresa Actual (Colaborador)</h2>
           </div>
           <Card className="ring-2 ring-primary/60 bg-gradient-to-r from-primary/5 to-transparent rounded-xl border-0 shadow-sm">
             <CardContent className="p-4">
@@ -224,7 +224,7 @@ export function CompanyManagement({ currentUserId, currentCompanyId, onCompanyCh
                     <div className="flex items-center gap-2 flex-wrap">
                       <Badge variant="secondary" className="h-5 whitespace-nowrap">
                         <Eye size={12} className="mr-1" />
-                        Invitado
+                        Colaborador
                       </Badge>
                       <Badge variant="outline" className="h-5 capitalize whitespace-nowrap">
                         {currentCompany?.role || 'viewer'}
@@ -490,7 +490,7 @@ export function CompanyManagement({ currentUserId, currentCompanyId, onCompanyCh
       {/* Sección de otras empresas invitadas (si hay más de una) */}
       {invitedCompanies.length > 0 && !isViewingInvitedCompany && (
         <div className="space-y-4">
-          <h2 className="text-xl font-bold text-muted-foreground tracking-tight">Empresas Invitadas</h2>
+          <h2 className="text-xl font-bold text-muted-foreground tracking-tight">Empresas como Colaborador</h2>
           <div className="grid gap-4">
             {invitedCompanies.map((company) => (
               <Card key={company.id} className="opacity-80 hover:opacity-100 transition-all duration-200 rounded-xl border border-border/30 shadow-sm hover:shadow-md">
@@ -520,7 +520,7 @@ export function CompanyManagement({ currentUserId, currentCompanyId, onCompanyCh
                       size="sm"
                       onClick={() => {
                         onCompanyChange(company.id)
-                        toast.success(`Entrando a ${company.name} como invitado`)
+                        toast.success(`Entrando a ${company.name} como colaborador`)
                       }}
                     >
                       <Eye size={14} className="mr-1" />

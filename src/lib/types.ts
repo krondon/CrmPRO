@@ -174,7 +174,7 @@ export interface Appointment {
 
 export interface Notification {
   id: string
-  type: 'task' | 'message' | 'appointment' | 'stage_change'
+  type: 'task' | 'message' | 'appointment' | 'stage_change' | 'team_invitation'
   title: string
   message: string
   timestamp: Date
@@ -410,10 +410,11 @@ export interface UpdateEmpresaDTO {
 export interface EmpresaDB {
   id: string
   nombre_empresa: string
+  usuario_id: string
   logo_url?: string
   codigo_empresa?: string
   created_at: string
-  created_by: string
+  created_by?: string
 }
 
 // ----- Empresa Miembros -----
@@ -425,13 +426,23 @@ export interface EmpresaMiembro {
   usuario_id: string | null
   email: string
   role: MemberRole
+  role_id?: string | null
   created_at: string
+  // Joined fields (from roles table)
+  roles?: {
+    id: string
+    name: string
+    permissions: RolePermission[]
+    color: string
+    is_system: boolean
+  } | null
 }
 
 export interface UpdateMemberRoleDTO {
   usuario_id?: string
   email: string
   role: MemberRole
+  role_id?: string | null
 }
 
 // ----- Pipeline DTOs -----

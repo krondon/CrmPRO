@@ -9,6 +9,12 @@ export async function buscarEmpresaPorId(empresaId: string) {
     const trimmedId = empresaId.trim()
     if (!trimmedId) return null
 
+    // Validar formato UUID antes de enviar a PostgreSQL
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(trimmedId)) {
+        throw new Error('El ID de empresa debe ser un UUID válido (ej: a1b2c3d4-e5f6-7890-abcd-ef1234567890)')
+    }
+
     const { data, error } = await supabase
         .rpc('buscar_empresa_por_id', { p_id: trimmedId })
 
@@ -114,7 +120,8 @@ export async function getSolicitudesPendientes(empresaId: string): Promise<Solic
  */
 export async function aprobarSolicitud(
     solicitudId: string,
-    roleAsignado: string = 'viewer'
+    roleAsignado: string = 'viewer',
+    roleId?: string | null
 ): Promise<void> {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('No autenticado')
@@ -130,14 +137,17 @@ export async function aprobarSolicitud(
     if (solicitud.status !== 'pending') throw new Error('Esta solicitud ya fue procesada')
 
     // 2. Insertar en empresa_miembros
+    const memberPayload: Record<string, unknown> = {
+        empresa_id: solicitud.empresa_id,
+        usuario_id: solicitud.solicitante_id,
+        email: solicitud.solicitante_email,
+        role: roleAsignado,
+    }
+    if (roleId) memberPayload.role_id = roleId
+
     const { error: memberErr } = await supabase
         .from('empresa_miembros')
-        .insert({
-            empresa_id: solicitud.empresa_id,
-            usuario_id: solicitud.solicitante_id,
-            email: solicitud.solicitante_email,
-            role: roleAsignado,
-        })
+        .insert(memberPayload)
 
     if (memberErr) {
         if (memberErr.code === '23505') {

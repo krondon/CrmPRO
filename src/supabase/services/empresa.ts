@@ -47,20 +47,45 @@ export async function createEmpresa({ nombre_empresa, usuario_id, logo_url }: Cr
 
     console.log('[EMPRESA] empresa insertada retorno inmediato', inserted)
 
-    // Verificación adicional
+    // Fallback: si el trigger fn_seed_roles_on_empresa_create no creó los roles, crearlos manualmente
     if (inserted?.id) {
-        const { data: reread, error: rereadError } = await supabase
-            .from('empresa')
-            .select('*')
-            .eq('id', inserted.id)
-            .single()
-        if (rereadError) {
-            console.error('[EMPRESA] error releyendo empresa', rereadError)
-        } else {
-            console.log('[EMPRESA] empresa reread confirmación', reread)
+        try {
+            const { data: existingRoles } = await supabase
+                .from('roles')
+                .select('name')
+                .eq('empresa_id', inserted.id)
+                .in('name', ['Admin', 'Viewer'])
+
+            const existingNames = new Set((existingRoles || []).map((r: any) => r.name))
+            const toInsert = []
+
+            if (!existingNames.has('Admin')) {
+                toInsert.push({
+                    empresa_id: inserted.id,
+                    name: 'Admin',
+                    permissions: ['view_dashboard','view_pipeline','edit_leads','delete_leads','view_analytics','view_calendar','manage_team','manage_settings','view_budgets','edit_budgets'],
+                    color: '#8b5cf6',
+                    is_system: true
+                })
+            }
+            if (!existingNames.has('Viewer')) {
+                toInsert.push({
+                    empresa_id: inserted.id,
+                    name: 'Viewer',
+                    permissions: ['view_dashboard','view_pipeline','view_analytics','view_calendar','view_budgets'],
+                    color: '#6b7280',
+                    is_system: true
+                })
+            }
+            if (toInsert.length > 0) {
+                const { error: rolesErr } = await supabase.from('roles').insert(toInsert)
+                if (rolesErr) {
+                    console.warn('[EMPRESA] no se pudieron crear roles de sistema:', rolesErr.message)
+                }
+            }
+        } catch (e) {
+            console.warn('[EMPRESA] error en fallback de roles:', e)
         }
-    } else {
-        console.warn('[EMPRESA] insert no devolvió id, revisar políticas / RETURNING')
     }
 
     return inserted
@@ -196,12 +221,21 @@ export async function deleteEmpresa(id: string): Promise<boolean> {
 // ==========================================
 
 /**
- * Obtiene los miembros de una empresa
+ * Obtiene los miembros de una empresa (incluye join con roles si role_id existe)
  */
 export async function getCompanyMembers(companyId: string): Promise<EmpresaMiembro[]> {
     const { data, error } = await supabase
         .from('empresa_miembros')
-        .select('*')
+        .select(`
+            *,
+            roles (
+                id,
+                name,
+                permissions,
+                color,
+                is_system
+            )
+        `)
         .eq('empresa_id', companyId)
 
     if (error) throw error
@@ -209,19 +243,22 @@ export async function getCompanyMembers(companyId: string): Promise<EmpresaMiemb
 }
 
 /**
- * Actualiza el rol de un miembro
+ * Actualiza el rol de un miembro (actualiza tanto role string como role_id UUID)
  */
 export async function updateCompanyMemberRole(
     companyId: string,
-    { usuario_id, email, role }: UpdateMemberRoleDTO
+    { usuario_id, email, role, role_id }: UpdateMemberRoleDTO
 ): Promise<EmpresaMiembro[]> {
     if (!companyId) throw new Error('companyId requerido')
     if (!role) throw new Error('role requerido')
 
+    const updatePayload: Record<string, unknown> = { role }
+    if (role_id !== undefined) updatePayload.role_id = role_id
+
     if (email) {
         const { data, error } = await supabase
             .from('empresa_miembros')
-            .update({ role })
+            .update(updatePayload)
             .eq('empresa_id', companyId)
             .ilike('email', email)
             .select('*')
@@ -233,7 +270,7 @@ export async function updateCompanyMemberRole(
     if (usuario_id) {
         const { data, error } = await supabase
             .from('empresa_miembros')
-            .update({ role })
+            .update(updatePayload)
             .eq('empresa_id', companyId)
             .eq('usuario_id', usuario_id)
             .select('*')

@@ -31,7 +31,7 @@ interface AuthContextType {
     setCurrentCompanyId: (id: string) => void
     setCompanies: React.Dispatch<React.SetStateAction<Company[]>>
     login: (email: string, password: string) => Promise<void>
-    register: (email: string, password: string, businessName: string, accountType?: 'owner' | 'employee') => Promise<void>
+    register: (email: string, password: string, businessName: string, accountType?: 'owner' | 'employee', userName?: string) => Promise<void>
     logout: () => Promise<void>
     fetchCompanies: () => Promise<Company[]>
     leaveCompanyHandler: (companyId: string) => Promise<void>
@@ -39,6 +39,7 @@ interface AuthContextType {
     resetPasswordByRecoveryEmail: (recoveryEmail: string) => Promise<void>
     updateEmail: (newEmail: string) => Promise<void>
     updateRecoveryEmail: (recoveryEmail: string) => Promise<void>
+    upgradeToOwner: (businessName: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
@@ -199,7 +200,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     row = await createUsuario({
                         id: authUser.id,
                         email: authUser.email || email,
-                        nombre: meta.business_name || authUser.email?.split('@')[0] || 'Usuario',
+                        nombre: meta.user_name || meta.business_name || authUser.email?.split('@')[0] || 'Usuario',
                         account_type: meta.account_type || 'owner'
                     })
                 } catch (createErr: any) {
@@ -253,8 +254,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 recoveryEmail: row.recovery_email,
                 accountType: row.account_type || 'owner'
             }
-            setUser(newUser)
 
+            // Cargar empresas ANTES de setUser para que ambos estados se actualicen juntos
+            // y React no renderice un estado intermedio con user set pero companies vacío
             const empresas = await getEmpresasByUsuario(authUser.id)
             const uiCompanies = empresas.map((e: any) => ({
                 id: e.id,
@@ -265,30 +267,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 logo: e.logo_url || undefined,
                 codigoEmpresa: e.codigo_empresa || undefined
             }))
-            setCompanies(uiCompanies)
-            if (uiCompanies.length > 0) {
-                setCurrentCompanyIdState(uiCompanies[0].id)
-            }
 
-            if (uiCompanies.length === 0) {
-                // Solo crear empresa automática si es owner
-                if (!row.account_type || row.account_type === 'owner') {
-                    console.log('[LOGIN] No se encontraron empresas; creando empresa inicial')
-                    try {
-                        const empresaCreada = await createEmpresa({ nombre_empresa: row.nombre, usuario_id: authUser.id })
-                        console.log('[LOGIN] Empresa inicial creada en login', empresaCreada)
-                        const nuevaCompany = {
-                            id: empresaCreada.id,
-                            name: empresaCreada.nombre_empresa,
-                            ownerId: empresaCreada.usuario_id,
-                            createdAt: new Date(empresaCreada.created_at),
-                            role: 'owner'
-                        }
-                        setCompanies([nuevaCompany])
-                        setCurrentCompanyIdState(nuevaCompany.id)
-                    } catch (err: any) {
-                        console.error('[LOGIN] Error creando empresa inicial en login', err)
+            if (uiCompanies.length === 0 && (!row.account_type || row.account_type === 'owner')) {
+                // Crear empresa automática si es owner sin empresa
+                console.log('[LOGIN] No se encontraron empresas; creando empresa inicial')
+                try {
+                    const empresaCreada = await createEmpresa({ nombre_empresa: row.nombre, usuario_id: authUser.id })
+                    console.log('[LOGIN] Empresa inicial creada en login', empresaCreada)
+                    const nuevaCompany = {
+                        id: empresaCreada.id,
+                        name: empresaCreada.nombre_empresa,
+                        ownerId: empresaCreada.usuario_id,
+                        createdAt: new Date(empresaCreada.created_at),
+                        role: 'owner'
                     }
+                    // Setear user + companies juntos para evitar render intermedio
+                    setUser(newUser)
+                    setCompanies([nuevaCompany])
+                    setCurrentCompanyIdState(nuevaCompany.id)
+                } catch (err: any) {
+                    console.error('[LOGIN] Error creando empresa inicial en login', err)
+                    // Setear user igualmente para que llegue a /create-empresa
+                    setUser(newUser)
+                    setCompanies([])
+                    toast.error('No se pudo crear tu empresa automáticamente. Crea una desde la pantalla de configuración.', { duration: 7000 })
+                }
+            } else {
+                // Setear user + companies juntos en el mismo batch de React
+                setUser(newUser)
+                setCompanies(uiCompanies)
+                if (uiCompanies.length > 0) {
+                    setCurrentCompanyIdState(uiCompanies[0].id)
                 } else {
                     console.log('[LOGIN] Usuario employee sin empresas — redirigir a /join-crm')
                 }
@@ -308,12 +317,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }
 
-    const register = async (email: string, password: string, businessName: string, accountType: 'owner' | 'employee' = 'owner') => {
+    const register = async (email: string, password: string, businessName: string, accountType: 'owner' | 'employee' = 'owner', userName?: string) => {
         try {
             console.log('[REGISTER] iniciando registro para', email, 'tipo:', accountType)
             const authUser = await authRegister(email, password, {
                 account_type: accountType,
-                business_name: businessName
+                business_name: businessName,
+                user_name: userName || businessName
             })
             console.log('[REGISTER] authUser recibido', authUser)
 
@@ -327,7 +337,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 return
             }
 
-            const row = await createUsuario({ id: authUser.id, email, nombre: businessName, account_type: accountType })
+            // Para owner: userName es el nombre personal, businessName es el nombre de la empresa
+            // Para employee: businessName ya es el nombre personal
+            const nombreUsuario = accountType === 'owner' ? (userName || businessName) : businessName
+            const row = await createUsuario({ id: authUser.id, email, nombre: nombreUsuario, account_type: accountType })
             console.log('[REGISTER] fila insertada usuarios', row)
 
             if (accountType === 'owner') {
@@ -337,7 +350,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 const newUser: User = {
                     id: row.id,
                     email: row.email,
-                    businessName: row.nombre,
+                    businessName: row.nombre ?? '',
                     recoveryEmail: row.recovery_email,
                     accountType: 'owner'
                 }
@@ -356,7 +369,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 const newUser: User = {
                     id: row.id,
                     email: row.email,
-                    businessName: row.nombre,
+                    businessName: row.nombre ?? '',
                     recoveryEmail: row.recovery_email,
                     accountType: 'employee'
                 }
@@ -541,6 +554,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }
 
+    const upgradeToOwner = async (businessName: string) => {
+        if (!user) throw new Error('No autenticado')
+
+        try {
+            // 1. Crear empresa para el usuario
+            const empresa = await createEmpresa({
+                nombre_empresa: businessName,
+                usuario_id: user.id
+            })
+
+            // 2. Actualizar account_type en tabla usuarios
+            const { error: updateErr } = await supabase
+                .from('usuarios')
+                .update({ account_type: 'owner' })
+                .eq('id', user.id)
+
+            if (updateErr) throw updateErr
+
+            // 3. Actualizar estado local
+            setUser(prev => prev ? { ...prev, accountType: 'owner' } : prev)
+
+            const newCompany: Company = {
+                id: empresa.id,
+                name: empresa.nombre_empresa,
+                ownerId: empresa.usuario_id,
+                createdAt: new Date(empresa.created_at),
+                role: 'owner'
+            }
+            setCompanies(prev => [newCompany, ...prev])
+            setCurrentCompanyIdState(newCompany.id)
+
+            toast.success('¡Empresa creada! Ahora eres propietario.')
+        } catch (e: any) {
+            console.error('[AUTH] Error upgrading to owner:', e)
+            toast.error(e.message || 'Error al crear empresa')
+            throw e
+        }
+    }
+
     const value: AuthContextType = {
         user,
         companies,
@@ -557,7 +609,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         resetPassword,
         resetPasswordByRecoveryEmail,
         updateEmail,
-        updateRecoveryEmail
+        updateRecoveryEmail,
+        upgradeToOwner
     }
 
     return (

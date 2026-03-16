@@ -56,49 +56,39 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
     const [joinRequests, setJoinRequests] = useState<ResponseNotification[]>([])
     const [processingRequest, setProcessingRequest] = useState<string | null>(null)
 
+    const loadInvitations = async () => {
+        try {
+            const { data: { user } } = await supabase.auth.getUser()
+            if (user?.email) {
+                const invitationsData = await getPendingInvitations(user.email)
+                const mappedInvitations = await Promise.all((invitationsData || []).map(async (inv: any) => {
+                    let empresa = inv.empresa
+                    let equipo = inv.equipo
+                    if (!empresa?.nombre_empresa || !equipo?.nombre_equipo) {
+                        try {
+                            const { data: details } = await supabase.functions.invoke('invite-details', {
+                                body: { empresa_id: inv.empresa_id, equipo_id: inv.equipo_id }
+                            })
+                            if (details) {
+                                if (!empresa?.nombre_empresa && details.empresa_nombre) empresa = { nombre_empresa: details.empresa_nombre }
+                                if (!equipo?.nombre_equipo && details.equipo_nombre) equipo = { nombre_equipo: details.equipo_nombre }
+                            }
+                        } catch (e) { console.warn('Could not fetch invite details', e) }
+                    }
+                    return { ...inv, empresa: empresa || { nombre_empresa: 'Empresa' }, equipo: equipo || { nombre_equipo: 'General' } }
+                }))
+                setInvitations(mappedInvitations)
+            }
+        } catch (e) { console.error('Error loading invitations:', e) }
+    }
+
     useEffect(() => {
         const loadData = async () => {
             try {
                 const { data: { user } } = await supabase.auth.getUser()
                 if (user && user.email) {
                     // Cargar invitaciones pendientes
-                    // getPendingInvitations ya incluye el join con empresa y equipo
-                    const invitationsData = await getPendingInvitations(user.email)
-
-                    // Mapeamos para asegurar que la estructura sea la esperada
-                    // Si el join falla (por RLS), intentamos usar invite-details como fallback
-                    const mappedInvitations = await Promise.all((invitationsData || []).map(async (inv: any) => {
-                        let empresa = inv.empresa
-                        let equipo = inv.equipo
-
-                        // Si falta información (probablemente por RLS), intentamos recuperarla vía Edge Function
-                        if (!empresa?.nombre_empresa || !equipo?.nombre_equipo) {
-                            try {
-                                const { data: details } = await supabase.functions.invoke('invite-details', {
-                                    body: { empresa_id: inv.empresa_id, equipo_id: inv.equipo_id }
-                                })
-                                if (details) {
-                                    if (!empresa?.nombre_empresa && details.empresa_nombre) {
-                                        empresa = { nombre_empresa: details.empresa_nombre }
-                                    }
-                                    if (!equipo?.nombre_equipo && details.equipo_nombre) {
-                                        equipo = { nombre_equipo: details.equipo_nombre }
-                                    }
-                                }
-                            } catch (e) {
-                                // Si falla la función (no desplegada), nos quedamos con lo que tenemos
-                                console.warn('Could not fetch invite details', e)
-                            }
-                        }
-
-                        return {
-                            ...inv,
-                            empresa: empresa || { nombre_empresa: 'Empresa' },
-                            equipo: equipo || { nombre_equipo: 'General' }
-                        }
-                    }))
-
-                    setInvitations(mappedInvitations)
+                    await loadInvitations()
 
                     // Cargar notificaciones de respuesta
                     const { data: notifications } = await supabase
@@ -177,6 +167,9 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
                             setResponseNotifications(prev => [notif, ...prev])
                         } else if (notif?.type === 'lead_assigned') {
                             setLeadAssignedNotifications(prev => [notif, ...prev])
+                        } else if (notif?.type === 'team_invitation') {
+                            // Reload invitations when new team_invitation notification arrives
+                            loadInvitations()
                         }
                     })
 
@@ -214,7 +207,7 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
                     query = query.in('type', ['invitation_response'])
                 }
             } else {
-                query = query.in('type', ['lead_assigned', 'invitation_response'])
+                query = query.in('type', ['lead_assigned', 'invitation_response', 'team_invitation'])
             }
 
             await query
@@ -323,7 +316,7 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
 
                 {/* Controles de pestañas simples */}
                 <div className="flex items-center gap-2 mt-4">
-                    <Button variant={activeTab === 'leads' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('leads')}>Oportunidades Asignadas</Button>
+                    <Button variant={activeTab === 'leads' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('leads')}>Todas</Button>
                     <Button variant={activeTab === 'team' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('team')}>Equipo</Button>
                 </div>
 

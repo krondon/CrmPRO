@@ -265,6 +265,177 @@ Para instrucciones detalladas de configuración y pruebas, consulta:
 - **Plan de Implementación**: `.gemini/antigravity/brain/[conversation-id]/implementation_plan.md`
 
 ---
+# Changelog — Roles, Teams & Empresa Creation
+**Rama:** `raicelys` | **Última actualización:** 2026-03-16
+
+---
+
+## Sesión 2 — 2026-03-16
+
+### 5. Fix login: pantalla "sin empresa" al iniciar sesión
+**Archivo:** `src/hooks/useAuth.tsx`
+
+**Problema:** Cada vez que el usuario iniciaba sesión aparecía la pantalla `/create-empresa` aunque ya tuviera empresa.
+
+**Causa raíz:** En la función `login`, `setUser(newUser)` se llamaba *antes* del `await getEmpresasByUsuario(...)`. React renderizaba un estado intermedio con `user ≠ null` + `companies = []`, disparando el redirect a `/create-empresa`. Luego cuando llegaban las companies, era demasiado tarde.
+
+**Solución:** Se movió `setUser` a *después* de cargar las empresas, y se reestructuró el bloque para setear ambos estados juntos. También se ajustó el fallback de creación automática de empresa para el owner.
+
+---
+
+### 6. Invitaciones pendientes no aparecían en TeamView
+**Archivos:**
+- `src/components/crm/TeamView.tsx`
+- `database/migrations/fix_invitaciones_pending.sql` ← **EJECUTAR EN SUPABASE SQL EDITOR**
+
+**Problema:** Al enviar una invitación, el card del invitado nunca aparecía con badge "Pendiente" en la vista de equipo.
+
+**Causa raíz:** `getCompanyMembers` hace un join con la tabla `roles` usando PostgREST (`select('*, roles(*)')`). Como `empresa_miembros` tiene DOS FKs a `roles` (`role_id` y `rol_id`), PostgREST lanza "ambiguous relationship". Esto causaba que todo el `useEffect` fallara silenciosamente via el `catch` exterior, y los pendientes nunca se seteaban en el estado.
+
+**Solución frontend:** Se envolvió `getCompanyMembers` en su propio `try-catch` local. Si falla, continúa con `companyMembers = []` y los pendientes SÍ aparecen.
+
+**Migración SQL `fix_invitaciones_pending.sql`:**
+- Agrega columna `permission_role` a `equipo_invitaciones` (si no existía — en producción ya existía como nullable)
+- Agrega columna `role_id uuid REFERENCES roles(id)` a `equipo_invitaciones` (condicional, solo si tabla `roles` existe)
+- Amplía política RLS SELECT para incluir admins de empresa (antes solo owner + invitado podían leer)
+- Amplía política RLS INSERT para incluir admins (antes solo owner podía insertar)
+
+**Comportamiento esperado post-fix:**
+- Card con badge amarillo **"Pendiente"** + badge del rol (Admin/Viewer)
+- Botón X para cancelar la invitación
+- Al aceptar la invitación, el card pasa a miembro activo
+
+---
+
+### 7. Registro — nombre de usuario vs nombre de empresa
+**Archivos:**
+- `src/components/crm/RegisterView.tsx`
+- `src/hooks/useAuth.tsx`
+
+**Problema:** Al registrarse como owner, el campo "Nombre de la empresa" se guardaba también como `usuarios.nombre`. El usuario veía su nombre de perfil igual al nombre de la empresa (ej: "rmontero30679").
+
+**Solución:**
+- Se agregó un campo separado **"Tu nombre"** en el formulario de registro (solo para owners)
+- La función `register` acepta ahora un 5º parámetro opcional `userName?`
+- En `createUsuario`: `nombre = userName` (nombre personal) — `empresa.nombre_empresa = businessName` (nombre de la empresa)
+- Para employees: sin cambio, el único campo sigue siendo "Tu nombre" = `businessName`
+- El fallback en login también usa `meta.user_name` antes que `meta.business_name`
+
+---
+
+### 8. Campo "Presupuesto" renombrado a "Ventas" (solo en Resumen del lead)
+**Archivo:** `src/lib/i18n.ts` (`lead.budget`)
+
+**Cambio:** El label del campo `$0` en la pestaña **Resumen** del detalle de lead cambió de **"PRESUPUESTO"** a **"VENTAS"**.
+
+**Qué NO cambió:**
+- Tab "Presupuesto" en el detalle del lead → sigue siendo "Presupuesto"
+- Sección "Documentos de Presupuesto" dentro de ese tab → sin cambio
+- Exportación CSV, importación masiva → "Presupuesto" (revertidos)
+- Nombres de columnas en BD (`presupuesto`, `budget`) → nunca se tocaron
+
+---
+
+## Sesión 1 — 2026-03-15
+
+### 1. AddTeamMemberDialog — Traducción completa al español
+**Archivo:** `src/components/crm/AddTeamMemberDialog.tsx`
+
+- Todos los labels traducidos al español
+- `jobRoles` cambió de `string[]` a `{ value, label }[]` para poder mostrar nombre y guardar valor
+- Agregado helper `getRoleDisplayName` que mapea `Admin → Administrador`, `Viewer → Lector`
+- Selector de rol de permisos muestra roles de la BD con color indicator + badge "(sistema)"
+- El rol Viewer se preselecciona por defecto
+- Reset del formulario al cerrar o enviar
+
+### 2. TeamView — Editar/Eliminar miembros + sección "Usuarios del CRM"
+**Archivo:** `src/components/crm/TeamView.tsx`
+
+- **Sección "Miembros del CRM"** (`approvedMembers`): muestra usuarios que se unieron via solicitud de unión (`empresa_miembros`) y que NO están ya en `teamMembers` (personas con equipo)
+- Los nombres se obtienen de la tabla `usuarios` (dos queries: miembros → usuarios por ID) — evita mostrar el email como nombre
+- **Botones Editar/Eliminar** en cards de ambas secciones:
+  - Solo visible si no es el propio usuario (anti auto-eliminación)
+  - Botón Editar (lápiz): solo `isOwnerById` puede editar roles
+  - Botón Eliminar (papelera): `isAdminOrOwner` puede eliminar
+- **Selector de rol en solicitudes de unión**: al aprobar, se puede elegir qué rol asignar
+- **Layout responsive**: `flex items-start justify-between gap-2` + `shrink-0` en botones para que no se corten
+
+### 3. Creación de empresa — Fix trigger + fallback frontend
+**Archivos:**
+- `database/schema.sql` — función `fn_seed_roles_on_empresa_create` con `EXCEPTION WHEN OTHERS`
+- `database/migrations/fix_empresa_roles_trigger.sql` ← **EJECUTADO ✅**
+- `src/supabase/services/empresa.ts` — fallback JS en `createEmpresa`
+
+**Problema:** El trigger de BD fallaba con `"invalid input syntax for type json"` y hacía rollback de toda la inserción de empresa.
+
+**Solución:**
+1. Trigger envuelto en `BEGIN...EXCEPTION WHEN OTHERS` → nunca falla la transacción principal
+2. Frontend: después de crear la empresa, verifica si los roles Admin/Viewer existen y los crea si no (fallback)
+3. Migración SQL: actualiza el trigger + siembra roles faltantes para empresas existentes con `WHERE NOT EXISTS`
+
+### 4. Flujo de owner sin empresa
+**Archivos:**
+- `src/hooks/useAuth.tsx`
+- `src/App.tsx`
+- `src/components/crm/CreateEmpresaView.tsx` (nuevo)
+
+- Owner sin empresa → redirige a `/create-empresa` (pantalla simple para nombrar su empresa)
+- Una vez creada la empresa, redirige al dashboard
+- Si la creación automática falla durante login, muestra toast de error y lleva a esa pantalla
+
+---
+
+## Migraciones SQL ejecutadas en producción
+
+| Archivo | Estado | Descripción |
+|---------|--------|-------------|
+| `database/migrations/fix_empresa_roles_trigger.sql` | ✅ Ejecutado | Fix trigger + seed roles faltantes |
+| `database/migrations/fix_invitaciones_pending.sql` | ✅ Ejecutado | permission_role + RLS ampliado para admins |
+
+---
+
+## Pendientes
+
+### PENDIENTE — Validar permisos RLS para `empresa_miembros`
+Al hacer `leaveCompany`, el `count === 0` warning aparece en algunos casos. Revisar que la política RLS permita al usuario eliminar su propio registro en `empresa_miembros`.
+
+### PENDIENTE — Editar miembro (TeamView)
+`EditTeamMemberDialog` solo edita datos de `persona` (equipo, pipelines, cargo). No edita el rol en `empresa_miembros.role_id`. Si se quiere que el Owner pueda cambiar el rol de permisos desde ahí, hay que agregar ese campo al dialog.
+
+### PENDIENTE — Roles personalizados (REFACTORIZACION_ROLES.md)
+El sistema de roles está a mitad: la tabla `roles` existe y los roles Admin/Viewer se crean, pero:
+- No se hace enforcement de permisos en frontend basado en `permissions` jsonb
+- `RolesManagement.tsx` permite crear roles custom pero no se aplican en las vistas
+- `empresa_miembros` tiene tanto `role` (texto legacy) como `role_id` (FK nuevo) — deben sincronizarse
+
+### PENDIENTE — BUG-01 de REFACTORIZACION_ROLES.md
+Cuenta creada directamente en Supabase Auth (sin pasar por el registro del app) puede no tener fila en `usuarios`. El login la crea on-the-fly, pero si falla (race condition), el usuario queda en estado inválido. Agregar manejo de error más robusto.
+
+### PENDIENTE — Fix ambiguous relationship en getCompanyMembers
+`empresa_miembros` tiene dos FKs a `roles` (`role_id` y `rol_id`). La función `getCompanyMembers` usa `select('*, roles(*)')` que PostgREST no puede resolver. Opciones:
+- Usar hint de FK explícito: `select('*, roles!empresa_miembros_role_id_fkey(*)')`
+- O eliminar la columna `rol_id` legacy (con su FK) si ya no se usa
+
+---
+
+## Todos los archivos modificados
+
+| Archivo | Sesión | Cambio |
+|---------|--------|--------|
+| `src/components/crm/AddTeamMemberDialog.tsx` | 1 | Traducción + mejoras UX |
+| `src/components/crm/TeamView.tsx` | 1+2 | approvedMembers + editar/eliminar + try-catch getCompanyMembers |
+| `src/supabase/services/empresa.ts` | 1 | Fallback creación de roles post-empresa |
+| `src/hooks/useAuth.tsx` | 1+2 | Fix setUser/setCompanies batch + registro userName |
+| `src/App.tsx` | 1 | Ruta /create-empresa + redirect owner sin empresa |
+| `src/components/crm/CreateEmpresaView.tsx` | 1 | Nuevo: pantalla para owner sin empresa |
+| `src/components/crm/RegisterView.tsx` | 2 | Campo "Tu nombre" separado para owners |
+| `src/lib/i18n.ts` | 2 | `lead.budget` → 'Ventas' |
+| `database/schema.sql` | 1 | Trigger con EXCEPTION handling |
+| `database/migrations/fix_empresa_roles_trigger.sql` | 1 | Migración producción ✅ |
+| `database/migrations/fix_invitaciones_pending.sql` | 2 | Migración producción ✅ |
+
+
+
 
 📄 **License**: MIT
 

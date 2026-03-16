@@ -33,24 +33,6 @@ export function RolesManagement({ companyId }: { companyId: string }) {
   const [roleColor, setRoleColor] = useState('#3b82f6')
   const [selectedPermissions, setSelectedPermissions] = useState<RolePermission[]>([])
 
-  // Agregar los roles fijos al principio
-  const SYSTEM_ROLES: Role[] = [
-    {
-      id: 'admin',
-      name: 'Admin',
-      permissions: ALL_PERMISSIONS.map(p => p.id),
-      color: '#8b5cf6',
-      isSystem: true
-    },
-    {
-      id: 'viewer',
-      name: 'Viewer',
-      permissions: ['view_dashboard', 'view_pipeline', 'edit_leads', 'view_analytics', 'view_calendar', 'view_budgets'],
-      color: '#3b82f6',
-      isSystem: true
-    }
-  ]
-
   useEffect(() => {
     async function fetchRoles() {
       if (!companyId) return
@@ -58,13 +40,12 @@ export function RolesManagement({ companyId }: { companyId: string }) {
       try {
         const { getRoles } = await import('@/supabase/services/roles')
         const dbRoles = await getRoles(companyId)
-        // Set the roles combining system roles and custom database roles
-        setRoles([...SYSTEM_ROLES, ...dbRoles])
+        // Los roles de sistema (Admin, Viewer) ya vienen de la BD
+        setRoles(dbRoles)
       } catch (err) {
         console.error('Error fetching roles:', err)
         toast.error('Error al cargar roles')
-        // Fallback to just system roles on error
-        setRoles(SYSTEM_ROLES)
+        setRoles([])
       } finally {
         setIsLoading(false)
       }
@@ -137,7 +118,8 @@ export function RolesManagement({ companyId }: { companyId: string }) {
   }
 
   const handleDeleteRole = async (roleId: string) => {
-    if (['admin', 'viewer'].includes(roleId)) {
+    const roleToDelete = roles.find(r => r.id === roleId)
+    if (roleToDelete?.isSystem) {
       toast.error('No se pueden eliminar los roles del sistema')
       return
     }
@@ -182,7 +164,7 @@ export function RolesManagement({ companyId }: { companyId: string }) {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {(roles || []).map((role) => {
-            const isSystemRole = role.isSystem || ['admin', 'viewer'].includes(role.id)
+            const isSystemRole = !!role.isSystem
 
             return (
               <Card key={role.id}>

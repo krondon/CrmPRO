@@ -45,15 +45,35 @@ serve(async (req) => {
 
     if (inviteError) throw new Error("Invitación no encontrada");
 
-    // 2. Insertar en empresa_miembros (Nueva tabla de membresía)
+    // 2. Resolver role_id desde la tabla roles (buscar por nombre del permission_role)
+    const permRole = invite.permission_role || 'viewer';
+    let resolvedRoleId: string | null = null;
+    try {
+      const roleName = permRole === 'admin' ? 'Admin' : 'Viewer';
+      const { data: roleRow } = await supabaseAdmin
+        .from('roles')
+        .select('id')
+        .eq('empresa_id', invite.empresa_id)
+        .eq('name', roleName)
+        .eq('is_system', true)
+        .maybeSingle();
+      if (roleRow) resolvedRoleId = roleRow.id;
+    } catch (e) {
+      console.warn('[accept-invite] No se pudo resolver role_id:', e);
+    }
+
+    // 3. Insertar en empresa_miembros (Nueva tabla de membresía)
+    const memberPayload: Record<string, unknown> = {
+      empresa_id: invite.empresa_id,
+      usuario_id: userId,
+      email: invite.invited_email,
+      role: permRole
+    };
+    if (resolvedRoleId) memberPayload.role_id = resolvedRoleId;
+
     const { error: memberError } = await supabaseAdmin
       .from('empresa_miembros')
-      .insert({
-        empresa_id: invite.empresa_id,
-        usuario_id: userId,
-        email: invite.invited_email,
-        role: invite.permission_role || 'viewer'
-      });
+      .insert(memberPayload);
 
     if (memberError) {
       console.error("Error creating empresa_miembros:", memberError);
