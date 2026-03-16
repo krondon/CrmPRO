@@ -16,6 +16,9 @@ import { toast } from 'sonner'
 
 // Maximum budget limit: 10 million dollars
 const MAX_BUDGET = 10_000_000
+const MAX_LOCATION_LENGTH = 120
+const MAX_EVENT_LENGTH = 80
+const MAX_MEMBERSHIP_LENGTH = 80
 
 export interface SingleLeadFormData {
     name: string
@@ -42,6 +45,8 @@ interface SingleLeadFormProps {
     whatsappInstances?: Pick<EmpresaInstanciaDB, 'id' | 'label'>[]
     /** Contacto seleccionado para pre-llenar el formulario */
     selectedContact?: ContactDB | null
+    /** Datos sugeridos desde la pestaña de pegado rápido */
+    prefillData?: Partial<SingleLeadFormData> | null
 }
 
 export function SingleLeadForm({
@@ -52,7 +57,8 @@ export function SingleLeadForm({
     onSubmit,
     isSubmitting = false,
     whatsappInstances = [],
-    selectedContact
+    selectedContact,
+    prefillData
 }: SingleLeadFormProps) {
     const t = useTranslation('es')
 
@@ -92,19 +98,43 @@ export function SingleLeadForm({
         }
     }, [selectedContact])
 
+    // Apply values parsed from quick paste tab
+    useEffect(() => {
+        if (!prefillData) return
+
+        if (typeof prefillData.name === 'string') setName(prefillData.name)
+        if (typeof prefillData.email === 'string') setEmail(prefillData.email)
+        if (typeof prefillData.phone === 'string') setPhone(prefillData.phone)
+        if (typeof prefillData.company === 'string') setCompany(prefillData.company)
+        if (typeof prefillData.location === 'string') setLocation(prefillData.location)
+        if (typeof prefillData.evento === 'string') setEvento(prefillData.evento)
+        if (typeof prefillData.membresia === 'string') setMembresia(prefillData.membresia)
+        if (typeof prefillData.budget === 'number' && prefillData.budget >= 0) {
+            setBudget(String(prefillData.budget))
+        }
+        if (prefillData.priority) setPriority(prefillData.priority)
+        if (prefillData.stageId) setStageId(prefillData.stageId)
+        if (prefillData.assignedTo) setAssignedTo(prefillData.assignedTo)
+    }, [prefillData])
+
     const handleSubmit = async () => {
         if (!name.trim()) {
             toast.error('El nombre es requerido')
             return
         }
 
-        if (evento.trim().length > 80) {
-            toast.error('Evento no puede superar 80 caracteres')
+        if (location.trim().length > MAX_LOCATION_LENGTH) {
+            toast.error(`Ubicación no puede superar ${MAX_LOCATION_LENGTH} caracteres`)
             return
         }
 
-        if (membresia.trim().length > 80) {
-            toast.error('Membresía no puede superar 80 caracteres')
+        if (evento.trim().length > MAX_EVENT_LENGTH) {
+            toast.error(`Evento no puede superar ${MAX_EVENT_LENGTH} caracteres`)
+            return
+        }
+
+        if (membresia.trim().length > MAX_MEMBERSHIP_LENGTH) {
+            toast.error(`Membresía no puede superar ${MAX_MEMBERSHIP_LENGTH} caracteres`)
             return
         }
 
@@ -230,7 +260,12 @@ export function SingleLeadForm({
                 <Input
                     id="lead-location"
                     value={location}
-                    onChange={(e) => setLocation(e.target.value)}
+                    onChange={(e) => {
+                        if (e.target.value.length <= MAX_LOCATION_LENGTH) {
+                            setLocation(e.target.value)
+                        }
+                    }}
+                    maxLength={MAX_LOCATION_LENGTH}
                     placeholder="Ej. Ciudad, País o Dirección"
                 />
             </div>
@@ -254,8 +289,12 @@ export function SingleLeadForm({
                 <Input
                     id="lead-evento"
                     value={evento}
-                    onChange={(e) => setEvento(e.target.value)}
-                    maxLength={80}
+                    onChange={(e) => {
+                        if (e.target.value.length <= MAX_EVENT_LENGTH) {
+                            setEvento(e.target.value)
+                        }
+                    }}
+                    maxLength={MAX_EVENT_LENGTH}
                     placeholder="Ej. Expo 2026"
                 />
             </div>
@@ -265,8 +304,12 @@ export function SingleLeadForm({
                 <Input
                     id="lead-membresia"
                     value={membresia}
-                    onChange={(e) => setMembresia(e.target.value)}
-                    maxLength={80}
+                    onChange={(e) => {
+                        if (e.target.value.length <= MAX_MEMBERSHIP_LENGTH) {
+                            setMembresia(e.target.value)
+                        }
+                    }}
+                    maxLength={MAX_MEMBERSHIP_LENGTH}
                     placeholder="Ej. Gold"
                 />
             </div>

@@ -49,6 +49,36 @@ interface AddLeadDialogProps {
 
 // Max budget limit
 const MAX_BUDGET = 10_000_000
+const MAX_NAME_LENGTH = 30
+const MAX_LOCATION_LENGTH = 120
+const MAX_EVENT_LENGTH = 80
+const MAX_MEMBERSHIP_LENGTH = 80
+
+function normalizeText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+function clampText(value: string, maxLength: number) {
+  return value.trim().slice(0, maxLength)
+}
+
+function normalizeBudget(value: string) {
+  const cleaned = value.replace(/[^0-9.,]/g, '').replace(/\./g, '').replace(',', '.')
+  const parsed = Number(cleaned)
+  if (Number.isNaN(parsed)) return 0
+  return Math.max(0, Math.min(parsed, MAX_BUDGET))
+}
+
+function cleanCandidateText(value: string) {
+  return value
+    .replace(/^[-*\u2022\s]+/, '')
+    .replace(/[\[\]]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
 export function AddLeadDialog({
   pipelineType,
@@ -71,6 +101,7 @@ export function AddLeadDialog({
 
   const [activeTab, setActiveTab] = useState('manual')
   const [pasteText, setPasteText] = useState('')
+  const [manualPrefill, setManualPrefill] = useState<Partial<SingleLeadFormData> | null>(null)
   const [stageId, setStageId] = useState(defaultStageId || stages[0]?.id || '')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [waInstances, setWaInstances] = useState<Pick<EmpresaInstanciaDB, 'id' | 'label'>[]>([])
@@ -263,40 +294,149 @@ export function AddLeadDialog({
     }
   }, [pipelineId, companyId, stageId, pipelineType, onAdd, onImport])
 
-  // Handle paste text processing (simplified version)
+  // Handle quick-paste processing with flexible parsing and field sanitization
   const processPasteText = useCallback(() => {
     if (!pasteText.trim()) return
 
-    // Simple parsing - extract key-value pairs
     const lines = pasteText.split('\n')
-    let name = '', email = '', phone = '', company = '', budget = ''
+    let name = '', email = '', phone = '', company = '', budget = '', location = '', evento = '', membresia = ''
+    const unlabeledCandidates: string[] = []
+
+    const collectUnlabeled = (raw: string) => {
+      const part = cleanCandidateText(raw)
+      if (!part) return
+
+      if (!email && part.includes('@')) {
+        const emailMatch = part.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)
+        if (emailMatch) email = emailMatch[0]
+      }
+
+      if (!phone) {
+        const phoneMatch = part.match(/(?:\+?\d[\d\s().-]{6,}\d)/)
+        if (phoneMatch) phone = phoneMatch[0].trim()
+      }
+
+      if (!budget && /(\$|usd|cop|eur|mxn|ars|clp|presupuesto|costo|coste|precio|monto|budget|valor)/i.test(part)) {
+        const budgetMatch = part.match(/\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?|\d+/)
+        if (budgetMatch) budget = budgetMatch[0]
+      }
+
+      if (!location && /(ubicacion|ubicación|location|ciudad|direccion|dirección|pais|país|zona)/i.test(part)) {
+        location = part.replace(/^(ubicacion|ubicación|location|ciudad|direccion|dirección|pais|país|zona)\s*[:=\-–]?\s*/i, '').trim()
+      }
+
+      if (!evento && /(evento|event)/i.test(part)) {
+        evento = part.replace(/^(evento|event)\s*[:=\-–]?\s*/i, '').trim()
+      }
+
+      if (!membresia && /(membresia|membresía|menbresia|membership|plan|paquete|gold|silver|premium|pro|basic|platinum)/i.test(part)) {
+        membresia = part.replace(/^(membresia|membresía|menbresia|membership|plan|paquete)\s*[:=\-–]?\s*/i, '').trim()
+      }
+
+      if (
+        !part.includes('@') &&
+        part.length >= 2 &&
+        part.length <= 100
+      ) {
+        unlabeledCandidates.push(part)
+      }
+    }
 
     lines.forEach(line => {
       const trimmed = line.trim()
       if (!trimmed) return
 
-      if (trimmed.includes(':')) {
-        const [key, ...rest] = trimmed.split(':')
-        const value = rest.join(':').trim()
-        const keyLower = key.toLowerCase()
+      const kvMatch = trimmed.match(/^([^:=\-–]+?)\s*[:=\-–]\s*(.+)$/)
+      if (kvMatch) {
+        const keyLower = normalizeText(kvMatch[1])
+        const value = kvMatch[2].trim()
 
-        if (['cliente', 'nombre', 'name'].some(k => keyLower.includes(k))) {
+        if (['cliente', 'nombre', 'name', 'lead', 'oportunidad'].some(k => keyLower.includes(k))) {
           name = value.replace(/[\[\]]/g, '')
-        } else if (['email', 'correo'].some(k => keyLower.includes(k))) {
+        } else if (['email', 'correo', 'mail'].some(k => keyLower.includes(k))) {
           email = value
-        } else if (['telefono', 'phone', 'cel'].some(k => keyLower.includes(k))) {
+        } else if (['telefono', 'phone', 'cel', 'movil', 'whatsapp', 'wa'].some(k => keyLower.includes(k))) {
           phone = value
-        } else if (['empresa', 'company'].some(k => keyLower.includes(k))) {
+        } else if (['empresa', 'company', 'compania', 'negocio'].some(k => keyLower.includes(k))) {
           company = value
-        } else if (['presupuesto', 'costo', 'precio'].some(k => keyLower.includes(k))) {
-          budget = value.replace(/[^0-9.]/g, '')
+        } else if (['presupuesto', 'costo', 'coste', 'precio', 'monto', 'budget', 'valor'].some(k => keyLower.includes(k))) {
+          budget = value
+        } else if (['ubicacion', 'location', 'ciudad', 'direccion', 'pais', 'zona'].some(k => keyLower.includes(k))) {
+          location = value
+        } else if (['evento', 'event'].some(k => keyLower.includes(k))) {
+          evento = value
+        } else if (['membresia', 'menbresia', 'membership', 'plan', 'paquete'].some(k => keyLower.includes(k))) {
+          membresia = value
         }
-      } else if (trimmed.includes('@')) {
-        email = trimmed
+        return
+      }
+
+      const parts = trimmed.split(/[;,|]/).map(p => p.trim()).filter(Boolean)
+      if (parts.length > 1) {
+        parts.forEach(collectUnlabeled)
+      } else {
+        collectUnlabeled(trimmed)
       }
     })
 
-    toast.info(`Detectado: ${name || 'Sin nombre'}, ${email || 'Sin email'}`)
+    const collapsedText = pasteText.replace(/\s+/g, ' ').trim()
+    if (!name) {
+      const nameMatch = collapsedText.match(/(?:cliente|nombre|lead|oportunidad)\s*[:=\-–]\s*([^,;\n]+)/i)
+      if (nameMatch) name = nameMatch[1].trim()
+    }
+    if (!location) {
+      const locationMatch = collapsedText.match(/(?:ubicacion|ubicación|location|ciudad|direccion|dirección|pais|país)\s*[:=\-–]\s*([^,;\n]+)/i)
+      if (locationMatch) location = locationMatch[1].trim()
+    }
+    if (!evento) {
+      const eventMatch = collapsedText.match(/(?:evento|event)\s*[:=\-–]\s*([^,;\n]+)/i)
+      if (eventMatch) evento = eventMatch[1].trim()
+    }
+    if (!membresia) {
+      const membershipMatch = collapsedText.match(/(?:membresia|membresía|menbresia|membership|plan|paquete)\s*[:=\-–]\s*([^,;\n]+)/i)
+      if (membershipMatch) membresia = membershipMatch[1].trim()
+    }
+
+    const uniqueCandidates = unlabeledCandidates.filter((value, index, arr) => (
+      arr.findIndex(v => normalizeText(v) === normalizeText(value)) === index
+    ))
+
+    const companyHints = /(company|compania|compañia|corp|inc|llc|ltd|sas|s\.a\.?|group|tech|studio|agency|solutions|consulting|enterprise|enterprises|digital|labs)/i
+    const membershipHints = /(gold|silver|premium|platinum|basic|pro)/i
+
+    if (!name) {
+      const likelyName = uniqueCandidates.find(c => {
+        const wordCount = c.split(/\s+/).filter(Boolean).length
+        return wordCount <= 4 && c.length <= MAX_NAME_LENGTH && !companyHints.test(c) && !membershipHints.test(c) && !/\d/.test(c)
+      })
+      if (likelyName) name = likelyName
+    }
+
+    if (!company) {
+      const likelyCompany = uniqueCandidates.find(c => c !== name && companyHints.test(c))
+        || uniqueCandidates.find(c => c !== name && c.split(/\s+/).length >= 2)
+      if (likelyCompany) company = likelyCompany
+    }
+
+    if (!location) {
+      const likelyLocation = uniqueCandidates.find(c => c !== name && c !== company && /,/.test(c) && !/\d{4,}/.test(c))
+      if (likelyLocation) location = likelyLocation
+    }
+
+    const normalizedPrefill = {
+      name: clampText(name, MAX_NAME_LENGTH),
+      email: email.trim(),
+      phone: phone.trim(),
+      company: company.trim(),
+      location: clampText(location, MAX_LOCATION_LENGTH),
+      evento: clampText(evento, MAX_EVENT_LENGTH),
+      membresia: clampText(membresia, MAX_MEMBERSHIP_LENGTH),
+      budget: normalizeBudget(budget)
+    }
+
+    setManualPrefill(normalizedPrefill)
+
+    toast.info(`Detectado: ${normalizedPrefill.name || 'Sin nombre'}, ${normalizedPrefill.email || 'Sin email'}. Datos cargados en formulario manual.`)
     setActiveTab('manual')
     setPasteText('')
   }, [pasteText])
@@ -307,6 +447,7 @@ export function AddLeadDialog({
     setContactSearch('')
     setContactResults([])
     setSelectedContact(null)
+    setManualPrefill(null)
     setShowContactPicker(false)
   }
 
@@ -439,6 +580,7 @@ export function AddLeadDialog({
               isSubmitting={isSubmitting}
               whatsappInstances={waInstances}
               selectedContact={selectedContact}
+              prefillData={manualPrefill}
             />
           </TabsContent>
 
@@ -454,10 +596,16 @@ export function AddLeadDialog({
             <Textarea
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
-              placeholder={`Cliente: [Nombre del Cliente]
-                            Vendedor: [Nombre Vendedor]
-                            Costo: 100
-                            Contacto: email@cliente.com
+              placeholder={` 
+Nombre: [Nombre del Cliente]
+correo: email@cliente.com
+telefono: +123456789
+Venta: 100
+empresa: Nombre de la Empresa
+ubicación: Caracas
+evento: Expo 2024
+membresia: Oro
+
                             ...`}
               className="min-h-[200px] font-mono text-sm"
             />
