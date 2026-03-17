@@ -482,95 +482,6 @@ export function AddLeadDialog({
 
           {/* Manual Tab - Uses SingleLeadForm */}
           <TabsContent value="manual">
-            {/* Contact Picker Section */}
-            <div className="mb-4">
-              {!selectedContact ? (
-                <div className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowContactPicker(!showContactPicker)}
-                    className="flex items-center gap-2 text-sm text-primary hover:text-primary/80 transition-colors font-medium"
-                  >
-                    <User size={16} weight="bold" />
-                    Vincular contacto existente
-                    <span className="text-xs text-muted-foreground">(opcional)</span>
-                  </button>
-
-                  {showContactPicker && (
-                    <div className="space-y-2 p-3 rounded-lg border border-border bg-muted/30">
-                      <div className="relative">
-                        <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                        <input
-                          type="text"
-                          value={contactSearch}
-                          onChange={(e) => setContactSearch(e.target.value)}
-                          placeholder="Buscar por nombre, email o teléfono..."
-                          className="w-full pl-9 pr-3 py-2 text-sm rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
-                          autoFocus
-                        />
-                      </div>
-
-                      {isSearching && (
-                        <p className="text-xs text-muted-foreground px-1">Buscando...</p>
-                      )}
-
-                      {!isSearching && contactSearch.trim() && contactResults.length === 0 && (
-                        <p className="text-xs text-muted-foreground px-1">No se encontraron contactos</p>
-                      )}
-
-                      {contactResults.length > 0 && (
-                        <div className="max-h-40 overflow-y-auto space-y-1">
-                          {contactResults.map((c) => (
-                            <button
-                              key={c.id}
-                              type="button"
-                              onClick={() => {
-                                setSelectedContact(c)
-                                setContactSearch('')
-                                setContactResults([])
-                                setShowContactPicker(false)
-                              }}
-                              className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-left hover:bg-primary/10 transition-colors text-sm"
-                            >
-                              <div className="h-8 w-8 rounded-full bg-primary/15 flex items-center justify-center text-primary font-semibold text-xs shrink-0">
-                                {(c.nombre || '?')[0].toUpperCase()}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="font-medium truncate">{c.nombre}</p>
-                                <p className="text-xs text-muted-foreground truncate">
-                                  {[c.email, c.telefono, c.empresa_nombre].filter(Boolean).join(' • ')}
-                                </p>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 p-3 rounded-lg border border-primary/30 bg-primary/5">
-                  <div className="h-9 w-9 rounded-full bg-primary/15 flex items-center justify-center text-primary font-semibold text-sm shrink-0">
-                    {(selectedContact.nombre || '?')[0].toUpperCase()}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-sm truncate">{selectedContact.nombre}</p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {[selectedContact.email, selectedContact.telefono].filter(Boolean).join(' • ')}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedContact(null)}
-                    className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                    title="Quitar contacto"
-                  >
-                    <X size={16} weight="bold" />
-                  </button>
-                </div>
-              )}
-            </div>
-
             <SingleLeadForm
               stages={stages}
               eligibleMembers={eligibleMembers}
@@ -581,6 +492,16 @@ export function AddLeadDialog({
               whatsappInstances={waInstances}
               selectedContact={selectedContact}
               prefillData={manualPrefill}
+              contactSearch={contactSearch}
+              contactResults={contactResults}
+              isSearching={isSearching}
+              onContactSearchChange={setContactSearch}
+              onContactSelect={(c) => {
+                setSelectedContact(c)
+                setContactSearch('')
+                setContactResults([])
+              }}
+              onClearContact={() => setSelectedContact(null)}
             />
           </TabsContent>
 

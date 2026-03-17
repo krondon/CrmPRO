@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { MagnifyingGlass, User, X } from '@phosphor-icons/react'
 import { TeamMember, Stage, EmpresaInstanciaDB, ContactDB } from '@/lib/types'
 import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
@@ -47,6 +48,12 @@ interface SingleLeadFormProps {
     selectedContact?: ContactDB | null
     /** Datos sugeridos desde la pestaña de pegado rápido */
     prefillData?: Partial<SingleLeadFormData> | null
+    contactSearch?: string
+    contactResults?: ContactDB[]
+    isSearching?: boolean
+    onContactSearchChange?: (val: string) => void
+    onContactSelect?: (contact: ContactDB) => void
+    onClearContact?: () => void
 }
 
 export function SingleLeadForm({
@@ -58,9 +65,18 @@ export function SingleLeadForm({
     isSubmitting = false,
     whatsappInstances = [],
     selectedContact,
-    prefillData
+    prefillData,
+    contactSearch = '',
+    contactResults = [],
+    isSearching = false,
+    onContactSearchChange,
+    onContactSelect,
+    onClearContact
 }: SingleLeadFormProps) {
     const t = useTranslation('es')
+
+    // Local state to track whether to show autocomplete dropdown
+    const [showSuggestions, setShowSuggestions] = useState(false)
 
     // Form state
     const [name, setName] = useState('')
@@ -208,16 +224,94 @@ export function SingleLeadForm({
                 </div>
             )}
             {/* Name - Required */}
-            <div>
-                <Label htmlFor="lead-name">{t.lead.name} *</Label>
-                <Input
-                    id="lead-name"
-                    value={name}
-                    onChange={(e) => {
-                        if (e.target.value.length <= 30) setName(e.target.value)
-                    }}
-                    placeholder="Nombre de la oportunidad"
-                />
+            <div className="relative z-10">
+                <div className="flex justify-between items-center mb-1">
+                    <Label htmlFor="lead-name">{t.lead.name} *</Label>
+                    {selectedContact && (
+                        <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded flex items-center gap-1 font-medium">
+                            <span className="h-4 w-4 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                                <User size={10} weight="bold" />
+                            </span>
+                            Contacto vinculado
+                            {onClearContact && (
+                                <button type="button" onClick={() => {
+                                    setName('')
+                                    setEmail('')
+                                    setPhone('')
+                                    setCompany('')
+                                    setLocation('')
+                                    onClearContact()
+                                }} className="ml-1 hover:text-destructive transition-colors">
+                                    <X size={12} weight="bold" />
+                                </button>
+                            )}
+                        </span>
+                    )}
+                </div>
+                <div className="relative">
+                    <Input
+                        id="lead-name"
+                        value={name}
+                        onChange={(e) => {
+                            const val = e.target.value
+                            if (val.length <= 30) {
+                                setName(val)
+                                if (onContactSearchChange) {
+                                    onContactSearchChange(val)
+                                    setShowSuggestions(true)
+                                }
+                            }
+                        }}
+                        onFocus={() => {
+                            if (name && onContactSearchChange) {
+                                onContactSearchChange(name)
+                                setShowSuggestions(true)
+                            }
+                        }}
+                        onBlur={() => {
+                            // Delay hiding to allow clicks on suggestions
+                            setTimeout(() => setShowSuggestions(false), 200)
+                        }}
+                        placeholder="Nombre de la oportunidad"
+                        autoComplete="off"
+                        className={selectedContact ? "border-primary/50 bg-primary/5" : ""}
+                    />
+                    
+                    {/* Autocomplete Dropdown */}
+                    {showSuggestions && (isSearching || contactResults.length > 0) && (
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-background border border-border rounded-md shadow-md max-h-48 overflow-y-auto z-50">
+                            {isSearching ? (
+                                <div className="p-3 text-sm text-muted-foreground text-center flex items-center justify-center gap-2">
+                                    <MagnifyingGlass size={16} className="animate-spin" /> Buscando...
+                                </div>
+                            ) : (
+                                <div>
+                                    {contactResults.map((c) => (
+                                        <button
+                                            key={c.id}
+                                            type="button"
+                                            onClick={() => {
+                                                if (onContactSelect) onContactSelect(c)
+                                                setShowSuggestions(false)
+                                            }}
+                                            className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-muted transition-colors border-b border-border/50 last:border-0"
+                                        >
+                                            <div className="h-8 w-8 rounded-full bg-primary/15 flex items-center justify-center text-primary font-semibold text-xs shrink-0">
+                                                {(c.nombre || '?')[0].toUpperCase()}
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="font-medium text-sm truncate">{c.nombre}</p>
+                                                <p className="text-xs text-muted-foreground truncate">
+                                                    {[c.email, c.telefono, c.empresa_nombre].filter(Boolean).join(' • ')}
+                                                </p>
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* Email */}
