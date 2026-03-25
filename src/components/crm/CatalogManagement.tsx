@@ -26,6 +26,7 @@ export function CatalogManagement() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [itemImageFile, setItemImageFile] = useState<File | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [viewingImage, setViewingImage] = useState<string | null>(null)
 
   useEffect(() => {
     if (currentCompanyId) {
@@ -386,19 +387,24 @@ export function CatalogManagement() {
           <Card key={item.id}>
             <CardContent className="p-4">
               <div className="flex items-start justify-between gap-4">
-                <div className="flex flex-1 gap-3">
-                  <div className="w-24 h-24 shrink-0 rounded-md overflow-hidden bg-muted flex items-center justify-center">
+                <div className="flex flex-1 gap-4">
+                  <div className="w-32 h-32 shrink-0 rounded-md overflow-hidden bg-muted flex items-center justify-center">
                     {item.imageUrl ? (
-                      <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
+                      <img 
+                        src={item.imageUrl} 
+                        alt={item.name} 
+                        className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity" 
+                        onClick={() => setViewingImage(item.imageUrl)}
+                      />
                     ) : (
                       <ImageSquare size={32} className="text-muted-foreground" />
                     )}
                   </div>
 
-                  <div className="flex-1">
+                  <div className="flex-1 bg-muted/30 p-3 rounded-lg">
                   <div className="flex items-center gap-2">
                     <Package size={20} className="text-muted-foreground" />
-                    <h3 className="font-semibold">{item.name}</h3>
+                    <h3 className="text-lg font-bold">{item.name}</h3>
                   </div>
                   {item.description && (
                     <p className="text-sm text-muted-foreground mt-1">{item.description}</p>
@@ -542,6 +548,14 @@ export function CatalogManagement() {
       )}
         </>
       )}
+
+      <Dialog open={!!viewingImage} onOpenChange={(open) => !open && setViewingImage(null)}>
+        <DialogContent className="max-w-4xl bg-transparent border-none p-0 shadow-none">
+          {viewingImage && (
+            <img src={viewingImage} alt="Vista completa" className="w-full h-auto max-h-[85vh] object-contain rounded-lg" />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
