@@ -1800,3 +1800,31 @@ CREATE POLICY equipo_invitaciones_insert ON equipo_invitaciones
             AND role IN ('admin', 'owner')
         )
     );
+
+
+-- Primero, creamos el bucket asegurando que sea de acceso público
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('catalog-images', 'catalog-images', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Borramos las políticas de seguridad en caso de que hubieran quedado creadas a medias
+DROP POLICY IF EXISTS "Fotos catalogos visibles para todos" ON storage.objects;
+DROP POLICY IF EXISTS "Solo los dueños pueden subir fotos de su propia empresa" ON storage.objects;
+DROP POLICY IF EXISTS "Solo los dueños pueden borrar fotos de su propia empresa" ON storage.objects;
+
+-- Política 1: Todos pueden LEER/VER las fotos (necesario ya que se muestran en el sitio web/Cotizaciones que generes luego)
+CREATE POLICY "Fotos catalogos visibles para todos" 
+ON storage.objects FOR SELECT 
+USING (bucket_id = 'catalog-images');
+
+-- Política 2: Solo un usuario que ha iniciado sesión puede SUBIR fotos a su carpeta
+CREATE POLICY "Solo los dueños pueden subir fotos de su propia empresa" 
+ON storage.objects FOR INSERT 
+TO authenticated 
+WITH CHECK (bucket_id = 'catalog-images');
+
+-- Política 3: (Opcional, pero recomendada) Solo un usuario con sesión iniciada puede ELIMINAR fotos a futuro
+CREATE POLICY "Solo los dueños pueden borrar fotos de su propia empresa" 
+ON storage.objects FOR DELETE 
+TO authenticated 
+USING (bucket_id = 'catalog-images');
