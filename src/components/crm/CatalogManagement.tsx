@@ -7,13 +7,14 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Plus, Trash, Pencil, Package, ImageSquare, CircleNotch } from '@phosphor-icons/react'
+import { Plus, Trash, Pencil, Package, ImageSquare, CircleNotch, MagnifyingGlass } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Item } from './ItemSelector'
 import { Badge } from '@/components/ui/badge'
 
 export function CatalogManagement() {
   const { user, currentCompanyId } = useAuth()
+  const [searchTerm, setSearchTerm] = useState('')
   const [catalogItems, setCatalogItems] = useState<Item[]>([])
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editingItem, setEditingItem] = useState<Item | null>(null)
@@ -24,6 +25,7 @@ export function CatalogManagement() {
   const [itemImageUrl, setItemImageUrl] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [itemImageFile, setItemImageFile] = useState<File | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
     if (currentCompanyId) {
@@ -32,6 +34,7 @@ export function CatalogManagement() {
   }, [currentCompanyId])
 
   const loadItems = async () => {
+    setIsLoading(true)
     try {
       const { data, error } = await supabase
         .from('catalog_items')
@@ -54,6 +57,8 @@ export function CatalogManagement() {
     } catch (error) {
       console.error('Error fetching catalog items:', error)
       toast.error('Error al cargar catalogo')
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -98,6 +103,14 @@ export function CatalogManagement() {
     }
     if (!itemName.trim()) {
       toast.error('El nombre es requerido')
+      return
+    }
+    if (itemPrice && parseFloat(itemPrice) < 0) {
+      toast.error('El precio no puede ser negativo')
+      return
+    }
+    if (itemStock && parseInt(itemStock, 10) < 0) {
+      toast.error('El stock no puede ser negativo')
       return
     }
 
@@ -151,6 +164,14 @@ export function CatalogManagement() {
     }
     if (!editingItem || !itemName.trim()) {
       toast.error('El nombre es requerido')
+      return
+    }
+    if (itemPrice && parseFloat(itemPrice) < 0) {
+      toast.error('El precio no puede ser negativo')
+      return
+    }
+    if (itemStock && parseInt(itemStock, 10) < 0) {
+      toast.error('El stock no puede ser negativo')
       return
     }
 
@@ -238,10 +259,24 @@ export function CatalogManagement() {
     setItemImageUrl('')
     setItemImageFile(null)
   }
+
+  const filteredItems = catalogItems.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">Catálogo de Artículos</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4 flex-1">
+          <h2 className="text-xl font-semibold">Catálogo de Artículos</h2>
+          <div className="relative w-full max-w-sm">
+            <MagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+            <Input 
+              placeholder="Buscar artículos..." 
+              value={searchTerm} 
+              onChange={(e) => setSearchTerm(e.target.value)} 
+              className="pl-9" 
+            />
+          </div>
+        </div>
         <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
           <DialogTrigger asChild>
             <Button>
@@ -280,8 +315,7 @@ export function CatalogManagement() {
                   <Label htmlFor="item-price">Precio Unitario</Label>
                   <Input
                     id="item-price"
-                    type="number"
-                    step="0.01"
+                    type="number" step="0.01" min="0"
                     value={itemPrice}
                     onChange={(e) => setItemPrice(e.target.value)}
                     placeholder="0.00"
@@ -292,8 +326,7 @@ export function CatalogManagement() {
                   <Label htmlFor="item-stock">Stock</Label>
                   <Input
                     id="item-stock"
-                    type="number"
-                    value={itemStock}
+                    type="number" min="0" value={itemStock}
                     onChange={(e) => setItemStock(e.target.value)}
                     placeholder="∞"
                   />
@@ -341,8 +374,15 @@ export function CatalogManagement() {
         </Dialog>
       </div>
 
-      <div className="grid gap-3">
-        {(catalogItems || []).map((item) => (
+      {isLoading ? (
+        <div className="py-12 flex flex-col items-center justify-center space-y-4">
+          <CircleNotch className="mx-auto animate-spin text-primary" size={40} />
+          <p className="text-muted-foreground">Cargando catálogo...</p>
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-3">
+            {(filteredItems || []).map((item) => (
           <Card key={item.id}>
             <CardContent className="p-4">
               <div className="flex items-start justify-between gap-4">
@@ -420,8 +460,7 @@ export function CatalogManagement() {
                             <Label htmlFor="edit-item-price">Precio Unitario</Label>
                             <Input
                               id="edit-item-price"
-                              type="number"
-                              step="0.01"
+                              type="number" step="0.01" min="0"
                               value={itemPrice}
                               onChange={(e) => setItemPrice(e.target.value)}
                               placeholder="0.00"
@@ -432,8 +471,7 @@ export function CatalogManagement() {
                             <Label htmlFor="edit-item-stock">Stock</Label>
                             <Input
                               id="edit-item-stock"
-                              type="number"
-                              value={itemStock}
+                              type="number" min="0" value={itemStock}
                               onChange={(e) => setItemStock(e.target.value)}
                               placeholder="∞"
                             />
@@ -491,16 +529,18 @@ export function CatalogManagement() {
         ))}
       </div>
 
-      {(catalogItems || []).length === 0 && (
+      {(filteredItems || []).length === 0 && (
         <Card>
           <CardContent className="py-12">
             <div className="text-center space-y-2">
               <Package size={48} className="mx-auto text-muted-foreground" />
-              <p className="text-muted-foreground">No hay productos en el catalogo</p>
+              <p className="text-muted-foreground">{searchTerm ? 'No se encontraron artículos.' : 'No hay artículos en tu catálogo'}</p>
               <p className="text-sm text-muted-foreground">Agrega productos con imagen, precio y descripcion</p>
             </div>
           </CardContent>
         </Card>
+      )}
+        </>
       )}
     </div>
   )
