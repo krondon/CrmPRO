@@ -213,7 +213,16 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
             const { getCompanyMembers } = await import('@/supabase/services/empresa')
             companyMembers = await getCompanyMembers(companyId)
           } catch (memberErr: any) {
-            console.warn('[TeamView] getCompanyMembers falló (probablemente FK roles faltante), continuando sin roles:', memberErr.message)
+            console.warn('[TeamView] getCompanyMembers falló, usando consulta directa:', memberErr.message)
+            try {
+              const { data } = await supabase
+                .from('empresa_miembros')
+                .select('id, email, role, usuario_id')
+                .eq('empresa_id', companyId)
+              companyMembers = data || []
+            } catch {
+              companyMembers = []
+            }
           }
 
           if (cancelled) return
