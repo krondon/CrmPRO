@@ -123,7 +123,7 @@ export function ChatWindow({
 
         // Suscribirse a nuevos mensajes del lead
         const sub = subscribeToMessages(lead.id, (newMsg) => {
-            setMessages(prev => [...prev, newMsg])
+            setMessages(prev => prev.some(m => m.id === newMsg.id) ? prev : [...prev, newMsg])
             updateLeadListOrder(lead.id, newMsg)
 
             if (newMsg.sender === 'lead') {
@@ -434,13 +434,11 @@ export function ChatWindow({
                     channel={detectChannel(lead)}
                     disabled={isLoadingMessages}
                     instanceLabel={activeInstance ? (activeInstance.label || activeInstance.client_id || 'WhatsApp') : null}
-                    onMessageSent={() => {
-                        const newMsg = {
-                            created_at: new Date().toISOString(),
-                            sender: 'team' as const,
-                            content: ''
+                    onMessageSent={(msg) => {
+                        if (msg) {
+                            setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg])
                         }
-                        updateLeadListOrder(lead.id, newMsg as any)
+                        updateLeadListOrder(lead.id, msg as any)
                     }}
                 />
             </div>
