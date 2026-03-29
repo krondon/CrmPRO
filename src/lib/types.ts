@@ -108,6 +108,8 @@ export interface Lead {
   archived?: boolean
   archivedAt?: Date
   customFields?: Record<string, any>
+  stageEnteredAt?: Date | null
+  slaCustomLimitMinutes?: number | null
 }
 
 export interface Stage {
@@ -116,6 +118,8 @@ export interface Stage {
   order: number
   color: string
   pipelineType: PipelineType
+  is_sla_enabled?: boolean
+  sla_limit_minutes?: number | null
 }
 
 export interface Pipeline {
@@ -318,6 +322,8 @@ export interface LeadDB {
   last_message_sender?: string
   last_message_content?: string
   preferred_instance_id?: string | null
+  stage_entered_at?: string | null
+  sla_custom_limit_minutes?: number | null
 }
 
 // ============================================================
@@ -466,6 +472,8 @@ export interface CreateEtapaDTO {
   pipeline_id: string
   orden: number
   color?: string
+  is_sla_enabled?: boolean
+  sla_limit_minutes?: number | null
 }
 
 export interface EtapaDB {
@@ -475,6 +483,8 @@ export interface EtapaDB {
   orden: number
   color?: string
   created_at: string
+  is_sla_enabled?: boolean
+  sla_limit_minutes?: number | null
 }
 
 // ----- Equipo DTOs -----

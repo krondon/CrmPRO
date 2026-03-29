@@ -45,8 +45,8 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
       tags: l.tags || [],
       createdAt: new Date(l.created_at),
       lastContact: l.last_message_at ? new Date(l.last_message_at) : new Date(l.created_at),
-      archived: l.archived,
-      archivedAt: l.archived_at ? new Date(l.archived_at) : undefined
+      stageEnteredAt: l.stage_entered_at ? new Date(l.stage_entered_at) : null,
+      slaCustomLimitMinutes: l.sla_custom_limit_minutes ?? null
     })
 
     Promise.all([

@@ -5,12 +5,16 @@ interface CreateEtapaDTO {
     pipeline_id: string
     orden: number
     color: string
+    is_sla_enabled?: boolean
+    sla_limit_minutes?: number | null
 }
 
 interface UpdateEtapaDTO {
     nombre?: string
     orden?: number
     color?: string
+    is_sla_enabled?: boolean
+    sla_limit_minutes?: number | null
 }
 
 /**

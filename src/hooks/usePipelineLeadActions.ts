@@ -81,7 +81,9 @@ export function usePipelineLeadActions({
                 nombre: stage.name,
                 pipeline_id: pipelineId!, // Seguro que existe
                 orden: stage.order,
-                color: stage.color
+                color: stage.color,
+                is_sla_enabled: stage.is_sla_enabled,
+                sla_limit_minutes: stage.sla_limit_minutes
             })
 
             if (error) throw error

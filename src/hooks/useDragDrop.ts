@@ -84,7 +84,7 @@ export function useDragDrop(options: UseDragDropOptions): UseDragDropReturn {
         }
 
         const originalStageId = lead.stage
-        const updatedLead = { ...lead, stage: targetStageId }
+        const updatedLead = { ...lead, stage: targetStageId, stageEnteredAt: new Date(), slaCustomLimitMinutes: null }
 
         // 1. OPTIMISTIC UPDATE: Actualizar UI inmediatamente
         setLeads((current) =>

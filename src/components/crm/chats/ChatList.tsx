@@ -103,13 +103,19 @@ export const ChatList = memo(function ChatList({
 
         return filtered.sort((a, b) => {
             // 1. Prioridad ABSOLUTA: No leídos primero
-            const unreadA = (unreadCounts[a.id] || 0) > 0 ? 1 : 0
-            const unreadB = (unreadCounts[b.id] || 0) > 0 ? 1 : 0
-            if (unreadA !== unreadB) return unreadB - unreadA
+            // Usar unreadCounts si ya cargó, sino inferir por lastMessageSender mientras carga
+            const isUnreadA = (unreadCounts[a.id] || 0) > 0 || (unreadCounts[a.id] === undefined && (a as any).lastMessageSender === 'lead')
+            const isUnreadB = (unreadCounts[b.id] || 0) > 0 || (unreadCounts[b.id] === undefined && (b as any).lastMessageSender === 'lead')
 
-            // 2. Secundario: Fecha más reciente (lastMessageAt o createdAt)
+            if (isUnreadA !== isUnreadB) return isUnreadA ? -1 : 1
+
             const dateA = (a.lastMessageAt ? new Date(a.lastMessageAt) : a.createdAt || new Date(0)).getTime()
             const dateB = (b.lastMessageAt ? new Date(b.lastMessageAt) : b.createdAt || new Date(0)).getTime()
+
+            // 2. No leídos: FIFO (el que lleva más tiempo esperando arriba = ASC)
+            if (isUnreadA && isUnreadB) return dateA - dateB
+
+            // 3. Leídos: más reciente arriba (DESC)
             return dateB - dateA
         })
     }, [leads, searchTerm, channelFilter, unreadFilter, channelByLead, unreadCounts])

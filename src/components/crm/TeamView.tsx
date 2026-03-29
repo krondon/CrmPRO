@@ -171,7 +171,9 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
           assignedTo: l.asignado_a,
           tags: [],
           createdAt: new Date(l.created_at),
-          lastContact: new Date(l.created_at)
+          lastContact: new Date(l.created_at),
+          stageEnteredAt: l.stage_entered_at ? new Date(l.stage_entered_at) : null,
+          slaCustomLimitMinutes: l.sla_custom_limit_minutes ?? null
         }))
         setLeads(mappedLeads)
       })

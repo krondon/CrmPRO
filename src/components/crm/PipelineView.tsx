@@ -573,7 +573,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
     toast.success('Etapa eliminada')
   }
 
-  const handleEditStage = async (stageId: string, updates: { name?: string; color?: string }) => {
+  const handleEditStage = async (stageId: string, updates: { name?: string; color?: string; is_sla_enabled?: boolean; sla_limit_minutes?: number | null }) => {
     if (!isAdminOrOwner) {
       toast.error('No tienes permisos para editar etapas')
       return
@@ -583,9 +583,12 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
 
     if (isUUID) {
       try {
-        const payload: Record<string, string> = {}
-        if (updates.name) payload.nombre = updates.name
-        if (updates.color) payload.color = updates.color
+        const payload: Record<string, any> = {}
+        if (updates.name !== undefined) payload.nombre = updates.name
+        if (updates.color !== undefined) payload.color = updates.color
+        if (updates.is_sla_enabled !== undefined) payload.is_sla_enabled = updates.is_sla_enabled
+        if (updates.sla_limit_minutes !== undefined) payload.sla_limit_minutes = updates.sla_limit_minutes
+
         const { error } = await updateEtapa(stageId, payload)
         if (error) throw error
       } catch (err: any) {
@@ -605,7 +608,13 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
         ...updatedPipelines[pipelineIndex],
         stages: updatedPipelines[pipelineIndex].stages.map(s =>
           s.id === stageId
-            ? { ...s, ...(updates.name ? { name: updates.name } : {}), ...(updates.color ? { color: updates.color } : {}) }
+            ? { 
+                ...s, 
+                ...(updates.name !== undefined ? { name: updates.name } : {}), 
+                ...(updates.color !== undefined ? { color: updates.color } : {}),
+                ...(updates.is_sla_enabled !== undefined ? { is_sla_enabled: updates.is_sla_enabled } : {}),
+                ...(updates.sla_limit_minutes !== undefined ? { sla_limit_minutes: updates.sla_limit_minutes } : {})
+              }
             : s
         )
       }
@@ -727,7 +736,9 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
                     assignedTo: l.asignado_a,
                     tags: l.tags || [],
                     createdAt: new Date(l.created_at),
-                    lastContact: new Date(l.created_at)
+                    lastContact: new Date(l.created_at),
+                    stageEnteredAt: l.stage_entered_at ? new Date(l.stage_entered_at) : null,
+                    slaCustomLimitMinutes: l.sla_custom_limit_minutes ?? null
                   }))
                 } catch (err) {
                   console.error('[PipelineView] Error searching leads:', err)
@@ -997,6 +1008,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
                   ubicacion: updated.location,
                   prioridad: updated.priority,
                   presupuesto: updated.budget,
+                  sla_custom_limit_minutes: updated.slaCustomLimitMinutes,
                   asignado_a: updated.assignedTo === 'todos' ? NIL_UUID : updated.assignedTo || NIL_UUID
                 }, user?.id, actorNombre)
 

@@ -102,7 +102,9 @@ function mapDbLeadToLead(l: any): Lead {
         assignedTo: l.asignado_a,
         tags: l.tags || [],
         createdAt: new Date(l.created_at),
-        lastContact: l.last_message_at ? new Date(l.last_message_at) : new Date(l.created_at)
+        lastContact: l.last_message_at ? new Date(l.last_message_at) : new Date(l.created_at),
+        stageEnteredAt: l.stage_entered_at ? new Date(l.stage_entered_at) : null,
+        slaCustomLimitMinutes: l.sla_custom_limit_minutes ?? null
     }
 }
 
@@ -162,7 +164,9 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
                             name: s.nombre,
                             order: s.orden,
                             color: s.color,
-                            pipelineType: p.nombre.toLowerCase().trim().replace(/\s+/g, '-')
+                              pipelineType: p.nombre.toLowerCase().trim().replace(/\s+/g, '-'),
+                              is_sla_enabled: s.is_sla_enabled,
+                              sla_limit_minutes: s.sla_limit_minutes
                         })).sort((a: any, b: any) => a.order - b.order)
                     }))
 

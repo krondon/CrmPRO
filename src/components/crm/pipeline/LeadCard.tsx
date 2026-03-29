@@ -4,10 +4,12 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { DotsThree, Note, CalendarBlank, CurrencyDollar } from '@phosphor-icons/react'
+import { DotsThree, Note, CalendarBlank, CurrencyDollar, Clock, WarningCircle } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { Lead, Pipeline, PipelineType, TeamMember, Stage } from '@/lib/types'
 import { Company } from '@/components/crm/CompanyManagement'
+import { calculateSLAStatus, SLAStatus, SLAResult } from '@/lib/slaHelpers'
+import { useState, useEffect } from 'react'
 
 interface User {
     id: string
@@ -17,6 +19,7 @@ interface User {
 
 interface LeadCardProps {
     lead: Lead
+    stage: Stage
     stageColor: string
     isHighlighted: boolean
     hasUnreadMessages: boolean
@@ -43,6 +46,7 @@ interface LeadCardProps {
 
 function LeadCardComponent({
     lead,
+    stage,
     stageColor,
     isHighlighted,
     hasUnreadMessages,
@@ -89,13 +93,47 @@ function LeadCardComponent({
         return 'Sin asignar'
     }
 
+    const [slaResult, setSlaResult] = useState<SLAResult>({ status: 'DISABLED', label: '' })
+
+    useEffect(() => {
+        if (!stage.is_sla_enabled) {
+            setSlaResult({ status: 'DISABLED', label: '' })
+            return
+        }
+
+        const computeSLA = () => {
+            const result = calculateSLAStatus({
+                isSlaEnabled: stage.is_sla_enabled,
+                stageEnteredAt: lead.stageEnteredAt,
+                limitMinutes: lead.slaCustomLimitMinutes ?? stage.sla_limit_minutes
+            })
+            setSlaResult(result)
+        }
+
+        computeSLA()
+        const interval = setInterval(computeSLA, 1000)
+        return () => clearInterval(interval)
+    }, [stage.is_sla_enabled, lead.stageEnteredAt, lead.slaCustomLimitMinutes, stage.sla_limit_minutes])
+
+    const slaStatus = slaResult.status
+
+    const getSlaIndicatorClass = (status: SLAStatus) => {
+        switch (status) {
+            case 'RED': return 'ring-2 ring-red-500 bg-red-50/10'
+            case 'YELLOW': return 'ring-2 ring-yellow-400 bg-yellow-50/10'
+            case 'GREEN': return 'border-border/40'
+            default: return 'border-border/40'
+        }
+    }
+
     return (
         <Card
             id={`lead-card-${lead.id}`}
             draggable={canEditLeads}
             onDragStart={(e) => onDragStart(e, lead)}
             className={cn(
-                "w-[85vw] sm:w-80 md:w-full shrink-0 p-0 cursor-move hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 border border-border/40 bg-background overflow-hidden active:scale-[0.98] active:opacity-80 rounded-xl group/card",
+                "w-[85vw] sm:w-80 md:w-full relative shrink-0 p-0 cursor-move hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 bg-background overflow-hidden active:scale-[0.98] active:opacity-80 rounded-xl group/card border",
+                getSlaIndicatorClass(slaStatus),
                 isHighlighted && "ring-2 ring-primary ring-offset-2 animate-pulse",
                 !canEditLeads && "cursor-default"
             )}
@@ -103,6 +141,11 @@ function LeadCardComponent({
         >
             {/* Color accent bar */}
             <div className="h-1 w-full" style={{ backgroundColor: stageColor }} />
+            
+            {/* SLA Indicator Side Bar */}
+            {slaStatus === 'RED' && <div className="absolute left-0 top-1 bottom-0 w-1 bg-red-500 shadow-[2px_0_8px_rgba(239,68,68,0.5)]" />}
+            {slaStatus === 'YELLOW' && <div className="absolute left-0 top-1 bottom-0 w-1 bg-yellow-400 shadow-[2px_0_8px_rgba(250,204,21,0.5)]" />}
+            {slaStatus === 'GREEN' && <div className="absolute left-0 top-1 bottom-0 w-1 bg-green-500" />}
 
             <div className="p-3">
                 <div className="flex items-start justify-between mb-1.5">
@@ -239,6 +282,29 @@ function LeadCardComponent({
                             </span>
                         )}
                     </div>
+                )}
+
+                {slaStatus !== 'DISABLED' && slaResult.label && (
+                    <TooltipProvider delayDuration={200}>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <div className={cn(
+                                    'flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-bold mb-1.5',
+                                    slaStatus === 'RED' && 'bg-red-500/10 text-red-600',
+                                    slaStatus === 'YELLOW' && 'bg-yellow-400/10 text-yellow-600',
+                                    slaStatus === 'GREEN' && 'bg-green-500/10 text-green-600'
+                                )}>
+                                    {slaStatus === 'RED' ? <WarningCircle size={12} weight="fill" /> : <Clock size={12} weight="bold" />}
+                                    {slaResult.label}
+                                </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="text-xs">
+                                {slaStatus === 'GREEN' && 'A tiempo - dentro del limite'}
+                                {slaStatus === 'YELLOW' && 'Atencion - queda poco tiempo'}
+                                {slaStatus === 'RED' && 'Vencido - supero el tiempo limite'}
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
                 )}
 
                 <div className="pt-1.5 border-t border-border/40 flex items-center gap-2">

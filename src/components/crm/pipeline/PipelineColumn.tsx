@@ -9,6 +9,9 @@ import { Lead, Pipeline, PipelineType, TeamMember, Stage } from '@/lib/types'
 import { AddLeadDialog } from '@/components/crm/AddLeadDialog'
 import { LeadCard } from './LeadCard'
 import { Company } from '@/components/crm/CompanyManagement'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 interface User {
     id: string
@@ -43,7 +46,7 @@ interface PipelineColumnProps {
     onDragOver: (e: React.DragEvent) => void
     onDrop: (e: React.DragEvent, stageId: string) => void
     onDeleteStage: (stageId: string) => void
-    onEditStage: (stageId: string, updates: { name?: string; color?: string }) => void
+    onEditStage: (stageId: string, updates: { name?: string; color?: string; is_sla_enabled?: boolean; sla_limit_minutes?: number | null }) => void
     onAddLead: (lead: Lead) => void
     onImportLeads: (leads: Lead[]) => void
     onLoadMore: (stageId: string) => void
@@ -110,6 +113,15 @@ export function PipelineColumn({
     const [isEditing, setIsEditing] = useState(false)
     const [editName, setEditName] = useState(stage.name)
     const [editColor, setEditColor] = useState(stage.color)
+
+    const initialSlaMinutes = stage.sla_limit_minutes || 30
+    const initialSlaUnit = initialSlaMinutes % 1440 === 0 ? 'days' : initialSlaMinutes % 60 === 0 ? 'hours' : 'minutes'
+    const initialSlaValue = initialSlaUnit === 'days' ? initialSlaMinutes / 1440 : initialSlaUnit === 'hours' ? initialSlaMinutes / 60 : initialSlaMinutes
+
+    const [editSlaEnabled, setEditSlaEnabled] = useState(stage.is_sla_enabled || false)
+    const [editSlaValue, setEditSlaValue] = useState(initialSlaValue)
+    const [editSlaUnit, setEditSlaUnit] = useState<"minutes" | "hours" | "days">(initialSlaUnit)
+    
     const editInputRef = useRef<HTMLInputElement>(null)
 
     const predefinedColors = [
@@ -120,15 +132,32 @@ export function PipelineColumn({
     const handleStartEdit = () => {
         setEditName(stage.name)
         setEditColor(stage.color)
+        setEditSlaEnabled(stage.is_sla_enabled || false)
+        const resetMins = stage.sla_limit_minutes || 30
+        const resetUnit = resetMins % 1440 === 0 ? 'days' : resetMins % 60 === 0 ? 'hours' : 'minutes'
+        setEditSlaValue(resetUnit === 'days' ? resetMins / 1440 : resetUnit === 'hours' ? resetMins / 60 : resetMins)
+        setEditSlaUnit(resetUnit)
+
         setIsEditing(true)
         setTimeout(() => editInputRef.current?.focus(), 50)
     }
 
     const handleSaveEdit = () => {
         if (!editName.trim()) return
-        const updates: { name?: string; color?: string } = {}
+        const updates: { name?: string; color?: string; is_sla_enabled?: boolean; sla_limit_minutes?: number | null } = {}
         if (editName.trim() !== stage.name) updates.name = editName.trim()
         if (editColor !== stage.color) updates.color = editColor
+
+        let targetSlaMinutes: number | null = null
+        if (editSlaEnabled) {
+            if (editSlaUnit === 'days') targetSlaMinutes = editSlaValue * 1440
+            else if (editSlaUnit === 'hours') targetSlaMinutes = editSlaValue * 60
+            else targetSlaMinutes = editSlaValue
+        }
+
+        if (editSlaEnabled !== stage.is_sla_enabled) updates.is_sla_enabled = editSlaEnabled
+        if (targetSlaMinutes !== stage.sla_limit_minutes) updates.sla_limit_minutes = targetSlaMinutes
+
         if (Object.keys(updates).length > 0) {
             onEditStage(stage.id, updates)
         }
@@ -138,6 +167,7 @@ export function PipelineColumn({
     const handleCancelEdit = () => {
         setEditName(stage.name)
         setEditColor(stage.color)
+        setEditSlaEnabled(stage.is_sla_enabled || false)
         setIsEditing(false)
     }
 
@@ -160,7 +190,7 @@ export function PipelineColumn({
                 >
                     {/* Row 1: Stage Name and Count */}
                     {isEditing ? (
-                        <div className="mb-2 space-y-2">
+                        <div className="mb-2 space-y-3 p-2 bg-background rounded-md border">
                             <div className="flex items-center gap-1.5">
                                 <Input
                                     ref={editInputRef}
@@ -168,6 +198,7 @@ export function PipelineColumn({
                                     onChange={(e) => { if (e.target.value.length <= 30) setEditName(e.target.value) }}
                                     onKeyDown={(e) => { if (e.key === 'Enter') handleSaveEdit(); if (e.key === 'Escape') handleCancelEdit() }}
                                     className="h-8 text-sm font-bold flex-1"
+                                    placeholder="Nombre de la etapa"
                                 />
                                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-green-600 hover:text-green-700 hover:bg-green-50" onClick={handleSaveEdit}>
                                     <Check size={16} weight="bold" />
@@ -183,9 +214,48 @@ export function PipelineColumn({
                                         className={cn('w-5 h-5 rounded-full border-2 transition-all', editColor === c ? 'border-foreground scale-110' : 'border-border/50')}
                                         style={{ backgroundColor: c }}
                                         onClick={() => setEditColor(c)}
+                                        title="Color de etapa"
                                     />
                                 ))}
-                                <input type="color" value={editColor} onChange={(e) => setEditColor(e.target.value)} className="w-5 h-5 p-0 border-0 rounded-full cursor-pointer" />
+                                <input type="color" value={editColor} onChange={(e) => setEditColor(e.target.value)} className="w-5 h-5 p-0 border-0 rounded-full cursor-pointer" title="Color personalizado" />
+                            </div>
+                            <div className="space-y-2 border-t pt-2 mt-2">
+                                <div className="flex items-center justify-between">
+                                    <Label className="cursor-pointer text-xs" onClick={() => setEditSlaEnabled(!editSlaEnabled)}>
+                                        Semaforo de tiempo
+                                    </Label>
+                                    <Switch checked={editSlaEnabled} onCheckedChange={setEditSlaEnabled} />
+                                </div>
+                                <p className="text-[10px] text-muted-foreground leading-tight">
+                                    Las tarjetas cambiaran de color segun el tiempo que lleven en esta etapa.
+                                </p>
+                                {editSlaEnabled && (
+                                    <div className="grid grid-cols-2 gap-2 mt-2">
+                                        <div className="flex flex-col gap-1">
+                                            <Label className="text-[10px] text-muted-foreground">Limite</Label>
+                                            <Input
+                                                type="number"
+                                                min={1}
+                                                className="h-7 text-xs"
+                                                value={editSlaValue}
+                                                onChange={(e) => setEditSlaValue(Number(e.target.value))}
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <Label className="text-[10px] text-muted-foreground">Unidad</Label>
+                                            <Select value={editSlaUnit} onValueChange={(val: any) => setEditSlaUnit(val)}>
+                                                <SelectTrigger className="h-7 text-xs">
+                                                    <SelectValue placeholder="Unidad" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="minutes">Minutos</SelectItem>
+                                                    <SelectItem value="hours">Horas</SelectItem>
+                                                    <SelectItem value="days">Días</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     ) : (
@@ -273,6 +343,7 @@ export function PipelineColumn({
                         <LeadCard
                             key={lead.id}
                             lead={lead}
+                            stage={stage}
                             stageColor={stage.color}
                             isHighlighted={highlightedLeadId === lead.id}
                             hasUnreadMessages={unreadLeads.has(lead.id)}
