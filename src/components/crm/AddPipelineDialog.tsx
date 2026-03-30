@@ -3,12 +3,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Pipeline, PipelineType, Stage } from '@/lib/types'
+import { Pipeline, PipelineType, Stage, AssignmentType } from '@/lib/types'
 import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { Plus, X } from '@phosphor-icons/react'
+import { Plus, X, Hand, ArrowsClockwise, Shuffle } from '@phosphor-icons/react'
 import { createPipelineWithStages } from '@/supabase/helpers/pipeline'
 
 interface AddPipelineDialogProps {
@@ -22,6 +22,7 @@ export function AddPipelineDialog({ open, onClose, onAdd, empresaId }: AddPipeli
   const t = useTranslation('es')
   
   const [name, setName] = useState('')
+  const [assignmentType, setAssignmentType] = useState<AssignmentType>('manual')
   // Solo mantenemos la etapa inicial por defecto, sin opción a agregar más
   const [stages] = useState<Stage[]>([
     { id: 'stage-1', name: 'Inicial', order: 0, color: '#3b82f6', pipelineType: 'sales' }
@@ -50,7 +51,8 @@ export function AddPipelineDialog({ open, onClose, onAdd, empresaId }: AddPipeli
       const pipelineData = {
         name: name.trim(),
         stages: stages,
-        empresa_id: empresaId
+        empresa_id: empresaId,
+        assignment_type: assignmentType
       }
 
       const newPipeline = await createPipelineWithStages(pipelineData)
@@ -60,7 +62,8 @@ export function AddPipelineDialog({ open, onClose, onAdd, empresaId }: AddPipeli
       const pipelineForState = {
         ...newPipeline,
         stages: newPipeline.stages && newPipeline.stages.length > 0 ? newPipeline.stages : stages,
-        type: newPipeline.type || pipelineData.name.toLowerCase().trim().replace(/\s+/g, '-')
+        type: newPipeline.type || pipelineData.name.toLowerCase().trim().replace(/\s+/g, '-'),
+        assignment_type: assignmentType
       }
 
       onAdd(pipelineForState)
@@ -75,7 +78,7 @@ export function AddPipelineDialog({ open, onClose, onAdd, empresaId }: AddPipeli
 
   const resetForm = () => {
     setName('')
-    // No reseteamos stages porque es constante
+    setAssignmentType('manual')
   }
 
   return (
@@ -113,6 +116,37 @@ export function AddPipelineDialog({ open, onClose, onAdd, empresaId }: AddPipeli
             </div>
           </div>
 
+          <div>
+            <Label>Asignación de oportunidades</Label>
+            <Select value={assignmentType} onValueChange={(v) => setAssignmentType(v as AssignmentType)}>
+              <SelectTrigger className="mt-2">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="manual">
+                  <span className="flex items-center gap-2">
+                    <Hand size={16} weight="duotone" /> Manual
+                  </span>
+                </SelectItem>
+                <SelectItem value="round_robin">
+                  <span className="flex items-center gap-2">
+                    <ArrowsClockwise size={16} weight="duotone" className="text-blue-500" /> Por orden (Round Robin)
+                  </span>
+                </SelectItem>
+                <SelectItem value="random">
+                  <span className="flex items-center gap-2">
+                    <Shuffle size={16} weight="duotone" className="text-purple-500" /> Aleatorio
+                  </span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground mt-1">
+              {assignmentType === 'manual' && 'Asignas a quién quieras manualmente al crear cada oportunidad.'}
+              {assignmentType === 'round_robin' && 'Asigna automáticamente a los miembros del equipo en turno rotativo.'}
+              {assignmentType === 'random' && 'Asigna automáticamente a un miembro del equipo al azar.'}
+            </p>
+          </div>
+
           <div className="flex gap-2 pt-4">
             <Button onClick={handleSubmit} className="flex-1">Crear Pipeline</Button>
             <Button onClick={onClose} variant="outline">Cancelar</Button>
@@ -122,3 +156,4 @@ export function AddPipelineDialog({ open, onClose, onAdd, empresaId }: AddPipeli
     </Dialog>
   )
 }
+

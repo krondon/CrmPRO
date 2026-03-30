@@ -20,6 +20,7 @@ import { Company } from './CompanyManagement'
 import { usePersistentState } from '@/hooks/usePersistentState'
 import { createLead, createLeadsBulk } from '@/supabase/services/leads'
 import { getContacts } from '@/supabase/services/contacts'
+import { getNextAssignee } from '@/supabase/helpers/pipeline'
 import { SingleLeadForm, BulkImportView } from './leads'
 import { listWhatsappInstancias } from '@/supabase/services/instances'
 import type { EmpresaInstanciaDB } from '@/lib/types'
@@ -45,6 +46,7 @@ interface AddLeadDialogProps {
   currentUser?: User | null
   companyName?: string
   companyId?: string
+  assignmentType?: import('@/lib/types').AssignmentType
 }
 
 // Max budget limit
@@ -89,10 +91,10 @@ export function AddLeadDialog({
   onImport,
   trigger,
   defaultStageId,
-  companies = [],
   currentUser,
   companyName,
-  companyId
+  companyId,
+  assignmentType
 }: AddLeadDialogProps) {
   const t = useTranslation('es')
   const [open, setOpen] = useState(false)
@@ -196,6 +198,24 @@ export function AddLeadDialog({
 
 
       const actorNombre = effectiveUser?.businessName || (effectiveUser as any)?.nombre || effectiveUser?.email
+
+      // ==== AUTO-ASIGNACIÓN ====
+      const NIL_UUID = '00000000-0000-0000-0000-000000000000'
+      let finalAssignedTo = data.assignedTo === 'todos' ? NIL_UUID : data.assignedTo
+
+      // Si no se asignó explícitamente, verificar auto-asignación del pipeline
+      if (pipelineId && (!finalAssignedTo || finalAssignedTo === NIL_UUID)) {
+        try {
+          const assignee = await getNextAssignee(pipelineId)
+          if (assignee) {
+            finalAssignedTo = assignee.userId
+            console.log('[AddLeadDialog] Auto-asignado a:', assignee.userId)
+          }
+        } catch (err) {
+          console.warn('[AddLeadDialog] Error en auto-asignación:', err)
+        }
+      }
+
       const dbLead = await createLead({
         nombre_completo: data.name,
         correo_electronico: data.email?.trim() || undefined,
@@ -208,12 +228,38 @@ export function AddLeadDialog({
         etapa_id: data.stageId,
         pipeline_id: pipelineId || '',
         empresa_id: companyId || '',
-        asignado_a: data.assignedTo === 'todos' ? '00000000-0000-0000-0000-000000000000' : data.assignedTo,
+        asignado_a: finalAssignedTo,
         prioridad: data.priority,
         preferred_instance_id: data.preferredInstanceId || null
       }, effectiveUser?.id, actorNombre)
 
       if (dbLead) {
+        // Notificar asignación si corresponde
+        const assignedId = finalAssignedTo
+        if (assignedId && assignedId !== NIL_UUID) {
+          const recipient = teamMembers?.find(m => m.id === assignedId || m.userId === assignedId)
+          if (recipient?.email) {
+            try {
+              await import('@/lib/supabase').then(({ supabase }) => {
+                supabase.functions.invoke('send-lead-assigned', {
+                  body: {
+                    leadId: dbLead.id,
+                    leadName: dbLead.nombre_completo,
+                    empresaId: companyId,
+                    empresaNombre: companyName,
+                    assignedUserId: recipient.userId || assignedId,
+                    assignedUserEmail: recipient.email,
+                    assignedByEmail: effectiveUser?.email,
+                    assignedByNombre: actorNombre
+                  }
+                }).catch(e => console.error('[AddLeadDialog] Error en bg notification:', e))
+              })
+            } catch (e) {
+              console.error('[AddLeadDialog] Error enviando notificación de asignación', e)
+            }
+          }
+        }
+
         const newLead: Lead = {
           id: dbLead.id,
           name: dbLead.nombre_completo || '',
@@ -502,6 +548,7 @@ export function AddLeadDialog({
                 setContactResults([])
               }}
               onClearContact={() => setSelectedContact(null)}
+              assignmentType={assignmentType}
             />
           </TabsContent>
 

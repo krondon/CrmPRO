@@ -159,6 +159,7 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
                         id: p.id,
                         name: p.nombre || 'Sin Nombre',
                         type: p.nombre.toLowerCase().trim().replace(/\s+/g, '-') as PipelineType,
+                        assignment_type: p.assignment_type || 'manual',
                         stages: (p.etapas || []).map((s: any) => ({
                             id: s.id,
                             name: s.nombre,

@@ -302,6 +302,7 @@ export function PipelineColumn({
                                     currentUser={user}
                                     companyName={currentCompany?.name}
                                     companyId={companyId}
+                                    assignmentType={currentPipeline?.assignment_type}
                                     trigger={
                                         <Button
                                             variant="ghost"

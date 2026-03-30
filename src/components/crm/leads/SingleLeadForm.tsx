@@ -10,8 +10,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { MagnifyingGlass, User, X } from '@phosphor-icons/react'
-import { TeamMember, Stage, EmpresaInstanciaDB, ContactDB } from '@/lib/types'
+import { MagnifyingGlass, User, X, ArrowsClockwise, Shuffle } from '@phosphor-icons/react'
+import { TeamMember, Stage, EmpresaInstanciaDB, ContactDB, AssignmentType } from '@/lib/types'
 import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
 
@@ -54,6 +54,8 @@ interface SingleLeadFormProps {
     onContactSearchChange?: (val: string) => void
     onContactSelect?: (contact: ContactDB) => void
     onClearContact?: () => void
+    /** Tipo de asignación del pipeline (para mostrar contexto en el dropdown) */
+    assignmentType?: AssignmentType
 }
 
 export function SingleLeadForm({
@@ -71,7 +73,8 @@ export function SingleLeadForm({
     isSearching = false,
     onContactSearchChange,
     onContactSelect,
-    onClearContact
+    onClearContact,
+    assignmentType = 'manual'
 }: SingleLeadFormProps) {
     const t = useTranslation('es')
 
@@ -448,15 +451,39 @@ export function SingleLeadForm({
                         <SelectValue placeholder="Seleccionar miembro" />
                     </SelectTrigger>
                     <SelectContent>
+                        {/* Opción "Todos" / Auto-asignación según configuración */}
+                        {assignmentType === 'round_robin' ? (
+                            <SelectItem value="todos">
+                                <span className="flex items-center gap-2">
+                                    <ArrowsClockwise size={14} weight="bold" className="text-blue-500" />
+                                    Auto-asignación (Round Robin)
+                                </span>
+                            </SelectItem>
+                        ) : assignmentType === 'random' ? (
+                            <SelectItem value="todos">
+                                <span className="flex items-center gap-2">
+                                    <Shuffle size={14} weight="bold" className="text-purple-500" />
+                                    Auto-asignación (Aleatorio)
+                                </span>
+                            </SelectItem>
+                        ) : (
+                            <SelectItem value="todos">Todos (sin asignar)</SelectItem>
+                        )}
                         {eligibleMembers.map(member => (
                             <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>
                         ))}
-                        <SelectItem value="todos">Todos</SelectItem>
                         {eligibleMembers.length === 0 && (
                             <SelectItem value="none" disabled>Sin miembros disponibles</SelectItem>
                         )}
                     </SelectContent>
                 </Select>
+                {assignmentType !== 'manual' && assignedTo === 'todos' && (
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                        {assignmentType === 'round_robin'
+                            ? '🔄 Se asignará automáticamente al siguiente miembro del equipo en turno.'
+                            : '🎲 Se asignará automáticamente a un miembro del equipo al azar.'}
+                    </p>
+                )}
             </div>
 
             {/* Submit Button */}

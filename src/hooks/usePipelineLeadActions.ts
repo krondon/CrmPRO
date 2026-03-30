@@ -2,6 +2,7 @@ import { Dispatch, SetStateAction } from 'react'
 import { Lead, Pipeline, PipelineType, Stage, TeamMember } from '@/lib/types'
 import { createLead, deleteLead } from '@/supabase/services/leads'
 import { createEtapa } from '@/supabase/helpers/etapas'
+import { getNextAssignee } from '@/supabase/helpers/pipeline'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 
@@ -201,13 +202,28 @@ export function usePipelineLeadActions({
                     return
                 }
 
-                const actorNombre = user?.businessName || (user as any)?.nombre || user?.email
+            const actorNombre = user?.businessName || (user as any)?.nombre || user?.email
+                const NIL_UUID = '00000000-0000-0000-0000-000000000000'
+
+                // ==== AUTO-ASIGNACIÓN ====
+                // Si no se asignó a nadie (NIL_UUID o null), verificar si el pipeline tiene auto-asignación
+                if (!payload.asignado_a || payload.asignado_a === NIL_UUID) {
+                    try {
+                        const assignee = await getNextAssignee(pipelineIdToSave!)
+                        if (assignee) {
+                            payload.asignado_a = assignee.userId
+                            console.log('[usePipelineLeadActions] Auto-asignado a:', assignee.userId)
+                        }
+                    } catch (err) {
+                        console.warn('[usePipelineLeadActions] Error en auto-asignación, continuando sin asignar:', err)
+                    }
+                }
+
                 const created = await createLead(payload, user?.id, actorNombre)
 
                 toast.success('Lead guardado en BD')
 
                 // Notificar asignación si corresponde
-                const NIL_UUID = '00000000-0000-0000-0000-000000000000'
                 const assignedId = payload.asignado_a
                 if (isAdminOrOwner && assignedId && assignedId !== NIL_UUID) {
                     const recipient = teamMembers.find(m => m.id === assignedId)

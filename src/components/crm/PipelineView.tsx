@@ -8,11 +8,12 @@ import { Lead, Pipeline, PipelineType, TeamMember, Stage } from '@/lib/types'
 // import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Plus, Funnel, Trash, CaretLeft, CaretRight, Download } from '@phosphor-icons/react'
+import { Plus, Funnel, Trash, CaretLeft, CaretRight, Download, GearSix, ArrowsClockwise, Shuffle } from '@phosphor-icons/react'
 import { LeadDetailSheet } from './LeadDetailSheet'
 import { AddStageDialog } from './AddStageDialog'
 import { AddLeadDialog } from './AddLeadDialog'
 import { AddPipelineDialog } from './AddPipelineDialog'
+import { EditPipelineDialog } from './EditPipelineDialog'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -109,6 +110,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
   const [highlightedLeadId, setHighlightedLeadId] = useState<string | null>(null)
   const [showAddPipelineDialog, setShowAddPipelineDialog] = useState(false)
   const tabsScrollRef = useRef<HTMLDivElement>(null)
+  const [showEditPipelineDialog, setShowEditPipelineDialog] = useState(false)
 
   // Ref para acceso síncrono a leads (usado por realtime)
   const leadsRef = useRef(leads)
@@ -728,9 +730,23 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
 
         {/* Header Row - Title and Actions */}
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-3 shrink-0 flex-wrap">
             <div className="h-8 w-1.5 rounded-full bg-gradient-to-b from-primary via-primary/60 to-primary/20" />
             <h1 className="text-2xl md:text-3xl font-black text-foreground tracking-tighter">{t.pipeline.title}</h1>
+            
+            {/* Indicador de Auto-asignación para el pipeline activo */}
+            {currentPipeline?.assignment_type === 'round_robin' && (
+              <Badge variant="outline" className="ml-2 text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <ArrowsClockwise size={14} weight="bold" />
+                Auto-asignación (Round Robin)
+              </Badge>
+            )}
+            {currentPipeline?.assignment_type === 'random' && (
+              <Badge variant="outline" className="ml-2 text-xs bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <Shuffle size={14} weight="bold" />
+                Auto-asignación (Aleatorio)
+              </Badge>
+            )}
           </div>
 
           {/* Action Buttons - Modern Compact Pill Design */}
@@ -834,6 +850,18 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
                   </AlertDialog>
                 )}
 
+                {/* Settings (Assignment Config) Button */}
+                {isAdminOrOwner && (
+                  <Button
+                    variant="ghost"
+                    className="h-8 w-8 p-0 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background hover:shadow-sm transition-all"
+                    title="Configurar asignación"
+                    onClick={() => setShowEditPipelineDialog(true)}
+                  >
+                    <GearSix size={16} />
+                  </Button>
+                )}
+
                 {canEditLeads && (
                   <AddStageDialog
                     pipelineType={activePipeline}
@@ -866,6 +894,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
                   currentUser={user}
                   companyName={currentCompany?.name}
                   companyId={companyId}
+                  assignmentType={currentPipeline?.assignment_type}
                 />
               </div>
             )}
@@ -1131,6 +1160,20 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
         }}
         empresaId={companyId}
       />
+
+      {/* Dialog para editar configuración de asignación del pipeline */}
+      {currentPipeline && (
+        <EditPipelineDialog
+          open={showEditPipelineDialog}
+          onClose={() => setShowEditPipelineDialog(false)}
+          pipeline={currentPipeline}
+          onUpdate={(updated) => {
+            setPipelines((current) =>
+              (current || []).map(p => p.id === updated.id ? { ...p, assignment_type: updated.assignment_type } : p)
+            )
+          }}
+        />
+      )}
     </div >
   )
 }

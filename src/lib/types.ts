@@ -2,6 +2,7 @@ export type Priority = 'low' | 'medium' | 'high'
 export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'proposal' | 'negotiation' | 'won' | 'lost'
 export type Channel = 'whatsapp' | 'instagram' | 'facebook' | 'email' | 'phone'
 export type PipelineType = 'sales' | 'support' | 'administrative' | string
+export type AssignmentType = 'manual' | 'round_robin' | 'random'
 
 export interface Tag {
   id: string
@@ -127,6 +128,7 @@ export interface Pipeline {
   name: string
   type: PipelineType
   stages: Stage[]
+  assignment_type?: AssignmentType
 }
 
 export type RolePermission =
@@ -465,6 +467,8 @@ export interface PipelineDB {
   nombre: string
   empresa_id: string
   tipo?: string
+  assignment_type?: AssignmentType
+  last_assigned_persona_id?: string | null
   created_at: string
 }
 
