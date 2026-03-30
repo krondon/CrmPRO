@@ -598,6 +598,35 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
       }
     }
 
+    // If SLA config changed (disabled or time changed), reset stage_entered_at for all leads in this stage
+    const slaDisabled = updates.is_sla_enabled === false
+    const slaTimeChanged = updates.sla_limit_minutes !== undefined
+    const slaReEnabled = updates.is_sla_enabled === true
+
+    if (slaDisabled || slaTimeChanged || slaReEnabled) {
+      const leadsInStage = leads.filter(l => l.stage === stageId)
+      const now = new Date()
+      const nowISO = now.toISOString()
+
+      // Update leads locally
+      setLeads(current =>
+        (current || []).map(l =>
+          l.stage === stageId
+            ? { ...l, stageEnteredAt: slaDisabled ? null : now, slaCustomLimitMinutes: null }
+            : l
+        )
+      )
+
+      // Update leads in DB (non-blocking)
+      if (!slaDisabled) {
+        Promise.all(
+          leadsInStage
+            .filter(l => l.id.length > 20)
+            .map(l => updateLead(l.id, { stage_entered_at: nowISO, sla_custom_limit_minutes: null }))
+        ).catch(err => console.error('[handleEditStage] Error resetting SLA timers:', err))
+      }
+    }
+
     setPipelines((current) => {
       const pipelines = current || []
       const pipelineIndex = pipelines.findIndex(p => p.type === activePipeline)
@@ -608,9 +637,9 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
         ...updatedPipelines[pipelineIndex],
         stages: updatedPipelines[pipelineIndex].stages.map(s =>
           s.id === stageId
-            ? { 
-                ...s, 
-                ...(updates.name !== undefined ? { name: updates.name } : {}), 
+            ? {
+                ...s,
+                ...(updates.name !== undefined ? { name: updates.name } : {}),
                 ...(updates.color !== undefined ? { color: updates.color } : {}),
                 ...(updates.is_sla_enabled !== undefined ? { is_sla_enabled: updates.is_sla_enabled } : {}),
                 ...(updates.sla_limit_minutes !== undefined ? { sla_limit_minutes: updates.sla_limit_minutes } : {})

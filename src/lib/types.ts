@@ -296,6 +296,8 @@ export interface UpdateLeadDTO {
   empresa?: string
   archived?: boolean
   archived_at?: string | null
+  stage_entered_at?: string | null
+  sla_custom_limit_minutes?: number | null
 }
 
 // Lead como viene de la BD (snake_case)

@@ -2,13 +2,13 @@
  * ContactsList - Sidebar with searchable contact list
  */
 
+import { useRef, useCallback, useEffect } from 'react'
 import { Contact } from '@/lib/types'
 import { ContactCard } from './ContactCard'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { MagnifyingGlass, SortAscending, Spinner } from '@phosphor-icons/react'
-import { Button } from '@/components/ui/button'
 import { SortOption } from '@/hooks/useContacts'
 
 interface ContactsListProps {
@@ -37,7 +37,28 @@ export function ContactsList({
     sortBy,
     setSortBy
 }: ContactsListProps) {
-    // No local state for search/sort anymore
+    // Infinite scroll with IntersectionObserver
+    const sentinelRef = useRef<HTMLDivElement>(null)
+
+    const handleIntersect = useCallback(
+        (entries: IntersectionObserverEntry[]) => {
+            if (entries[0].isIntersecting && hasMore && !isLoading) {
+                loadMore()
+            }
+        },
+        [hasMore, isLoading, loadMore]
+    )
+
+    useEffect(() => {
+        const sentinel = sentinelRef.current
+        if (!sentinel) return
+
+        const observer = new IntersectionObserver(handleIntersect, {
+            rootMargin: '200px',
+        })
+        observer.observe(sentinel)
+        return () => observer.disconnect()
+    }, [handleIntersect])
 
     return (
         <div className="w-full md:w-80 border-r border-border flex flex-col h-full bg-card overflow-hidden">
@@ -97,16 +118,15 @@ export function ContactsList({
                         </div>
                     )}
 
-                    {/* Loading State & Load More */}
-                    <div className="py-4 flex justify-center">
-                        {isLoading ? (
+                    {/* Loading spinner */}
+                    {isLoading && (
+                        <div className="py-4 flex justify-center">
                             <Spinner size={24} className="animate-spin text-primary" />
-                        ) : hasMore ? (
-                            <Button variant="ghost" size="sm" onClick={loadMore}>
-                                Cargar más
-                            </Button>
-                        ) : null}
-                    </div>
+                        </div>
+                    )}
+
+                    {/* Sentinel for infinite scroll */}
+                    {hasMore && !isLoading && <div ref={sentinelRef} className="h-1" />}
                 </div>
             </ScrollArea>
 

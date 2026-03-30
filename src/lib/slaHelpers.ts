@@ -46,7 +46,7 @@ export function calculateSLAStatus({ isSlaEnabled, stageEnteredAt, limitMinutes 
     return { status: 'RED', label: formatTimeRemaining(timeRemaining) };
   }
 
-  const warningThreshold = limitMilliseconds * 0.20;
+  const warningThreshold = limitMilliseconds * 0.50;
   if (timeRemaining <= warningThreshold) {
     return { status: 'YELLOW', label: formatTimeRemaining(timeRemaining) };
   }
