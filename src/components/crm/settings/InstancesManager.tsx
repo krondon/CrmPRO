@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Plus, Trash, PencilSimple, WhatsappLogo, InstagramLogo, FacebookLogo, Funnel, UserPlus, Key, Globe, LinkSimple, CheckCircle, Clock, Prohibit, ChatText, FloppyDisk } from '@phosphor-icons/react'
+import { Plus, Trash, PencilSimple, WhatsappLogo, InstagramLogo, FacebookLogo, Funnel, UserPlus, Key, Globe, LinkSimple, CheckCircle, Clock, Prohibit, ChatText, FloppyDisk, Copy } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { getPipelines } from '@/supabase/helpers/pipeline'
 import type { Pipeline } from '@/lib/types'
@@ -661,6 +661,34 @@ export function InstancesManager({ empresaId }: InstancesManagerProps) {
                         <span className="font-mono font-medium truncate">{inst.api_url || 'v4.iasuperapi.com'}</span>
                       </div>
                     </div>
+
+                    {/* Webhook URL */}
+                    {(inst as any).webhook_secret && (
+                      <div className="pt-2 border-t border-border/20">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <LinkSimple size={12} className="text-muted-foreground" />
+                          <span className="text-[11px] font-semibold text-muted-foreground">Webhook URL</span>
+                        </div>
+                        <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/40 border border-border/30">
+                          <code className="text-[11px] font-mono text-foreground/80 truncate flex-1 select-all">
+                            {`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/webhook-chat?secret=${(inst as any).webhook_secret}`}
+                          </code>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 rounded-md shrink-0"
+                            onClick={() => {
+                              navigator.clipboard.writeText(
+                                `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/webhook-chat?secret=${(inst as any).webhook_secret}`
+                              )
+                              toast.success('URL copiada al portapapeles')
+                            }}
+                          >
+                            <Copy size={14} />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )
               })}

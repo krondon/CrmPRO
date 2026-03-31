@@ -208,10 +208,10 @@ export function AddLeadDialog({
         try {
           const assignee = await getNextAssignee(pipelineId)
           if (assignee) {
-            finalAssignedTo = assignee.personaId
-            console.log('[AddLeadDialog] Auto-asignado a:', assignee.personaId)
+            finalAssignedTo = assignee.userId
+            console.log('[AddLeadDialog] Auto-asignado a:', assignee.userId)
           }
-        } catch (err: any) {
+        } catch (err) {
           console.warn('[AddLeadDialog] Error en auto-asignación:', err)
         }
       }

@@ -92,10 +92,7 @@ export function SingleLeadForm({
     const [budget, setBudget] = useState('')
     const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('medium')
     const [stageId, setStageId] = useState(defaultStageId || stages[0]?.id || '')
-    // Si el pipeline tiene auto-asignación, siempre iniciamos con 'todos' para que el RPC lo maneje
-    const [assignedTo, setAssignedTo] = useState(
-        assignmentType !== 'manual' ? 'todos' : (defaultAssignedTo || eligibleMembers[0]?.id || '')
-    )
+    const [assignedTo, setAssignedTo] = useState(defaultAssignedTo || eligibleMembers[0]?.id || '')
     const [preferredInstanceId, setPreferredInstanceId] = useState<string | undefined>(
         whatsappInstances.length === 1 ? whatsappInstances[0].id : undefined
     )
@@ -106,9 +103,8 @@ export function SingleLeadForm({
     }, [defaultStageId])
 
     useEffect(() => {
-        // Solo actualizar el asignado por defecto si el pipeline es manual
-        if (defaultAssignedTo && assignmentType === 'manual') setAssignedTo(defaultAssignedTo)
-    }, [defaultAssignedTo, assignmentType])
+        if (defaultAssignedTo) setAssignedTo(defaultAssignedTo)
+    }, [defaultAssignedTo])
 
     // Pre-fill form when a contact is selected
     useEffect(() => {
@@ -283,7 +279,7 @@ export function SingleLeadForm({
                         autoComplete="off"
                         className={selectedContact ? "border-primary/50 bg-primary/5" : ""}
                     />
-                    
+
                     {/* Autocomplete Dropdown */}
                     {showSuggestions && (isSearching || contactResults.length > 0) && (
                         <div className="absolute top-full left-0 right-0 mt-1 bg-background border border-border rounded-md shadow-md max-h-48 overflow-y-auto z-50">

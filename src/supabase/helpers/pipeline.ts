@@ -72,14 +72,9 @@ export const getNextAssignee = async (pipelineId: string): Promise<{ userId: str
 
     if (!data || data.length === 0) return null
 
-    // Manejar caso donde postgrest retorna un object directo en vez de array
-    const result = Array.isArray(data) ? data[0] : data;
-
-    if (!result || !result.user_id) return null;
-
     return {
-        userId: result.user_id,
-        personaId: result.persona_id
+        userId: data[0].user_id,
+        personaId: data[0].persona_id
     }
 }
 
@@ -159,10 +154,10 @@ export const createPipelineWithStages = async (pipelineData: CreatePipelineWithS
 }
 
 
-export const updatePipelinesOrder = async (updates: { id: string; orden: number }[]) => { 
+export const updatePipelinesOrder = async (updates: { id: string; orden: number }[]) => {
     const promises = updates.map(async u => {
         const { error } = await supabase.from('pipeline').update({ orden: u.orden }).eq('id', u.id)
         if (error) throw error
-    }); 
-    return Promise.all(promises); 
+    });
+    return Promise.all(promises);
 }
