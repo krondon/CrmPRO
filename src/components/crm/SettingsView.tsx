@@ -141,12 +141,12 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
             <Funnel size={14} weight="duotone" />
             Pipelines
           </TabsTrigger>
-          {isAdminOrOwner && (
+          {/* {isAdminOrOwner && (
             <TabsTrigger value="catalog" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold">
               <ShoppingCart size={14} weight="duotone" />
               Catalogo
             </TabsTrigger>
-          )}
+          )} */}
           {isAdminOrOwner && (
             <TabsTrigger value="roles" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold">
               <ShieldCheck size={14} weight="duotone" />
@@ -415,6 +415,7 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
         </TabsContent>
 
         {/* ── Catálogo ─────────────────────────────────── */}
+        
         <TabsContent value="catalog" className="space-y-6 mt-8">
           {isAdminOrOwner ? (
             <CatalogManagement />
