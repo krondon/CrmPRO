@@ -209,4 +209,10 @@ export const createPipelineWithStages = async (pipelineData: CreatePipelineWithS
 }
 
 
-export const updatePipelinesOrder = async (updates: { id: string; orden: number }[]) => { const promises = updates.map(u => supabase.from('pipeline').update({ orden: u.orden }).eq('id', u.id)); return Promise.all(promises); }
+export const updatePipelinesOrder = async (updates: { id: string; orden: number }[]) => { 
+    const promises = updates.map(async u => {
+        const { error } = await supabase.from('pipeline').update({ orden: u.orden }).eq('id', u.id)
+        if (error) throw error
+    }); 
+    return Promise.all(promises); 
+}
