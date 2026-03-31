@@ -201,6 +201,19 @@ export function AddLeadDialog({
       const NIL_UUID = '00000000-0000-0000-0000-000000000000'
       let finalAssignedTo = data.assignedTo === 'todos' ? NIL_UUID : data.assignedTo
 
+      // Si no se asignó explícitamente, verificar auto-asignación del pipeline
+      if (pipelineId && (!finalAssignedTo || finalAssignedTo === NIL_UUID)) {
+        try {
+          const assignee = await getNextAssignee(pipelineId)
+          if (assignee) {
+            finalAssignedTo = assignee.personaId
+            console.log('[AddLeadDialog] Auto-asignado a:', assignee.personaId)
+          }
+        } catch (err: any) {
+          console.warn('[AddLeadDialog] Error en auto-asignación:', err)
+        }
+      }
+
       const dbLead = await createLead({
         nombre_completo: data.name,
         correo_electronico: data.email?.trim() || undefined,
