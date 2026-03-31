@@ -294,7 +294,6 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
   // ==========================================
   const {
     handleAddStage,
-    handleAddLead,
     handleImportLeads,
     handleDeleteLead
   } = usePipelineLeadActions({
@@ -304,10 +303,8 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
     setPipelines,
     setLeads,
     setStageCounts,
-    teamMembers,
     user,
-    isAdminOrOwner,
-    currentCompany
+    isAdminOrOwner
   })
 
   // ==========================================
@@ -575,6 +572,30 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
     toast.success('Etapa eliminada')
   }
 
+  const handleResetSLA = async (stageId: string) => {
+    if (!isAdminOrOwner) return
+    const isConfirmed = window.confirm('¿Estás seguro de reiniciar los semáforos de esta etapa? Todos los leads iniciarán su contador desde 0 ahora mismo.')
+    if (!isConfirmed) return
+
+    try {
+      const { resetStageSLAs } = await import('@/supabase/services/etapas')
+      await resetStageSLAs(stageId)
+      
+      const now = new Date()
+      setLeads(current =>
+        (current || []).map(l =>
+          l.stage === stageId
+            ? { ...l, stageEnteredAt: now, slaCustomLimitMinutes: null }
+            : l
+        )
+      )
+      toast.success('Semáforos reiniciados con éxito')
+    } catch (err: any) {
+      console.error('Error resetting SLAs:', err)
+      toast.error('Error al reiniciar los semáforos')
+    }
+  }
+
   const handleEditStage = async (stageId: string, updates: { name?: string; color?: string; is_sla_enabled?: boolean; sla_limit_minutes?: number | null }) => {
     if (!isAdminOrOwner) {
       toast.error('No tienes permisos para editar etapas')
@@ -600,32 +621,27 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
       }
     }
 
-    // If SLA config changed (disabled or time changed), reset stage_entered_at for all leads in this stage
+    // Only clear time if SLA is completely disabled. Otherwise, keep the entered time but update their limits
     const slaDisabled = updates.is_sla_enabled === false
     const slaTimeChanged = updates.sla_limit_minutes !== undefined
     const slaReEnabled = updates.is_sla_enabled === true
 
     if (slaDisabled || slaTimeChanged || slaReEnabled) {
-      const leadsInStage = leads.filter(l => l.stage === stageId)
-      const now = new Date()
-      const nowISO = now.toISOString()
-
       // Update leads locally
       setLeads(current =>
         (current || []).map(l =>
           l.stage === stageId
-            ? { ...l, stageEnteredAt: slaDisabled ? null : now, slaCustomLimitMinutes: null }
+            ? { ...l, stageEnteredAt: slaDisabled ? null : l.stageEnteredAt, slaCustomLimitMinutes: updates.sla_limit_minutes ?? null }
             : l
         )
       )
 
       // Update leads in DB (non-blocking)
       if (!slaDisabled) {
-        Promise.all(
-          leadsInStage
-            .filter(l => l.id.length > 20)
-            .map(l => updateLead(l.id, { stage_entered_at: nowISO, sla_custom_limit_minutes: null }))
-        ).catch(err => console.error('[handleEditStage] Error resetting SLA timers:', err))
+        import('@/supabase/services/etapas').then(({ syncStageSLALimits }) => {
+           syncStageSLALimits(stageId, updates.sla_limit_minutes ?? null)
+            .catch(err => console.error('[handleEditStage] Error syncing SLA limits:', err))
+        })
       }
     }
 
@@ -1006,7 +1022,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
         onDragOver={handleDragOver}
         onDrop={handleDrop}
         onDeleteStage={handleDeleteStage}
-        onEditStage={handleEditStage}
+        onEditStage={handleEditStage} onResetSLA={handleResetSLA}
         onAddLead={handleLeadAddedToState}
         onImportLeads={handleImportLeads}
         onLoadMore={handleLoadMoreStage}

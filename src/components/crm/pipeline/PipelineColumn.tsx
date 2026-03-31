@@ -3,7 +3,7 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Plus, Trash, PencilSimple, Check, X } from '@phosphor-icons/react'
+import { Plus, Trash, PencilSimple, Check, X, ArrowsClockwise } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { Lead, Pipeline, PipelineType, TeamMember, Stage } from '@/lib/types'
 import { AddLeadDialog } from '@/components/crm/AddLeadDialog'
@@ -47,6 +47,7 @@ interface PipelineColumnProps {
     onDrop: (e: React.DragEvent, stageId: string) => void
     onDeleteStage: (stageId: string) => void
     onEditStage: (stageId: string, updates: { name?: string; color?: string; is_sla_enabled?: boolean; sla_limit_minutes?: number | null }) => void
+    onResetSLA?: (stageId: string) => void
     onAddLead: (lead: Lead) => void
     onImportLeads: (leads: Lead[]) => void
     onLoadMore: (stageId: string) => void
@@ -91,6 +92,7 @@ export function PipelineColumn({
     onDrop,
     onDeleteStage,
     onEditStage,
+    onResetSLA,
     onAddLead,
     onImportLeads,
     onLoadMore,
@@ -267,6 +269,17 @@ export function PipelineColumn({
                         </div>
                         {/* Action buttons on the right of title row */}
                         <div className="flex items-center gap-1 shrink-0">
+                            {isAdminOrOwner && stage.is_sla_enabled && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 w-7 p-0 text-muted-foreground hover:text-amber-500"
+                                    onClick={() => onResetSLA?.(stage.id)}
+                                    title="Reiniciar semáforos de la etapa"
+                                >
+                                    <ArrowsClockwise size={15} weight="bold" />
+                                </Button>
+                            )}
                             {isAdminOrOwner && (
                                 <Button
                                     variant="ghost"
