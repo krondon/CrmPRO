@@ -58,79 +58,29 @@ export const deletePipeline = (id: string) =>
 /**
  * Obtiene el siguiente asignado para auto-asignación (round_robin o random).
  * 
- * Retorna el usuario_id del miembro seleccionado, o null si no hay miembros disponibles.
- * Actualiza `last_assigned_persona_id` en la tabla pipeline para round robin.
+ * Usa la función RPC `get_next_assignee` de PostgreSQL que ejecuta todo de forma
+ * atómica con FOR UPDATE, evitando race conditions cuando dos leads se crean al
+ * mismo tiempo.
  */
 export const getNextAssignee = async (pipelineId: string): Promise<{ userId: string; personaId: string } | null> => {
-    // 1. Leer configuración del pipeline
-    const { data: pipeline, error: pErr } = await supabase
-        .from('pipeline')
-        .select('assignment_type, last_assigned_persona_id')
-        .eq('id', pipelineId)
-        .single()
+    const { data, error } = await supabase.rpc('get_next_assignee', { p_pipeline_id: pipelineId })
 
-    if (pErr || !pipeline) {
-        console.error('[getNextAssignee] Error leyendo pipeline:', pErr)
+    if (error) {
+        console.error('[getNextAssignee] RPC error:', error)
         return null
     }
 
-    const assignmentType = pipeline.assignment_type as AssignmentType
-    if (!assignmentType || assignmentType === 'manual') return null
+    if (!data || data.length === 0) return null
 
-    // 2. Obtener miembros del pipeline con su usuario_id
-    const { data: members, error: mErr } = await supabase
-        .from('persona_pipeline')
-        .select('persona_id, persona:persona!inner(id, usuario_id)')
-        .eq('pipeline_id', pipelineId)
+    // Manejar caso donde postgrest retorna un object directo en vez de array
+    const result = Array.isArray(data) ? data[0] : data;
 
-    if (mErr || !members || members.length === 0) {
-        console.warn('[getNextAssignee] No hay miembros en el pipeline:', pipelineId)
-        return null
+    if (!result || !result.user_id) return null;
+
+    return {
+        userId: result.user_id,
+        personaId: result.persona_id
     }
-
-    // Filtrar solo miembros con usuario_id válido
-    const validMembers = members
-        .map((m: any) => ({
-            personaId: m.persona_id as string,
-            userId: (m.persona?.usuario_id || null) as string | null
-        }))
-        .filter(m => m.userId != null) as { personaId: string; userId: string }[]
-
-    if (validMembers.length === 0) {
-        console.warn('[getNextAssignee] Ningún miembro tiene usuario_id vinculado')
-        return null
-    }
-
-    let selected: { personaId: string; userId: string }
-
-    if (assignmentType === 'round_robin') {
-        // Ordenar por personaId para consistencia
-        validMembers.sort((a, b) => a.personaId.localeCompare(b.personaId))
-
-        const lastId = pipeline.last_assigned_persona_id
-        let nextIndex = 0
-
-        if (lastId) {
-            const lastIndex = validMembers.findIndex(m => m.personaId === lastId)
-            nextIndex = lastIndex === -1 ? 0 : (lastIndex + 1) % validMembers.length
-        }
-
-        selected = validMembers[nextIndex]
-
-        // Actualizar el puntero de round robin
-        await supabase
-            .from('pipeline')
-            .update({ last_assigned_persona_id: selected.personaId })
-            .eq('id', pipelineId)
-
-    } else if (assignmentType === 'random') {
-        const randomIndex = Math.floor(Math.random() * validMembers.length)
-        selected = validMembers[randomIndex]
-    } else {
-        return null
-    }
-
-    return selected
 }
 
 /**
