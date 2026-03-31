@@ -20,7 +20,6 @@ import { Company } from './CompanyManagement'
 import { usePersistentState } from '@/hooks/usePersistentState'
 import { createLead, createLeadsBulk } from '@/supabase/services/leads'
 import { getContacts } from '@/supabase/services/contacts'
-import { getNextAssignee } from '@/supabase/helpers/pipeline'
 import { SingleLeadForm, BulkImportView } from './leads'
 import { listWhatsappInstancias } from '@/supabase/services/instances'
 import type { EmpresaInstanciaDB } from '@/lib/types'
@@ -199,22 +198,8 @@ export function AddLeadDialog({
 
       const actorNombre = effectiveUser?.businessName || (effectiveUser as any)?.nombre || effectiveUser?.email
 
-      // ==== AUTO-ASIGNACIÓN ====
       const NIL_UUID = '00000000-0000-0000-0000-000000000000'
       let finalAssignedTo = data.assignedTo === 'todos' ? NIL_UUID : data.assignedTo
-
-      // Si no se asignó explícitamente, verificar auto-asignación del pipeline
-      if (pipelineId && (!finalAssignedTo || finalAssignedTo === NIL_UUID)) {
-        try {
-          const assignee = await getNextAssignee(pipelineId)
-          if (assignee) {
-            finalAssignedTo = assignee.userId
-            console.log('[AddLeadDialog] Auto-asignado a:', assignee.userId)
-          }
-        } catch (err) {
-          console.warn('[AddLeadDialog] Error en auto-asignación:', err)
-        }
-      }
 
       const dbLead = await createLead({
         nombre_completo: data.name,
