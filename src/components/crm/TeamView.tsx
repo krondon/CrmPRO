@@ -63,6 +63,8 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
   const [solicitudesPendientes, setSolicitudesPendientes] = useState<SolicitudUnionDB[]>([])
   const [approvedMembers, setApprovedMembers] = useState<{ id: string; email: string; nombre: string | null; role: string; usuario_id: string | null; created_at: string }[]>([])
   const [solicitudRoles, setSolicitudRoles] = useState<Record<string, string>>({})
+  const [solicitudEquipos, setSolicitudEquipos] = useState<Record<string, string>>({})
+  const [solicitudPipelines, setSolicitudPipelines] = useState<Record<string, Set<string>>>({})
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null)
   const [editingMemberRole, setEditingMemberRole] = useState<string>('viewer')
 
@@ -586,65 +588,146 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
               Solicitudes de unión ({solicitudesPendientes.length})
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2">
-            {solicitudesPendientes.map(sol => (
-              <div key={sol.id} className="flex items-center justify-between p-3 rounded-lg border bg-background">
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm truncate">{sol.solicitante_nombre || sol.solicitante_email}</p>
-                  {sol.mensaje && (
-                    <p className="text-xs text-muted-foreground mt-0.5 truncate">"{sol.mensaje}"</p>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    <Clock size={12} className="inline mr-1" />
-                    {new Date(sol.created_at).toLocaleDateString('es-ES')}
-                  </p>
+          <CardContent className="space-y-3">
+            {solicitudesPendientes.map(sol => {
+              const selectedPipelines = solicitudPipelines[sol.id] || new Set<string>()
+              return (
+                <div key={sol.id} className="p-4 rounded-xl border bg-background space-y-3">
+                  {/* Info del solicitante */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-sm truncate">{sol.solicitante_nombre || sol.solicitante_email}</p>
+                      <p className="text-xs text-muted-foreground truncate">{sol.solicitante_email}</p>
+                      {sol.mensaje && (
+                        <p className="text-xs text-muted-foreground mt-1 italic">"{sol.mensaje}"</p>
+                      )}
+                      <p className="text-xs text-muted-foreground mt-1">
+                        <Clock size={12} className="inline mr-1" />
+                        {new Date(sol.created_at).toLocaleDateString('es-ES')}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Configuración: Rol, Equipo, Pipelines */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-border/30">
+                    {/* Rol */}
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Rol</label>
+                      <Select
+                        value={solicitudRoles[sol.id] || 'viewer'}
+                        onValueChange={(val) => setSolicitudRoles(prev => ({ ...prev, [sol.id]: val }))}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="viewer">Lector</SelectItem>
+                          <SelectItem value="admin">Administrador</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Equipo */}
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Equipo</label>
+                      <Select
+                        value={solicitudEquipos[sol.id] || ''}
+                        onValueChange={(val) => setSolicitudEquipos(prev => ({ ...prev, [sol.id]: val }))}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="Seleccionar equipo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {equipos.map(eq => (
+                            <SelectItem key={eq.id} value={eq.id}>{eq.nombre_equipo}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Pipelines */}
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Pipelines</label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="w-full h-8 text-xs justify-start font-normal">
+                            {selectedPipelines.size > 0
+                              ? `${selectedPipelines.size} seleccionado${selectedPipelines.size > 1 ? 's' : ''}`
+                              : 'Seleccionar'}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-56 p-2">
+                          <div className="space-y-1">
+                            {dbPipelines.map((p: any) => {
+                              const isChecked = selectedPipelines.has(p.id)
+                              return (
+                                <label key={p.id} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/50 cursor-pointer text-sm">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => {
+                                      setSolicitudPipelines(prev => {
+                                        const current = new Set(prev[sol.id] || [])
+                                        if (current.has(p.id)) current.delete(p.id)
+                                        else current.add(p.id)
+                                        return { ...prev, [sol.id]: current }
+                                      })
+                                    }}
+                                    className="rounded"
+                                  />
+                                  {p.nombre}
+                                </label>
+                              )
+                            })}
+                            {dbPipelines.length === 0 && (
+                              <p className="text-xs text-muted-foreground text-center py-2">No hay pipelines</p>
+                            )}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                  </div>
+
+                  {/* Acciones */}
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/30">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 h-8"
+                      onClick={async () => {
+                        try {
+                          await rechazarSolicitud(sol.id)
+                          setSolicitudesPendientes(prev => prev.filter(s => s.id !== sol.id))
+                          toast.success('Solicitud rechazada')
+                        } catch { toast.error('Error al rechazar') }
+                      }}
+                    >
+                      <XCircle size={14} className="mr-1" />
+                      Rechazar
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="h-8"
+                      disabled={!solicitudEquipos[sol.id]}
+                      onClick={async () => {
+                        try {
+                          await aprobarSolicitud(sol.id, solicitudRoles[sol.id] || 'viewer', null, {
+                            equipo_id: solicitudEquipos[sol.id],
+                            pipeline_ids: Array.from(selectedPipelines)
+                          })
+                          setSolicitudesPendientes(prev => prev.filter(s => s.id !== sol.id))
+                          toast.success('Solicitud aprobada — miembro añadido al equipo y CRM')
+                          setRefreshTrigger(prev => prev + 1)
+                        } catch (e: any) { toast.error(e.message || 'Error al aprobar') }
+                      }}
+                    >
+                      <CheckCircle size={14} className="mr-1" />
+                      Aprobar
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 ml-3 flex-wrap">
-                  <Select
-                    value={solicitudRoles[sol.id] || 'viewer'}
-                    onValueChange={(val) => setSolicitudRoles(prev => ({ ...prev, [sol.id]: val }))}
-                  >
-                    <SelectTrigger className="w-28 h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="viewer">Lector</SelectItem>
-                      <SelectItem value="admin">Administrador</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 h-8"
-                    onClick={async () => {
-                      try {
-                        await rechazarSolicitud(sol.id)
-                        setSolicitudesPendientes(prev => prev.filter(s => s.id !== sol.id))
-                        toast.success('Solicitud rechazada')
-                      } catch { toast.error('Error al rechazar') }
-                    }}
-                  >
-                    <XCircle size={14} className="mr-1" />
-                    Rechazar
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="h-8"
-                    onClick={async () => {
-                      try {
-                        await aprobarSolicitud(sol.id, solicitudRoles[sol.id] || 'viewer')
-                        setSolicitudesPendientes(prev => prev.filter(s => s.id !== sol.id))
-                        toast.success('Solicitud aprobada — se ha añadido al equipo')
-                        setRefreshTrigger(prev => prev + 1)
-                      } catch { toast.error('Error al aprobar') }
-                    }}
-                  >
-                    <CheckCircle size={14} className="mr-1" />
-                    Aprobar
-                  </Button>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </CardContent>
         </Card>
       )}
