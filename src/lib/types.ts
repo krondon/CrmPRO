@@ -129,6 +129,7 @@ export interface Pipeline {
   type: PipelineType
   stages: Stage[]
   assignment_type?: AssignmentType
+  order?: number
 }
 
 export type RolePermission =

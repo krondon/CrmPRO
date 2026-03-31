@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import { cn } from '@/lib/utils'
 import { useLeadsRealtime } from '@/hooks/useLeadsRealtime'
 import { usePipelineData } from '@/hooks/usePipelineData'
 import { usePipelineLeadActions } from '@/hooks/usePipelineLeadActions'
@@ -30,7 +31,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
-import { deletePipeline, getPipelines } from '@/supabase/helpers/pipeline'
+import { deletePipeline, getPipelines, updatePipelinesOrder } from '@/supabase/helpers/pipeline'
 import { deleteLead, getLeads, getLeadsPaged, updateLead, searchLeads } from '@/supabase/services/leads'
 import { getEquipos } from '@/supabase/services/equipos'
 import { getPersonas } from '@/supabase/services/persona'
@@ -109,6 +110,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
   const [moveDialogLead, setMoveDialogLead] = useState<Lead | null>(null)
   const [highlightedLeadId, setHighlightedLeadId] = useState<string | null>(null)
   const [showAddPipelineDialog, setShowAddPipelineDialog] = useState(false)
+  const [draggedPipelineId, setDraggedPipelineId] = useState<string | null>(null)
   const tabsScrollRef = useRef<HTMLDivElement>(null)
   const [showEditPipelineDialog, setShowEditPipelineDialog] = useState(false)
 
@@ -336,6 +338,62 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
     setPipelines,
     canEditStages: isAdminOrOwner
   })
+
+  // Drag & drop handlers for Pipeline tabs
+  const handlePipelineDragStart = (e: React.DragEvent, id: string) => {
+    if (!isAdminOrOwner) {
+      e.preventDefault()
+      return
+    }
+    setDraggedPipelineId(id)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('application/x-pipeline-id', id)
+  }
+
+  const handlePipelineDragOver = (e: React.DragEvent) => {
+    if (!draggedPipelineId) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+
+  const handlePipelineDrop = async (e: React.DragEvent, targetId: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    if (!isAdminOrOwner) return
+    const draggedId = e.dataTransfer.getData('application/x-pipeline-id') || draggedPipelineId
+    if (!draggedId || draggedId === targetId) {
+      setDraggedPipelineId(null)
+      return
+    }
+
+    const newPipelines = [...(pipelines || [])]
+    const draggedIdx = newPipelines.findIndex(p => p.id === draggedId)
+    const targetIdx = newPipelines.findIndex(p => p.id === targetId)
+
+    if (draggedIdx === -1 || targetIdx === -1) {
+      setDraggedPipelineId(null)
+      return
+    }
+
+    const [draggedItem] = newPipelines.splice(draggedIdx, 1)
+    newPipelines.splice(targetIdx, 0, draggedItem)
+
+    const reordered = newPipelines.map((p, index) => ({ ...p, order: index }))
+
+    // Optimistic UI
+    setPipelines(reordered)
+    setDraggedPipelineId(null)
+
+    try {
+      const updates = reordered.map(p => ({ id: p.id, orden: p.order || 0 }))
+      await updatePipelinesOrder(updates)
+      // No toast needed for smooth UX
+    } catch (error) {
+      console.error("Error saving pipeline order", error)
+      toast.error("Error al guardar el orden de los pipelines")
+    }
+  }
 
   // Sincronización en tiempo real de leads
   useLeadsRealtime({
@@ -925,15 +983,21 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
               className="overflow-x-auto pb-2 -mx-1 pl-1 pr-20 md:pr-24 scrollbar-none hover:scrollbar-thin scrollbar-thumb-muted-foreground/20 scrollbar-track-transparent transition-all"
             >
               <TabsList className="inline-flex flex-nowrap h-11 items-center justify-start gap-1.5 bg-muted/20 p-1 rounded-xl w-max min-w-full border border-border/30">
-                {(pipelines || []).map(p => (
-                  <TabsTrigger
-                    key={p.id}
-                    value={p.type}
-                    className="inline-flex items-center justify-center whitespace-nowrap rounded-lg px-5 py-2 text-sm font-semibold ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm data-[state=active]:border-b-2 data-[state=active]:border-primary hover:bg-background/60 hover:text-foreground"
-                  >
-                    {p.name}
-                  </TabsTrigger>
-                ))}
+                  {(pipelines || []).map(p => (
+                    <TabsTrigger
+                      key={p.id}
+                      value={p.type}
+                      onDragStart={(e) => handlePipelineDragStart(e, p.id)}
+                      onDragOver={handlePipelineDragOver}
+                      onDrop={(e) => handlePipelineDrop(e, p.id)}
+                      draggable={isAdminOrOwner}
+                      className={cn("inline-flex items-center justify-center whitespace-nowrap rounded-lg px-5 py-2 text-sm font-semibold ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm data-[state=active]:border-b-2 data-[state=active]:border-primary hover:bg-background/60 hover:text-foreground",
+                        draggedPipelineId === p.id && "opacity-50"
+                      )}
+                    >
+                      {p.name}
+                    </TabsTrigger>
+                  ))}
 
                 {/* Botón Crear Pipeline inline */}
                 <button

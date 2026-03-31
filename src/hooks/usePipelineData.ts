@@ -160,6 +160,7 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
                         name: p.nombre || 'Sin Nombre',
                         type: p.nombre.toLowerCase().trim().replace(/\s+/g, '-') as PipelineType,
                         assignment_type: p.assignment_type || 'manual',
+                        order: p.orden ?? 0,
                         stages: (p.etapas || []).map((s: any) => ({
                             id: s.id,
                             name: s.nombre,
@@ -181,6 +182,12 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
                         seenIds.add(p.id)
                         seenNames.add(normalizedName)
                         return true
+                    }).sort((a, b) => {
+                        if (a.order !== undefined && b.order !== undefined) {
+                            if (a.order !== b.order) return a.order - b.order
+                        }
+                        // Fallback to name sorting if no order or same order
+                        return a.name.localeCompare(b.name)
                     })
 
                     setPipelinesState(uniquePipelines)
