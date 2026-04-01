@@ -818,9 +818,9 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
                       <AvatarImage src={member.avatar} />
                       <AvatarFallback className="bg-gradient-to-br from-primary/20 to-primary/5 text-primary font-bold text-lg">{member.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
                     </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <CardTitle className="text-base font-bold truncate tracking-tight">{member.name}</CardTitle>
+                    <div className="min-w-0 flex-1 overflow-hidden">
+                      <div className="flex items-center gap-2 flex-wrap min-w-0">
+                        <CardTitle className="text-base font-bold truncate tracking-tight max-w-[140px]" title={member.name}>{member.name}</CardTitle>
                         {(member as any).status === 'pending' && (
                           <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-300 shrink-0">
                             Pendiente
@@ -876,14 +876,14 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Email</span>
-                    <span className="font-medium truncate ml-2">{member.email}</span>
+                  <div className="flex items-center justify-between text-sm gap-2 min-w-0">
+                    <span className="text-muted-foreground shrink-0">Email</span>
+                    <span className="font-medium truncate text-right" title={member.email}>{member.email}</span>
                   </div>
                   {member.teamId && (
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Equipo</span>
-                      <span className="font-medium truncate ml-2">
+                    <div className="flex items-center justify-between text-sm gap-2 min-w-0">
+                      <span className="text-muted-foreground shrink-0">Equipo</span>
+                      <span className="font-medium truncate text-right">
                         {equipos.find(e => e.id === member.teamId)?.nombre_equipo || 'Desconocido'}
                       </span>
                     </div>
@@ -1002,7 +1002,7 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
                 </Avatar>
                 <div className="min-w-0 flex-1 overflow-hidden">
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <CardTitle className="text-sm font-bold truncate tracking-tight min-w-0">
+                    <CardTitle className="text-sm font-bold truncate tracking-tight min-w-0 max-w-[120px]" title={member.nombre || member.email}>
                       {member.nombre || member.email}
                     </CardTitle>
                     <Badge variant="secondary" className="text-[10px] shrink-0 rounded-full px-2 font-bold">
@@ -1061,18 +1061,18 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
                   </div>
                 ) : (
                   <>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Email</span>
-                      <span className="font-medium truncate ml-2">{member.email}</span>
+                    <div className="flex items-center justify-between text-sm gap-2 min-w-0">
+                      <span className="text-muted-foreground shrink-0">Email</span>
+                      <span className="font-medium truncate text-right" title={member.email}>{member.email}</span>
                     </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground font-medium">Tareas Activas</span>
+                    <div className="flex items-center justify-between text-sm gap-2 min-w-0">
+                      <span className="text-muted-foreground font-medium shrink-0">Tareas Activas</span>
                       <Badge variant="secondary" className="text-sm font-semibold px-2 py-0.5">
                         {getApprovedLeadsCount(member.usuario_id)}
                       </Badge>
                     </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Registro</span>
+                    <div className="flex items-center justify-between text-sm gap-2 min-w-0">
+                      <span className="text-muted-foreground shrink-0">Registro</span>
                       <span className="text-xs font-medium">{new Date(member.created_at).toLocaleDateString('es-ES')}</span>
                     </div>
                   </>
