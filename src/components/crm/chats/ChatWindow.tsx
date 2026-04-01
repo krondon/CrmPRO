@@ -351,35 +351,36 @@ export function ChatWindow({
 
                                             {(() => {
                                                 if (!mediaUrl) return null;
-                                                const lowerUrl = mediaUrl.toLowerCase();
-                                                // ... (Tipos de media simplificados para brevedad, se pueden refinar)
-                                                const mimeType = data.media?.mimeType || data.media?.type || data.media?.contentType || data.type
+                                                // Preferir URL almacenada en bucket (más confiable que URLs temporales de SuperAPI)
+                                                const resolvedUrl = data.storedMediaUrl || mediaUrl;
+                                                const lowerUrl = resolvedUrl.toLowerCase();
+                                                const mimeType = data.file?.mimeType || data.media?.mimeType || data.media?.type || data.media?.contentType || data.type
+                                                const lowerMime = (mimeType || '').toLowerCase();
+
+                                                // Audio se evalúa ANTES que video para evitar conflicto con .ogg
+                                                const isAudio = ['.mp3', '.wav', '.oga', '.m4a', '.aac', '.opus'].some(ext => lowerUrl.includes(ext))
+                                                    || lowerMime.startsWith('audio/')
+                                                    || data.type === 'audio'
+                                                    || data.type === 'ptt'
+                                                    || (lowerUrl.includes('.ogg') && !lowerMime.startsWith('video/'));
                                                 const isImage = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].some(ext => lowerUrl.includes(ext))
-                                                    || (mimeType && mimeType.toLowerCase().startsWith('image/'))
+                                                    || (lowerMime.startsWith('image/'))
                                                     || (data.type === 'image')
-                                                const isVideo = ['.mp4', '.webm', '.ogg', '.mov'].some(ext => lowerUrl.includes(ext))
-                                                    || (mimeType && mimeType.toLowerCase().startsWith('video/'))
+                                                const isVideo = !isAudio && (
+                                                    ['.mp4', '.webm', '.mov'].some(ext => lowerUrl.includes(ext))
+                                                    || lowerMime.startsWith('video/')
                                                     || (data.type === 'video')
-                                                const isAudio = ['.mp3', '.wav', '.ogg', '.oga', '.m4a', '.aac', '.opus'].some(ext => lowerUrl.includes(ext))
-                                                    || (mimeType && mimeType.toLowerCase().startsWith('audio/'))
-                                                    || (data.type === 'audio')
-                                                    || (data.type === 'ptt');
+                                                );
 
                                                 if (isImage) {
                                                     return (
                                                         <button
                                                             type="button"
                                                             className="mt-1 rounded-xl overflow-hidden shadow-inner bg-black/5 ring-1 ring-black/5 dark:ring-white/5 cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-primary/40"
-                                                            onClick={() => mediaUrl && setLightboxImage(mediaUrl)}
+                                                            onClick={() => resolvedUrl && setLightboxImage(resolvedUrl)}
                                                         >
-                                                            <img src={mediaUrl} alt="Imagen" className="max-w-full h-auto object-cover max-h-[500px]" loading="lazy" />
+                                                            <img src={resolvedUrl} alt="Imagen" className="max-w-full h-auto object-cover max-h-[500px]" loading="lazy" />
                                                         </button>
-                                                    )
-                                                } else if (isVideo) {
-                                                    return (
-                                                        <div className="mt-1 rounded-xl overflow-hidden shadow-inner bg-black/5 ring-1 ring-black/5 dark:ring-white/5">
-                                                            <video src={mediaUrl} controls className="max-w-full h-auto max-h-[500px]" />
-                                                        </div>
                                                     )
                                                 } else if (isAudio) {
                                                     return (
@@ -388,12 +389,18 @@ export function ChatWindow({
                                                                 <Microphone size={16} weight="fill" />
                                                             </div>
                                                             <div className="flex-1 min-w-[150px]">
-                                                                <audio src={mediaUrl} controls className={cn("w-full h-8 opacity-90", isTeam ? "invert grayscale" : "")} />
+                                                                <audio src={resolvedUrl} controls className={cn("w-full h-8 opacity-90", isTeam ? "invert grayscale" : "")} />
                                                             </div>
                                                         </div>
                                                     )
+                                                } else if (isVideo) {
+                                                    return (
+                                                        <div className="mt-1 rounded-xl overflow-hidden shadow-inner bg-black/5 ring-1 ring-black/5 dark:ring-white/5">
+                                                            <video src={resolvedUrl} controls className="max-w-full h-auto max-h-[500px]" />
+                                                        </div>
+                                                    )
                                                 } else {
-                                                    const fileName = mediaUrl.split('/').pop()?.split('?')[0] || 'Archivo adjunto';
+                                                    const fileName = resolvedUrl.split('/').pop()?.split('?')[0] || 'Archivo adjunto';
                                                     return (
                                                         <div className={cn("mt-1 flex items-center gap-3 p-3 rounded-xl border max-w-full transition-all cursor-pointer", isTeam ? "bg-white/10 border-white/10 hover:bg-white/20" : "bg-muted/30 border-border/30 hover:bg-muted")}>
                                                             <div className={cn("p-2.5 rounded-lg shadow-sm shrink-0", isTeam ? "bg-white/10 text-white" : "bg-background text-primary")}>
@@ -401,7 +408,7 @@ export function ChatWindow({
                                                             </div>
                                                             <div className="flex-1 min-w-0">
                                                                 <p className="text-sm font-bold truncate" title={fileName}>{fileName}</p>
-                                                                <a href={mediaUrl} target="_blank" rel="noopener noreferrer" className={cn("text-[10px] font-black uppercase tracking-tight hover:underline flex items-center gap-1 mt-1 opacity-80", isTeam ? "text-white" : "text-primary")}>Abrir enlace</a>
+                                                                <a href={resolvedUrl} target="_blank" rel="noopener noreferrer" className={cn("text-[10px] font-black uppercase tracking-tight hover:underline flex items-center gap-1 mt-1 opacity-80", isTeam ? "text-white" : "text-primary")}>Abrir enlace</a>
                                                             </div>
                                                         </div>
                                                     )
