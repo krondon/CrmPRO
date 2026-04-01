@@ -29,7 +29,8 @@ import {
     Clock,
     ChatCircleDots,
     Tag as TagIcon,
-    MapPin
+    MapPin,
+    Timer
 } from '@phosphor-icons/react'
 
 interface User {
@@ -182,6 +183,26 @@ export function OverviewTab({
                     </div>
                     <div className="h-11 flex items-center px-4 rounded-xl bg-muted/30 border border-transparent text-sm font-bold text-muted-foreground/80">
                         {safeFormatDate(lead.createdAt, 'MMM d, yyyy')}
+                    </div>
+                </div>
+
+                <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 text-muted-foreground/60">
+                        <Timer size={14} weight="bold" />
+                        <Label className="text-[10px] uppercase font-black tracking-widest">Tiempo limite (min)</Label>
+                    </div>
+                    <div className="h-11 flex items-center px-4 rounded-xl bg-background border border-border/40 hover:border-primary/30 transition-all shadow-sm">
+                        <InlineEdit
+                            type="number"
+                            value={lead.slaCustomLimitMinutes ?? ''}
+                            onSave={(value) => {
+                                const parseVal = parseInt(value as string)
+                                onUpdateField('slaCustomLimitMinutes', isNaN(parseVal) ? null as any : parseVal)
+                            }}
+                            displayClassName="font-bold text-sm text-foreground/80 !m-0 !p-0 hover:bg-transparent justify-start w-auto"
+                            disabled={!canEdit}
+                            placeholder="SLA por defecto"
+                        />
                     </div>
                 </div>
 

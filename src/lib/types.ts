@@ -2,6 +2,7 @@ export type Priority = 'low' | 'medium' | 'high'
 export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'proposal' | 'negotiation' | 'won' | 'lost'
 export type Channel = 'whatsapp' | 'instagram' | 'facebook' | 'email' | 'phone'
 export type PipelineType = 'sales' | 'support' | 'administrative' | string
+export type AssignmentType = 'manual' | 'round_robin' | 'random'
 
 export interface Tag {
   id: string
@@ -108,6 +109,8 @@ export interface Lead {
   archived?: boolean
   archivedAt?: Date
   customFields?: Record<string, any>
+  stageEnteredAt?: Date | null
+  slaCustomLimitMinutes?: number | null
 }
 
 export interface Stage {
@@ -116,6 +119,8 @@ export interface Stage {
   order: number
   color: string
   pipelineType: PipelineType
+  is_sla_enabled?: boolean
+  sla_limit_minutes?: number | null
 }
 
 export interface Pipeline {
@@ -123,6 +128,8 @@ export interface Pipeline {
   name: string
   type: PipelineType
   stages: Stage[]
+  assignment_type?: AssignmentType
+  order?: number
 }
 
 export type RolePermission =
@@ -174,7 +181,7 @@ export interface Appointment {
 
 export interface Notification {
   id: string
-  type: 'task' | 'message' | 'appointment' | 'stage_change'
+  type: 'task' | 'message' | 'appointment' | 'stage_change' | 'team_invitation'
   title: string
   message: string
   timestamp: Date
@@ -292,6 +299,8 @@ export interface UpdateLeadDTO {
   empresa?: string
   archived?: boolean
   archived_at?: string | null
+  stage_entered_at?: string | null
+  sla_custom_limit_minutes?: number | null
 }
 
 // Lead como viene de la BD (snake_case)
@@ -318,6 +327,8 @@ export interface LeadDB {
   last_message_sender?: string
   last_message_content?: string
   preferred_instance_id?: string | null
+  stage_entered_at?: string | null
+  sla_custom_limit_minutes?: number | null
 }
 
 // ============================================================
@@ -410,10 +421,11 @@ export interface UpdateEmpresaDTO {
 export interface EmpresaDB {
   id: string
   nombre_empresa: string
+  usuario_id: string
   logo_url?: string
   codigo_empresa?: string
   created_at: string
-  created_by: string
+  created_by?: string
 }
 
 // ----- Empresa Miembros -----
@@ -425,13 +437,23 @@ export interface EmpresaMiembro {
   usuario_id: string | null
   email: string
   role: MemberRole
+  role_id?: string | null
   created_at: string
+  // Joined fields (from roles table)
+  roles?: {
+    id: string
+    name: string
+    permissions: RolePermission[]
+    color: string
+    is_system: boolean
+  } | null
 }
 
 export interface UpdateMemberRoleDTO {
   usuario_id?: string
   email: string
   role: MemberRole
+  role_id?: string | null
 }
 
 // ----- Pipeline DTOs -----
@@ -446,6 +468,8 @@ export interface PipelineDB {
   nombre: string
   empresa_id: string
   tipo?: string
+  assignment_type?: AssignmentType
+  last_assigned_persona_id?: string | null
   created_at: string
 }
 
@@ -455,6 +479,8 @@ export interface CreateEtapaDTO {
   pipeline_id: string
   orden: number
   color?: string
+  is_sla_enabled?: boolean
+  sla_limit_minutes?: number | null
 }
 
 export interface EtapaDB {
@@ -464,6 +490,8 @@ export interface EtapaDB {
   orden: number
   color?: string
   created_at: string
+  is_sla_enabled?: boolean
+  sla_limit_minutes?: number | null
 }
 
 // ----- Equipo DTOs -----

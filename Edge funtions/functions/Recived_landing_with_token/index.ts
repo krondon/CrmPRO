@@ -41,6 +41,7 @@ type LandingLeadPayload = {
   prioridad?: string;
   asignado_a?: string;
   evento?: string;
+  notas?: string; // Campos extra del formulario dinámico (formateados como texto)
   // Campos legacy (retrocompatibilidad) — se ignoran si hay token válido
   empresa_id?: string;
   pipeline_id?: string;
@@ -299,6 +300,20 @@ serve(async (req: Request) => {
           reunionResult = await createReunion(supabase, payload.reunion, existingLead.id, empresaId);
         }
 
+        // Insertar notas de campos extra en el lead existente
+        if (payload.notas && existingLead?.id) {
+          try {
+            await supabase.from("nota_lead").insert({
+              lead_id: existingLead.id,
+              contenido: payload.notas,
+              creado_por: null,
+              creador_nombre: "Formulario Web",
+            });
+          } catch (notaErr) {
+            console.warn("[notas] No se pudo insertar nota en lead existente:", notaErr);
+          }
+        }
+
         return jsonResponse(
           {
             success: true,
@@ -312,6 +327,21 @@ serve(async (req: Request) => {
       }
 
       return jsonResponse({ error: error.message }, 500);
+    }
+
+    // ── Insertar notas de campos extra del formulario dinámico ─────
+    if (payload.notas) {
+      try {
+        await supabase.from("nota_lead").insert({
+          lead_id: data.id,
+          contenido: payload.notas,
+          creado_por: null,
+          creador_nombre: "Formulario Web",
+        });
+        console.log(`✅ [notas] Nota insertada para lead ${data.id}`);
+      } catch (notaErr) {
+        console.warn("[notas] No se pudo insertar nota:", notaErr);
+      }
     }
 
     // ── Crear reunión si se incluyó en el payload ──────────────────

@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Plus, Trash, SignOut, Pencil, Check, X, Envelope, ShieldCheck, GearSix, Lightning, Tag, Funnel, IdentificationBadge, Buildings, Plug, ShoppingCart, Key } from '@phosphor-icons/react'
+import { Plus, Trash, SignOut, Pencil, Check, X, Envelope, ShieldCheck, GearSix, Lightning, Tag, Funnel, IdentificationBadge, Buildings, Plug, ShoppingCart, Key, Rocket } from '@phosphor-icons/react'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -42,7 +42,9 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
   const [isUpdatingEmail, setIsUpdatingEmail] = useState(false)
   const [isUpdatingRecovery, setIsUpdatingRecovery] = useState(false)
 
-  const { user, updateEmail, updateRecoveryEmail } = useAuth()
+  const { user, updateEmail, updateRecoveryEmail, upgradeToOwner } = useAuth()
+  const [upgradeBusinessName, setUpgradeBusinessName] = useState('')
+  const [isUpgrading, setIsUpgrading] = useState(false)
 
   const [pipelines, setPipelines] = usePersistentState<Pipeline[]>(`pipelines-${currentCompanyId}`, [])
   const [showPipelineDialog, setShowPipelineDialog] = useState(false)
@@ -139,6 +141,12 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
             <Funnel size={14} weight="duotone" />
             Pipelines
           </TabsTrigger>
+          {/* {isAdminOrOwner && (
+            <TabsTrigger value="catalog" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold">
+              <ShoppingCart size={14} weight="duotone" />
+              Catalogo
+            </TabsTrigger>
+          )} */}
           {isAdminOrOwner && (
             <TabsTrigger value="roles" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold">
               <ShieldCheck size={14} weight="duotone" />
@@ -297,6 +305,50 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
               </Button>
             </CardContent>
           </Card>
+          {user?.accountType === 'employee' && (
+            <Card className="border-none shadow-sm rounded-2xl overflow-hidden">
+              <CardHeader className="bg-gradient-to-r from-orange-500/5 to-transparent pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-orange-500/10 flex items-center justify-center">
+                    <Rocket size={20} weight="duotone" className="text-orange-600" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg font-bold">Crear mi propia empresa</CardTitle>
+                    <CardDescription className="text-xs">
+                      Actualmente eres colaborador. Crea tu propia empresa para gestionar tu propio CRM.
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4 pt-5">
+                <div className="space-y-1.5">
+                  <Label htmlFor="upgrade-name" className="text-sm font-semibold">Nombre de la empresa</Label>
+                  <Input
+                    id="upgrade-name"
+                    placeholder="Mi Empresa"
+                    value={upgradeBusinessName}
+                    onChange={(e) => setUpgradeBusinessName(e.target.value)}
+                    className="rounded-xl"
+                  />
+                </div>
+                <Button
+                  className="rounded-xl shadow-sm"
+                  disabled={isUpgrading || !upgradeBusinessName.trim()}
+                  onClick={async () => {
+                    setIsUpgrading(true)
+                    try {
+                      await upgradeToOwner(upgradeBusinessName.trim())
+                      setUpgradeBusinessName('')
+                    } finally {
+                      setIsUpgrading(false)
+                    }
+                  }}
+                >
+                  {isUpgrading ? 'Creando...' : 'Crear empresa'}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* ── Empresas ─────────────────────────────────────── */}
@@ -363,6 +415,7 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
         </TabsContent>
 
         {/* ── Catálogo ─────────────────────────────────── */}
+        
         <TabsContent value="catalog" className="space-y-6 mt-8">
           {isAdminOrOwner ? (
             <CatalogManagement />

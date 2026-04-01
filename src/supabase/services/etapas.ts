@@ -55,3 +55,23 @@ export async function updateEtapaOrder(id: string, orden: number): Promise<Etapa
     if (error) throw error
     return data
 }
+
+export async function resetStageSLAs(stageId: string): Promise<boolean> { 
+    const now = new Date().toISOString();
+    const { error } = await supabase
+        .from('lead')
+        .update({ 
+            stage_entered_at: now, 
+            sla_custom_limit_minutes: null 
+        })
+        .eq('etapa_id', stageId)
+        .eq('archived', false);
+        
+    if (error) {
+        console.error('Error in resetStageSLAs:', error);
+        throw error;
+    }
+    return true; 
+}
+
+export async function syncStageSLALimits(stageId: string, limitMinutes: number | null): Promise<boolean> { const { error } = await supabase.from('lead').update({ sla_custom_limit_minutes: limitMinutes }).eq('etapa_id', stageId).eq('archived', false); if (error) { console.error('Error sync limit', error); throw error; } return true; }

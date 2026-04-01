@@ -84,7 +84,7 @@ export function useDragDrop(options: UseDragDropOptions): UseDragDropReturn {
         }
 
         const originalStageId = lead.stage
-        const updatedLead = { ...lead, stage: targetStageId }
+        const updatedLead = { ...lead, stage: targetStageId, stageEnteredAt: new Date(), slaCustomLimitMinutes: null }
 
         // 1. OPTIMISTIC UPDATE: Actualizar UI inmediatamente
         setLeads((current) =>
@@ -102,7 +102,7 @@ export function useDragDrop(options: UseDragDropOptions): UseDragDropReturn {
         const isValidUUID = lead.id.length > 20
         if (isValidUUID) {
             try {
-                await updateLead(lead.id, { etapa_id: targetStageId }, currentUserId, actorNombre)
+                await updateLead(lead.id, { etapa_id: targetStageId, stage_entered_at: new Date().toISOString(), sla_custom_limit_minutes: null }, currentUserId, actorNombre)
                 toast.success('Lead movido a nueva etapa')
 
                 // 🤖 Automation: fire stage_change trigger (non-blocking)

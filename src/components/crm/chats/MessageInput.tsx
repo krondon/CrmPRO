@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { useAudioRecorder } from '@/hooks/useAudioRecorder'
 import { sendMessage, uploadChatAttachment } from '@/supabase/services/mensajes'
+import type { Message } from '@/supabase/services/mensajes'
 
 import { Channel } from '@/lib/types'
 
@@ -33,7 +34,7 @@ interface MessageInputProps {
     channel: 'whatsapp' | 'instagram' | 'facebook'
     disabled?: boolean
     instanceLabel?: string | null
-    onMessageSent?: () => void
+    onMessageSent?: (msg?: Message) => void
 }
 
 export function MessageInput({
@@ -53,9 +54,9 @@ export function MessageInput({
         setIsUploading(true)
         try {
             const mediaData = await uploadChatAttachment(audioFile, leadId)
-            await sendMessage(leadId, '', 'team', channel, mediaData)
+            const msg = await sendMessage(leadId, '', 'team', channel, mediaData)
             toast.success('Nota de voz enviada')
-            onMessageSent?.()
+            onMessageSent?.(msg)
         } catch (err) {
             console.error('[Audio] Error sending:', err)
             toast.error('Error enviando nota de voz')
@@ -108,20 +109,21 @@ export function MessageInput({
         if (!messageInput.trim() && pendingImages.length === 0) return
         setIsUploading(true)
         try {
+            let sentMsg: Message | undefined
             if (pendingImages.length > 0) {
                 for (let i = 0; i < pendingImages.length; i++) {
                     const { file } = pendingImages[i]
                     const mediaData = await uploadChatAttachment(file, leadId)
                     const content = i === 0 ? messageInput : ''
-                    await sendMessage(leadId, content, 'team', channel, mediaData)
+                    sentMsg = await sendMessage(leadId, content, 'team', channel, mediaData)
                 }
             } else {
-                await sendMessage(leadId, messageInput, 'team', channel)
+                sentMsg = await sendMessage(leadId, messageInput, 'team', channel)
             }
 
             setMessageInput('')
             clearPendingImages()
-            onMessageSent?.()
+            onMessageSent?.(sentMsg)
         } catch (e) {
             console.error('Error sending message:', e)
             toast.error('Error al enviar mensaje')

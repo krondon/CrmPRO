@@ -11,7 +11,7 @@ import { CircleNotch, EnvelopeOpen, Buildings, UserCircle, ArrowLeft } from '@ph
 type AccountType = 'owner' | 'employee'
 
 interface RegisterViewProps {
-  onRegister: (email: string, password: string, businessName: string, accountType?: AccountType) => Promise<void>
+  onRegister: (email: string, password: string, businessName: string, accountType?: AccountType, userName?: string) => Promise<void>
   onSwitchToLogin?: () => void
 }
 
@@ -23,13 +23,14 @@ export function RegisterView({ onRegister, onSwitchToLogin }: RegisterViewProps)
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [businessName, setBusinessName] = useState('')
+  const [userName, setUserName] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!email || !password || !confirmPassword || !businessName) {
+    if (!email || !password || !confirmPassword || !businessName || (accountType === 'owner' && !userName)) {
       toast.error(t.messages.fillRequired)
       return
     }
@@ -46,7 +47,7 @@ export function RegisterView({ onRegister, onSwitchToLogin }: RegisterViewProps)
 
     setIsLoading(true)
     try {
-      await onRegister(email, password, businessName, accountType || 'owner')
+      await onRegister(email, password, businessName, accountType || 'owner', userName || undefined)
       setIsSuccess(true)
     } catch (error) {
       // Error ya manejado en useAuth
@@ -128,7 +129,7 @@ export function RegisterView({ onRegister, onSwitchToLogin }: RegisterViewProps)
                   <UserCircle size={28} weight="duotone" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-foreground text-base">Soy Empleado / Invitado</h3>
+                  <h3 className="font-semibold text-foreground text-base">Soy Empleado / Colaborador</h3>
                   <p className="text-sm text-muted-foreground mt-1">Unirme al CRM de otra empresa</p>
                 </div>
               </div>
@@ -179,12 +180,26 @@ export function RegisterView({ onRegister, onSwitchToLogin }: RegisterViewProps)
                 : 'bg-blue-500/10 text-blue-500'
             }`}>
               {isOwner ? <Buildings size={14} /> : <UserCircle size={14} />}
-              {isOwner ? 'Dueño / Empresa' : 'Empleado / Invitado'}
+              {isOwner ? 'Dueño / Empresa' : 'Empleado / Colaborador'}
             </span>
           </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300 delay-75">
+            {isOwner && (
+              <div>
+                <Label htmlFor="register-username">Tu nombre</Label>
+                <Input
+                  id="register-username"
+                  value={userName}
+                  onChange={(e) => {
+                    if (e.target.value.length <= 50) setUserName(e.target.value)
+                  }}
+                  placeholder="Tu nombre completo"
+                  disabled={isLoading}
+                />
+              </div>
+            )}
             <div>
               <Label htmlFor="register-business">
                 {isOwner ? 'Nombre de la empresa' : 'Tu nombre'}

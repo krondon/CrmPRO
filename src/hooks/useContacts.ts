@@ -8,6 +8,7 @@ import { Contact, ContactDB } from '@/lib/types'
 import {
     getContacts,
     createContact as createContactService,
+    createContactsBulk as createContactsBulkService,
     updateContact as updateContactService,
     deleteContact as deleteContactService,
     archiveContact as archiveContactService
@@ -82,33 +83,29 @@ export function useContacts(companyId?: string) {
     const [error, setError] = useState<Error | null>(null)
 
     // Pagination & Search State
-    const [page, setPage] = useState(1)
+    const pageRef = useRef(1)
     const [hasMore, setHasMore] = useState(true)
     const [totalContacts, setTotalContacts] = useState(0)
     const [searchQuery, setSearchQuery] = useState('')
     const [sortBy, setSortBy] = useState<SortOption>('recent')
+    const loadingRef = useRef(false)
 
     const debouncedSearch = useDebounce(searchQuery, 500)
     const LIMIT = 20
-
-    // Reset pagination when search or sort changes
-    useEffect(() => {
-        setPage(1)
-        setHasMore(true)
-        // We don't clear contacts here to avoid Flickr, but we will replace them in fetch
-    }, [debouncedSearch, sortBy])
 
     const fetchContacts = useCallback(async (isLoadMore = false) => {
         if (!companyId) {
             setIsLoading(false)
             return
         }
+        if (loadingRef.current) return
+        loadingRef.current = true
 
         try {
             if (!isLoadMore) setIsLoading(true)
             setError(null)
 
-            const currentPage = isLoadMore ? page + 1 : 1
+            const currentPage = isLoadMore ? pageRef.current + 1 : 1
 
             const { data, count } = await getContacts({
                 companyId,
@@ -121,23 +118,18 @@ export function useContacts(companyId?: string) {
             const mappedContacts = data.map(mapDBToContact)
 
             if (isLoadMore) {
-                setContacts(prev => [...prev, ...mappedContacts])
-                setPage(currentPage)
+                setContacts(prev => {
+                    const newList = [...prev, ...mappedContacts]
+                    setHasMore(newList.length < count && data.length === LIMIT)
+                    return newList
+                })
             } else {
                 setContacts(mappedContacts)
-                setPage(1)
+                setHasMore(mappedContacts.length < count && data.length === LIMIT)
             }
 
+            pageRef.current = currentPage
             setTotalContacts(count)
-            setHasMore(contacts.length + mappedContacts.length < count)
-            // Check if we loaded less than limit (end of list)
-            if (data.length < LIMIT) {
-                setHasMore(false)
-            } else {
-                setHasMore(true) // Should rely on count, but this is a fallback
-                if (isLoadMore && contacts.length + mappedContacts.length >= count) setHasMore(false)
-                if (!isLoadMore && mappedContacts.length >= count) setHasMore(false)
-            }
 
         } catch (err) {
             console.error('Error fetching contacts:', err)
@@ -145,19 +137,22 @@ export function useContacts(companyId?: string) {
             toast.error('Error al cargar contactos')
         } finally {
             setIsLoading(false)
+            loadingRef.current = false
         }
-    }, [companyId, page, debouncedSearch, sortBy])
+    }, [companyId, debouncedSearch, sortBy])
 
-    // Initial fetch and parameter change fetch
+    // Initial fetch and when search/sort changes
     useEffect(() => {
+        pageRef.current = 1
+        setHasMore(true)
         fetchContacts(false)
-    }, [fetchContacts]) // fetchContacts depends on debouncedSearch and sortBy
+    }, [fetchContacts])
 
     const loadMore = useCallback(() => {
-        if (!isLoading && hasMore) {
+        if (!loadingRef.current && hasMore) {
             fetchContacts(true)
         }
-    }, [isLoading, hasMore, fetchContacts])
+    }, [hasMore, fetchContacts])
 
     const createContact = useCallback(async (contact: Partial<Contact>): Promise<Contact | null> => {
         if (!companyId) return null
@@ -191,6 +186,33 @@ export function useContacts(companyId?: string) {
             console.error('Error updating contact:', err)
             toast.error('Error al actualizar contacto')
             return null
+        }
+    }, [companyId])
+
+    const importContactsBulk = useCallback(async (items: Partial<Contact>[]): Promise<number> => {
+        if (!companyId || !items.length) return 0
+
+        try {
+            const dbPayload = items
+                .map(item => mapContactToDB(item, companyId))
+                .filter(item => !!item.nombre)
+
+            if (!dbPayload.length) {
+                toast.error('No hay contactos válidos para importar')
+                return 0
+            }
+
+            const created = await createContactsBulkService(dbPayload)
+            const mappedCreated = created.map(mapDBToContact)
+
+            setContacts(prev => [...mappedCreated, ...prev])
+            setTotalContacts(prev => prev + mappedCreated.length)
+            toast.success(`${mappedCreated.length} contactos importados exitosamente`)
+            return mappedCreated.length
+        } catch (err) {
+            console.error('Error importing contacts:', err)
+            toast.error('Error al importar contactos')
+            return 0
         }
     }, [companyId])
 
@@ -228,6 +250,7 @@ export function useContacts(companyId?: string) {
         error,
         refetch: () => fetchContacts(false),
         createContact,
+        importContactsBulk,
         updateContact,
         deleteContact,
         archiveContact,

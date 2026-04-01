@@ -177,7 +177,7 @@ export const translations = {
       email: 'Correo Electrónico',
       phone: 'Teléfono',
       company: 'Empresa',
-      budget: 'Presupuesto',
+      budget: 'Ventas',
       priority: 'Prioridad',
       assignTo: 'Asignar a',
       tags: 'Etiquetas',

@@ -49,7 +49,7 @@ export function CRMLayout({ isGuestMode: forcedGuestMode }: CRMLayoutProps) {
         }
     }, [currentCompanyId, user?.id])
 
-    // Sincronizar URL con modo invitado
+    // Sincronizar URL con modo colaborador
     useEffect(() => {
         const isUrlGuest = location.pathname.startsWith('/guest')
         const currentPath = location.pathname.replace('/guest', '').replace(/^\//, '') || 'dashboard'
@@ -74,7 +74,7 @@ export function CRMLayout({ isGuestMode: forcedGuestMode }: CRMLayoutProps) {
                 .select('id', { count: 'exact', head: true })
                 .eq('usuario_email', user.email)
                 .eq('read', false)
-                .in('type', ['lead_assigned', 'invitation_response'])
+                .in('type', ['lead_assigned', 'invitation_response', 'team_invitation'])
             setUnreadNotificationsCount(count || 0)
         }
 
@@ -109,7 +109,7 @@ export function CRMLayout({ isGuestMode: forcedGuestMode }: CRMLayoutProps) {
                 .update({ read: true })
                 .eq('usuario_email', user.email)
                 .eq('read', false)
-                .in('type', ['lead_assigned', 'invitation_response'])
+                .in('type', ['lead_assigned', 'invitation_response', 'team_invitation'])
                 .then(() => {/* silently update */ })
         }
     }, [location.pathname, user?.email])
@@ -162,7 +162,7 @@ export function CRMLayout({ isGuestMode: forcedGuestMode }: CRMLayoutProps) {
             />
 
             <main className="flex-1 flex flex-col overflow-hidden relative pb-20 md:pb-0">
-                {/* Guest Mode Banner - Ultra Slim Top Bar */}
+                {/* Collaborator Mode Banner - Ultra Slim Top Bar */}
                 {isGuestMode && currentCompany && (
                     <div className="w-full bg-amber-500/10 border-b border-amber-500/20 px-4 h-10 flex items-center justify-between shrink-0 animate-in fade-in slide-in-from-top-2 duration-300">
                         <div className="flex items-center gap-2.5 min-w-0">
@@ -179,7 +179,7 @@ export function CRMLayout({ isGuestMode: forcedGuestMode }: CRMLayoutProps) {
                                 <span className="text-xs font-semibold text-amber-800 truncate">{currentCompany.name}</span>
                                 <span className="text-amber-600/50 hidden sm:inline">•</span>
                                 <Badge variant="outline" className="h-5 px-1.5 text-[9px] uppercase tracking-wider bg-amber-50 text-amber-700 border-amber-200 shrink-0">
-                                    Modo Invitado
+                                    {displayRole}
                                 </Badge>
                             </div>
                         </div>

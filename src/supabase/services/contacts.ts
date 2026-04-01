@@ -109,6 +109,28 @@ export async function createContact(contact: Partial<ContactDB>): Promise<Contac
 }
 
 /**
+ * Create contacts in bulk
+ */
+export async function createContactsBulk(contacts: Partial<ContactDB>[]): Promise<ContactDB[]> {
+    if (!contacts.length) return []
+
+    const now = new Date().toISOString()
+    const payload = contacts.map(contact => ({
+        ...contact,
+        created_at: now,
+        updated_at: now
+    }))
+
+    const { data, error } = await supabase
+        .from('contactos')
+        .insert(payload)
+        .select()
+
+    if (error) throw error
+    return (data || []) as ContactDB[]
+}
+
+/**
  * Update an existing contact
  */
 export async function updateContact(id: string, updates: Partial<ContactDB>): Promise<ContactDB> {

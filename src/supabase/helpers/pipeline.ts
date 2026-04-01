@@ -1,10 +1,12 @@
 import { supabase } from "../client"
-import type { Pipeline, Stage } from '@/lib/types'
+import type { Pipeline, Stage, AssignmentType } from '@/lib/types'
 
 interface PipelineDB {
     id: string
     nombre: string
     empresa_id: string
+    assignment_type?: string
+    last_assigned_persona_id?: string | null
     created_at: string
     etapas?: EtapaDB[]
 }
@@ -26,6 +28,7 @@ interface CreatePipelineWithStagesDTO {
         color: string
     }>
     empresa_id: string
+    assignment_type?: AssignmentType
 }
 
 /**
@@ -37,13 +40,13 @@ export const getPipelines = (empresa_id: string) =>
 /**
  * Crea un nuevo pipeline
  */
-export const createPipeline = (payload: { nombre: string; empresa_id: string }) =>
+export const createPipeline = (payload: { nombre: string; empresa_id: string; assignment_type?: AssignmentType }) =>
     supabase.from("pipeline").insert(payload).select().single()
 
 /**
  * Actualiza un pipeline existente
  */
-export const updatePipeline = (id: string, payload: Partial<{ nombre: string }>) =>
+export const updatePipeline = (id: string, payload: Partial<{ nombre: string; assignment_type: AssignmentType }>) =>
     supabase.from("pipeline").update(payload).eq("id", id).select().single()
 
 /**
@@ -53,21 +56,46 @@ export const deletePipeline = (id: string) =>
     supabase.from("pipeline").delete().eq("id", id)
 
 /**
+ * Obtiene el siguiente asignado para auto-asignación (round_robin o random).
+ * 
+ * Usa la función RPC `get_next_assignee` de PostgreSQL que ejecuta todo de forma
+ * atómica con FOR UPDATE, evitando race conditions cuando dos leads se crean al
+ * mismo tiempo.
+ */
+export const getNextAssignee = async (pipelineId: string): Promise<{ userId: string; personaId: string } | null> => {
+    const { data, error } = await supabase.rpc('get_next_assignee', { p_pipeline_id: pipelineId })
+
+    if (error) {
+        console.error('[getNextAssignee] RPC error:', error)
+        return null
+    }
+
+    if (!data || data.length === 0) return null
+
+    // Manejar caso donde postgrest retorna un object directo en vez de array
+    const result = Array.isArray(data) ? data[0] : data;
+
+    if (!result || !result.user_id) return null;
+
+    return {
+        userId: result.user_id,
+        personaId: result.persona_id
+    }
+}
+
+/**
  * Crea un pipeline con sus etapas en una sola operación
- * 
- * Esta función es crítica para el AddPipelineDialog - crea el pipeline
- * y todas sus etapas de forma atómica.
- * 
- * @param pipelineData - Datos del pipeline y sus etapas
- * @returns El pipeline creado con sus etapas mapeadas
  */
 export const createPipelineWithStages = async (pipelineData: CreatePipelineWithStagesDTO): Promise<Pipeline> => {
-    const { name, stages, empresa_id } = pipelineData
+    const { name, stages, empresa_id, assignment_type } = pipelineData
 
     // 1. Insertar el pipeline
+    const insertPayload: any = { nombre: name, empresa_id }
+    if (assignment_type) insertPayload.assignment_type = assignment_type
+
     const { data: pipeline, error: pipelineError } = await supabase
         .from('pipeline')
-        .insert({ nombre: name, empresa_id })
+        .insert(insertPayload)
         .select('id')
         .single()
 
@@ -125,6 +153,16 @@ export const createPipelineWithStages = async (pipelineData: CreatePipelineWithS
         id: newPipelineWithStages.id,
         name: newPipelineWithStages.nombre,
         type: newPipelineWithStages.nombre.toLowerCase().trim().replace(/\s+/g, '-'),
-        stages: mappedStages
+        stages: mappedStages,
+        assignment_type: (newPipelineWithStages.assignment_type as AssignmentType) || 'manual'
     }
+}
+
+
+export const updatePipelinesOrder = async (updates: { id: string; orden: number }[]) => { 
+    const promises = updates.map(async u => {
+        const { error } = await supabase.from('pipeline').update({ orden: u.orden }).eq('id', u.id)
+        if (error) throw error
+    }); 
+    return Promise.all(promises); 
 }

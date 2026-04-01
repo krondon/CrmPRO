@@ -6,8 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Plus, CaretUpDown, Check } from '@phosphor-icons/react'
 import { TeamMember, Role, PipelineType, Pipeline } from '@/lib/types'
-// import { useKV } from '@github/spark/hooks'
-import { usePersistentState } from '@/hooks/usePersistentState'
+import { getRoles } from '@/supabase/services/roles'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -27,7 +26,7 @@ export function AddTeamMemberDialog({ onAdd, companyId, onInvitationCreated }: A
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
-  const [role, setRole] = useState('Sales Rep')
+  const [role, setRole] = useState('Representante de Ventas')
 
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
@@ -38,24 +37,33 @@ export function AddTeamMemberDialog({ onAdd, companyId, onInvitationCreated }: A
     setName(value)
   }
   const [selectedRoleId, setSelectedRoleId] = useState<string>('viewer')
+  const [selectedDbRoleId, setSelectedDbRoleId] = useState<string>('')
   const [selectedTeamId, setSelectedTeamId] = useState<string>('none')
   const [teams, setTeams] = useState<{ id: string; nombre_equipo: string }[]>([])
-  const [roles] = usePersistentState<Role[]>('roles', [])
+  const [roles, setRoles] = useState<Role[]>([])
   const [dbPipelines, setDbPipelines] = useState<Pipeline[]>([])
   const [memberPipelines, setMemberPipelines] = useState<Set<PipelineType>>(new Set())
 
   const pipelineOptions = dbPipelines.map(p => ({ value: p.id, label: p.name }))
 
   const jobRoles = [
-    'Sales Rep',
-    'Sales Manager',
-    'Support Agent',
-    'Support Manager',
-    'Account Executive',
-    'Business Developer',
-    'Customer Success',
-    'Administrator'
+    { value: 'Representante de Ventas', label: 'Representante de Ventas' },
+    { value: 'Gerente de Ventas', label: 'Gerente de Ventas' },
+    { value: 'Agente de Soporte', label: 'Agente de Soporte' },
+    { value: 'Gerente de Soporte', label: 'Gerente de Soporte' },
+    { value: 'Ejecutivo de Cuentas', label: 'Ejecutivo de Cuentas' },
+    { value: 'Desarrollo de Negocios', label: 'Desarrollo de Negocios' },
+    { value: 'Éxito del Cliente', label: 'Éxito del Cliente' },
+    { value: 'Administrador', label: 'Administrador' },
   ]
+
+  const getRoleDisplayName = (name: string) => {
+    const map: Record<string, string> = {
+      'Admin': 'Administrador',
+      'Viewer': 'Lector',
+    }
+    return map[name] || name
+  }
 
   useEffect(() => {
     if (open && companyId) {
@@ -63,25 +71,35 @@ export function AddTeamMemberDialog({ onAdd, companyId, onInvitationCreated }: A
         .then((data: any) => setTeams(data || []))
         .catch(err => console.error('Error fetching teams:', err))
 
-      getPipelines(companyId)
+      void getPipelines(companyId)
         .then(({ data }) => {
           if (data) {
             const mappedPipelines: Pipeline[] = data.map((p: any) => ({
               id: p.id,
               name: p.nombre,
               type: p.nombre.toLowerCase().trim().replace(/\s+/g, '-'),
-              stages: [] // No necesitamos las etapas aquí
+              stages: []
             }))
             setDbPipelines(mappedPipelines)
           }
         })
-        .catch(err => console.error('Error fetching pipelines:', err))
+        .catch((err: any) => console.error('Error fetching pipelines:', err))
+
+      // Cargar roles de la empresa desde la BD
+      getRoles(companyId)
+        .then(dbRoles => {
+          setRoles(dbRoles)
+          // Pre-seleccionar el rol Viewer por defecto si existe
+          const viewerRole = dbRoles.find(r => r.name === 'Viewer' && r.isSystem)
+          if (viewerRole) setSelectedDbRoleId(viewerRole.id)
+        })
+        .catch(err => console.error('Error fetching roles:', err))
     }
   }, [open, companyId])
 
   const handleSubmit = async () => {
     if (!name.trim() || !email.trim()) {
-      toast.error('Please fill in all required fields')
+      toast.error('Por favor completa todos los campos requeridos')
       return
     }
 
@@ -142,41 +160,40 @@ export function AddTeamMemberDialog({ onAdd, companyId, onInvitationCreated }: A
         permission_role: selectedRoleId
       })
 
-      await createInvitation({
+      const result = await createInvitation({
         equipo_id: selectedTeamId,
         empresa_id: companyId,
         invited_email: normalizedEmail,
         invited_nombre: name.trim(),
         invited_titulo_trabajo: role,
-        pipeline_ids: selectedPipelines,
-        permission_role: selectedRoleId
+        pipeline_ids: memberPipelines,
+        permission_role: selectedRoleId,
+        role_id: selectedDbRoleId || null
       })
-
-      // No llamamos a onAdd para evitar crear una persona duplicada/dummy.
-      // Confiamos en que la invitación se creó y recargamos la lista.
-      /*
-      onAdd({
-        id: 'temp-' + Date.now(),
-        name: name.trim(),
-        email: email.trim(),
-        role,
-        pipelines: selectedPipelines,
-        avatar: '',
-        // @ts-ignore
-        status: 'pending'
-      })
-      */
 
       setName('')
       setEmail('')
-      setRole('Sales Rep')
+      setRole('Representante de Ventas')
       setSelectedRoleId('viewer')
+      setSelectedDbRoleId('')
       setSelectedTeamId('none')
       setMemberPipelines(new Set())
       setOpen(false)
-      toast.success('Invitación enviada', {
-        description: 'El usuario recibirá una notificación en su CRM.'
-      })
+
+      // Verificar si el email fue enviado o no
+      const emailSent = result?.email?.sent === true
+      if (emailSent) {
+        toast.success('Invitación enviada', {
+          description: 'Se envió un correo de invitación y una notificación en el CRM.'
+        })
+      } else {
+        const reason = result?.email?.reason || ''
+        toast.success('Invitación creada', {
+          description: reason.includes('RESEND')
+            ? 'La invitación se creó pero el correo no se pudo enviar (configura Resend). El usuario la verá en sus notificaciones del CRM.'
+            : 'El usuario recibirá una notificación en su CRM.'
+        })
+      }
 
       // Llamar callback para recargar invitaciones
       if (onInvitationCreated) {
@@ -184,7 +201,16 @@ export function AddTeamMemberDialog({ onAdd, companyId, onInvitationCreated }: A
       }
     } catch (e: any) {
       console.error('[AddTeamMemberDialog] error invitando', e)
-      toast.error(e.message || 'Error al enviar invitación')
+      const msg = e.message || ''
+      if (msg.includes('ya es miembro')) {
+        toast.error('Este usuario ya es miembro de la empresa')
+      } else if (msg.includes('invitación pendiente') || msg.includes('invitacion pendiente')) {
+        toast.error('Ya existe una invitación pendiente para este correo. Cancélala primero si deseas reenviar.')
+      } else if (msg.includes('owner')) {
+        toast.error('No puedes invitar al dueño de la empresa')
+      } else {
+        toast.error(msg || 'Error al enviar invitación')
+      }
     }
   }
 
@@ -205,7 +231,7 @@ export function AddTeamMemberDialog({ onAdd, companyId, onInvitationCreated }: A
         </DialogHeader>
         <div className="space-y-4">
           <div>
-            <Label htmlFor="name">Full Name *</Label>
+            <Label htmlFor="name">Nombre Completo *</Label>
             <Input
               id="name"
               value={name}
@@ -215,11 +241,11 @@ export function AddTeamMemberDialog({ onAdd, companyId, onInvitationCreated }: A
                   setName(val)
                 }
               }}
-              placeholder="John Doe"
+              placeholder="Ej: María García"
             />
           </div>
           <div>
-            <Label htmlFor="email">Email *</Label>
+            <Label htmlFor="email">Correo Electrónico *</Label>
             <Input
               id="email"
               type="email"
@@ -229,29 +255,58 @@ export function AddTeamMemberDialog({ onAdd, companyId, onInvitationCreated }: A
             />
           </div>
           <div>
-            <Label htmlFor="role">Job Title</Label>
+            <Label htmlFor="role">Cargo</Label>
             <Select value={role} onValueChange={setRole}>
               <SelectTrigger id="role">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {jobRoles.map(r => (
-                  <SelectItem key={r} value={r}>{r}</SelectItem>
+                  <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           <div>
-            <Label htmlFor="permission-role">Permission Role (Opcional)</Label>
-            <Select value={selectedRoleId} onValueChange={setSelectedRoleId}>
-              <SelectTrigger id="permission-role">
-                <SelectValue placeholder="Selecciona un rol" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="viewer">Viewer (Lectura)</SelectItem>
-                <SelectItem value="admin">Admin (Control Total)</SelectItem>
-              </SelectContent>
-            </Select>
+            <Label htmlFor="permission-role">Rol de Permisos</Label>
+            {roles.length > 0 ? (
+              <Select
+                value={selectedDbRoleId}
+                onValueChange={(val) => {
+                  setSelectedDbRoleId(val)
+                  // Sync con selectedRoleId para compatibilidad
+                  const role = roles.find(r => r.id === val)
+                  if (role) {
+                    setSelectedRoleId(role.name.toLowerCase() === 'admin' ? 'admin' : 'viewer')
+                  }
+                }}
+              >
+                <SelectTrigger id="permission-role">
+                  <SelectValue placeholder="Selecciona un rol" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roles.map(r => (
+                    <SelectItem key={r.id} value={r.id}>
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: r.color }} />
+                        {getRoleDisplayName(r.name)}
+                        {r.isSystem && <span className="text-xs text-muted-foreground">(sistema)</span>}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Select value={selectedRoleId} onValueChange={setSelectedRoleId}>
+                <SelectTrigger id="permission-role">
+                  <SelectValue placeholder="Selecciona un rol" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="viewer">Viewer (Lectura)</SelectItem>
+                  <SelectItem value="admin">Admin (Control Total)</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
             <p className="text-xs text-muted-foreground mt-1">
               Define los permisos de acceso para este miembro
             </p>

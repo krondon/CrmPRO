@@ -55,8 +55,8 @@ export function JoinCRMView({ onLogout }: JoinCRMViewProps) {
       } else {
         toast.error('No se encontró ninguna empresa con ese ID')
       }
-    } catch {
-      toast.error('Error al buscar la empresa')
+    } catch (err: any) {
+      toast.error(err.message || 'Error al buscar la empresa')
     } finally {
       setSearching(false)
     }

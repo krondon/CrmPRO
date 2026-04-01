@@ -1597,3 +1597,234 @@ BEGIN
 END
 $$;
 
+
+
+-- ============================================================
+-- TABLA: saved_tags — Etiquetas persistentes por empresa
+-- Las etiquetas se guardan aquí y sobreviven aunque se eliminen
+-- todos los leads que las usaban.
+-- ============================================================
+-- SEGURO: Solo crea si no existe. No modifica tablas existentes.
+
+CREATE TABLE IF NOT EXISTS saved_tags (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    empresa_id  UUID NOT NULL REFERENCES empresa(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    color       TEXT NOT NULL DEFAULT '#6366f1',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    -- No duplicar nombre dentro de la misma empresa
+    UNIQUE(empresa_id, name)
+);
+
+-- Índice para consultas rápidas por empresa
+CREATE INDEX IF NOT EXISTS idx_saved_tags_empresa ON saved_tags(empresa_id);
+
+-- ============================================================
+-- RLS: Solo miembros de la empresa pueden leer/escribir
+-- Usa empresa_miembros.usuario_id = auth.uid()
+-- ============================================================
+ALTER TABLE saved_tags ENABLE ROW LEVEL SECURITY;
+
+-- Leer: miembros de la empresa
+CREATE POLICY "saved_tags_select" ON saved_tags
+    FOR SELECT USING (
+        empresa_id IN (
+            SELECT empresa_id FROM empresa_miembros WHERE usuario_id = auth.uid()
+        )
+    );
+
+-- Insertar: miembros de la empresa
+CREATE POLICY "saved_tags_insert" ON saved_tags
+    FOR INSERT WITH CHECK (
+        empresa_id IN (
+            SELECT empresa_id FROM empresa_miembros WHERE usuario_id = auth.uid()
+        )
+    );
+
+-- Actualizar: miembros de la empresa
+CREATE POLICY "saved_tags_update" ON saved_tags
+    FOR UPDATE USING (
+        empresa_id IN (
+            SELECT empresa_id FROM empresa_miembros WHERE usuario_id = auth.uid()
+        )
+    );
+
+-- Eliminar: miembros de la empresa
+CREATE POLICY "saved_tags_delete" ON saved_tags
+    FOR DELETE USING (
+        empresa_id IN (
+            SELECT empresa_id FROM empresa_miembros WHERE usuario_id = auth.uid()
+        )
+    );
+
+
+-- ============================================================
+-- ROLES (permisos granulares por empresa)
+-- ============================================================
+CREATE TABLE roles (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    empresa_id UUID NOT NULL REFERENCES empresa(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    permissions JSONB NOT NULL DEFAULT '[]',
+    color TEXT DEFAULT '#3b82f6',
+    is_system BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE roles ENABLE ROW LEVEL SECURITY;
+
+-- Lectura: miembros de la empresa (por usuario_id o email)
+CREATE POLICY "Miembros pueden ver roles de su empresa" ON roles
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1 FROM empresa_miembros em
+            WHERE em.empresa_id = roles.empresa_id
+            AND (em.usuario_id = auth.uid() OR em.email = (auth.jwt() ->> 'email'))
+        )
+    );
+
+-- Insertar: solo admins y owners
+CREATE POLICY "Admins y owners pueden agregar roles" ON roles
+    FOR INSERT WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM empresa_miembros em
+            WHERE em.empresa_id = roles.empresa_id
+            AND (em.usuario_id = auth.uid() OR em.email = (auth.jwt() ->> 'email'))
+            AND em.role = ANY (ARRAY['admin', 'owner'])
+        )
+    );
+
+-- Actualizar: solo admins y owners, no roles de sistema
+CREATE POLICY "Admins y owners pueden actualizar roles" ON roles
+    FOR UPDATE USING (
+        EXISTS (
+            SELECT 1 FROM empresa_miembros em
+            WHERE em.empresa_id = roles.empresa_id
+            AND (em.usuario_id = auth.uid() OR em.email = (auth.jwt() ->> 'email'))
+            AND em.role = ANY (ARRAY['admin', 'owner'])
+        )
+        AND NOT is_system
+    );
+
+-- Eliminar: solo admins y owners, no roles de sistema
+CREATE POLICY "Admins y owners pueden eliminar roles" ON roles
+    FOR DELETE USING (
+        EXISTS (
+            SELECT 1 FROM empresa_miembros em
+            WHERE em.empresa_id = roles.empresa_id
+            AND (em.usuario_id = auth.uid() OR em.email = (auth.jwt() ->> 'email'))
+            AND em.role = ANY (ARRAY['admin', 'owner'])
+        )
+        AND NOT is_system
+    );
+
+-- Agregar role_id a empresa_miembros (FK a roles, nullable para backwards-compat)
+ALTER TABLE empresa_miembros ADD COLUMN role_id UUID REFERENCES roles(id);
+
+-- Trigger: al crear empresa, auto-insertar roles de sistema (Admin + Viewer)
+CREATE OR REPLACE FUNCTION fn_seed_roles_on_empresa_create()
+RETURNS TRIGGER AS $$
+BEGIN
+    BEGIN
+        INSERT INTO roles (empresa_id, name, permissions, color, is_system) VALUES
+        (NEW.id, 'Admin', '["view_dashboard","view_pipeline","edit_leads","delete_leads","view_analytics","view_calendar","manage_team","manage_settings","view_budgets","edit_budgets"]'::jsonb, '#8b5cf6', true),
+        (NEW.id, 'Viewer', '["view_dashboard","view_pipeline","view_analytics","view_calendar","view_budgets"]'::jsonb, '#6b7280', true);
+    EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'fn_seed_roles_on_empresa_create: no se pudieron crear roles para empresa %. Error: %', NEW.id, SQLERRM;
+    END;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER tr_seed_roles_on_empresa_create
+    AFTER INSERT ON empresa
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_seed_roles_on_empresa_create();
+
+
+-- =============================================
+-- FIX: Invitaciones pendientes no aparecen en TeamView
+-- Ejecutar en Supabase SQL Editor
+-- Problema 1: columna permission_role faltante en equipo_invitaciones
+-- Problema 2: política RLS SELECT no incluye admin members (solo owner)
+-- =============================================
+
+-- 1. Agregar columna permission_role si no existe
+ALTER TABLE equipo_invitaciones
+    ADD COLUMN IF NOT EXISTS permission_role text NOT NULL DEFAULT 'viewer';
+
+-- 2. Agregar columna role_id si no existe (para futuro uso con tabla roles)
+--    Solo se agrega si la tabla roles existe
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'roles') THEN
+        ALTER TABLE equipo_invitaciones
+            ADD COLUMN IF NOT EXISTS role_id uuid REFERENCES roles(id);
+    END IF;
+END $$;
+
+-- 3. Actualizar política RLS SELECT para incluir admins de la empresa
+--    (actualmente solo el owner y el invitado pueden ver invitaciones)
+DROP POLICY IF EXISTS equipo_invitaciones_select ON equipo_invitaciones;
+
+CREATE POLICY equipo_invitaciones_select ON equipo_invitaciones
+    FOR SELECT
+    TO authenticated
+    USING (
+        -- Owner de la empresa
+        empresa_id IN (SELECT id FROM empresa WHERE usuario_id = auth.uid())
+        -- Admin miembro de la empresa
+        OR empresa_id IN (
+            SELECT empresa_id FROM empresa_miembros
+            WHERE usuario_id = auth.uid()
+            AND role IN ('admin', 'owner')
+        )
+        -- El propio invitado
+        OR invited_email = (auth.jwt() ->> 'email')
+    );
+
+-- 4. También actualizar política INSERT para admins
+DROP POLICY IF EXISTS equipo_invitaciones_insert ON equipo_invitaciones;
+
+CREATE POLICY equipo_invitaciones_insert ON equipo_invitaciones
+    FOR INSERT
+    TO authenticated
+    WITH CHECK (
+        -- Owner de la empresa
+        empresa_id IN (SELECT id FROM empresa WHERE usuario_id = auth.uid())
+        -- Admin miembro de la empresa
+        OR empresa_id IN (
+            SELECT empresa_id FROM empresa_miembros
+            WHERE usuario_id = auth.uid()
+            AND role IN ('admin', 'owner')
+        )
+    );
+
+
+-- Primero, creamos el bucket asegurando que sea de acceso público
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('catalog-images', 'catalog-images', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Borramos las políticas de seguridad en caso de que hubieran quedado creadas a medias
+DROP POLICY IF EXISTS "Fotos catalogos visibles para todos" ON storage.objects;
+DROP POLICY IF EXISTS "Solo los dueños pueden subir fotos de su propia empresa" ON storage.objects;
+DROP POLICY IF EXISTS "Solo los dueños pueden borrar fotos de su propia empresa" ON storage.objects;
+
+-- Política 1: Todos pueden LEER/VER las fotos (necesario ya que se muestran en el sitio web/Cotizaciones que generes luego)
+CREATE POLICY "Fotos catalogos visibles para todos" 
+ON storage.objects FOR SELECT 
+USING (bucket_id = 'catalog-images');
+
+-- Política 2: Solo un usuario que ha iniciado sesión puede SUBIR fotos a su carpeta
+CREATE POLICY "Solo los dueños pueden subir fotos de su propia empresa" 
+ON storage.objects FOR INSERT 
+TO authenticated 
+WITH CHECK (bucket_id = 'catalog-images');
+
+-- Política 3: (Opcional, pero recomendada) Solo un usuario con sesión iniciada puede ELIMINAR fotos a futuro
+CREATE POLICY "Solo los dueños pueden borrar fotos de su propia empresa" 
+ON storage.objects FOR DELETE 
+TO authenticated 
+USING (bucket_id = 'catalog-images');

@@ -17,24 +17,42 @@ export async function getLeads(
     isAdminOrOwner: boolean = false,
     includeArchived: boolean = false
 ): Promise<LeadDB[]> {
-    let query = supabase
-        .from('lead')
-        .select('*')
-        .eq('empresa_id', empresaId)
+    let allData: LeadDB[] = []
+    let page = 0
+    const pageSize = 1000
+    let hasMore = true
 
-    if (!includeArchived) {
-        query = query.eq('archived', false)
+    while (hasMore) {
+        let query = supabase
+            .from('lead')
+            .select('*')
+            .eq('empresa_id', empresaId)
+            .range(page * pageSize, (page + 1) * pageSize - 1)
+
+        if (!includeArchived) {
+            query = query.eq('archived', false)
+        }
+
+        if (!isAdminOrOwner && currentUserId) {
+            query = query.or(`asignado_a.eq.${currentUserId},asignado_a.eq.00000000-0000-0000-0000-000000000000,asignado_a.is.null`)
+        }
+
+        const { data, error } = await query
+
+        if (error) throw error
+        
+        if (data) {
+            allData = [...allData, ...data]
+        }
+        
+        if (!data || data.length < pageSize) {
+            hasMore = false
+        } else {
+            page++
+        }
     }
 
-    if (!isAdminOrOwner && currentUserId) {
-        query = query.or(`asignado_a.eq.${currentUserId},asignado_a.eq.00000000-0000-0000-0000-000000000000,asignado_a.is.null`)
-    }
-
-    const { data, error } = await query
-
-    if (error) throw error
-    if (error) throw error
-    return data ?? []
+    return allData
 }
 
 /**

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import { cn } from '@/lib/utils'
 import { useLeadsRealtime } from '@/hooks/useLeadsRealtime'
 import { usePipelineData } from '@/hooks/usePipelineData'
 import { usePipelineLeadActions } from '@/hooks/usePipelineLeadActions'
@@ -8,11 +9,12 @@ import { Lead, Pipeline, PipelineType, TeamMember, Stage } from '@/lib/types'
 // import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Plus, Funnel, Trash, CaretLeft, CaretRight, Download } from '@phosphor-icons/react'
+import { Plus, Funnel, Trash, CaretLeft, CaretRight, Download, GearSix, ArrowsClockwise, Shuffle } from '@phosphor-icons/react'
 import { LeadDetailSheet } from './LeadDetailSheet'
 import { AddStageDialog } from './AddStageDialog'
 import { AddLeadDialog } from './AddLeadDialog'
 import { AddPipelineDialog } from './AddPipelineDialog'
+import { EditPipelineDialog } from './EditPipelineDialog'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -29,7 +31,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
-import { deletePipeline, getPipelines } from '@/supabase/helpers/pipeline'
+import { deletePipeline, getPipelines, updatePipelinesOrder } from '@/supabase/helpers/pipeline'
 import { deleteLead, getLeads, getLeadsPaged, updateLead, searchLeads } from '@/supabase/services/leads'
 import { getEquipos } from '@/supabase/services/equipos'
 import { getPersonas } from '@/supabase/services/persona'
@@ -108,7 +110,9 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
   const [moveDialogLead, setMoveDialogLead] = useState<Lead | null>(null)
   const [highlightedLeadId, setHighlightedLeadId] = useState<string | null>(null)
   const [showAddPipelineDialog, setShowAddPipelineDialog] = useState(false)
+  const [draggedPipelineId, setDraggedPipelineId] = useState<string | null>(null)
   const tabsScrollRef = useRef<HTMLDivElement>(null)
+  const [showEditPipelineDialog, setShowEditPipelineDialog] = useState(false)
 
   // Ref para acceso síncrono a leads (usado por realtime)
   const leadsRef = useRef(leads)
@@ -292,7 +296,6 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
   // ==========================================
   const {
     handleAddStage,
-    handleAddLead,
     handleImportLeads,
     handleDeleteLead
   } = usePipelineLeadActions({
@@ -302,10 +305,8 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
     setPipelines,
     setLeads,
     setStageCounts,
-    teamMembers,
     user,
-    isAdminOrOwner,
-    currentCompany
+    isAdminOrOwner
   })
 
   // ==========================================
@@ -337,6 +338,62 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
     setPipelines,
     canEditStages: isAdminOrOwner
   })
+
+  // Drag & drop handlers for Pipeline tabs
+  const handlePipelineDragStart = (e: React.DragEvent, id: string) => {
+    if (!isAdminOrOwner) {
+      e.preventDefault()
+      return
+    }
+    setDraggedPipelineId(id)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('application/x-pipeline-id', id)
+  }
+
+  const handlePipelineDragOver = (e: React.DragEvent) => {
+    if (!draggedPipelineId) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+
+  const handlePipelineDrop = async (e: React.DragEvent, targetId: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    if (!isAdminOrOwner) return
+    const draggedId = e.dataTransfer.getData('application/x-pipeline-id') || draggedPipelineId
+    if (!draggedId || draggedId === targetId) {
+      setDraggedPipelineId(null)
+      return
+    }
+
+    const newPipelines = [...(pipelines || [])]
+    const draggedIdx = newPipelines.findIndex(p => p.id === draggedId)
+    const targetIdx = newPipelines.findIndex(p => p.id === targetId)
+
+    if (draggedIdx === -1 || targetIdx === -1) {
+      setDraggedPipelineId(null)
+      return
+    }
+
+    const [draggedItem] = newPipelines.splice(draggedIdx, 1)
+    newPipelines.splice(targetIdx, 0, draggedItem)
+
+    const reordered = newPipelines.map((p, index) => ({ ...p, order: index }))
+
+    // Optimistic UI
+    setPipelines(reordered)
+    setDraggedPipelineId(null)
+
+    try {
+      const updates = reordered.map(p => ({ id: p.id, orden: p.order || 0 }))
+      await updatePipelinesOrder(updates)
+      // No toast needed for smooth UX
+    } catch (error) {
+      console.error("Error saving pipeline order", error)
+      toast.error("Error al guardar el orden de los pipelines")
+    }
+  }
 
   // Sincronización en tiempo real de leads
   useLeadsRealtime({
@@ -573,7 +630,31 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
     toast.success('Etapa eliminada')
   }
 
-  const handleEditStage = async (stageId: string, updates: { name?: string; color?: string }) => {
+  const handleResetSLA = async (stageId: string) => {
+    if (!isAdminOrOwner) return
+    const isConfirmed = window.confirm('¿Estás seguro de reiniciar los semáforos de esta etapa? Todos los leads iniciarán su contador desde 0 ahora mismo.')
+    if (!isConfirmed) return
+
+    try {
+      const { resetStageSLAs } = await import('@/supabase/services/etapas')
+      await resetStageSLAs(stageId)
+      
+      const now = new Date()
+      setLeads(current =>
+        (current || []).map(l =>
+          l.stage === stageId
+            ? { ...l, stageEnteredAt: now, slaCustomLimitMinutes: null }
+            : l
+        )
+      )
+      toast.success('Semáforos reiniciados con éxito')
+    } catch (err: any) {
+      console.error('Error resetting SLAs:', err)
+      toast.error('Error al reiniciar los semáforos')
+    }
+  }
+
+  const handleEditStage = async (stageId: string, updates: { name?: string; color?: string; is_sla_enabled?: boolean; sla_limit_minutes?: number | null }) => {
     if (!isAdminOrOwner) {
       toast.error('No tienes permisos para editar etapas')
       return
@@ -583,15 +664,42 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
 
     if (isUUID) {
       try {
-        const payload: Record<string, string> = {}
-        if (updates.name) payload.nombre = updates.name
-        if (updates.color) payload.color = updates.color
+        const payload: Record<string, any> = {}
+        if (updates.name !== undefined) payload.nombre = updates.name
+        if (updates.color !== undefined) payload.color = updates.color
+        if (updates.is_sla_enabled !== undefined) payload.is_sla_enabled = updates.is_sla_enabled
+        if (updates.sla_limit_minutes !== undefined) payload.sla_limit_minutes = updates.sla_limit_minutes
+
         const { error } = await updateEtapa(stageId, payload)
         if (error) throw error
       } catch (err: any) {
         console.error('Error updating stage:', err)
         toast.error(`Error al actualizar etapa: ${err.message || 'Error desconocido'}`)
         return
+      }
+    }
+
+    // Only clear time if SLA is completely disabled. Otherwise, keep the entered time but update their limits
+    const slaDisabled = updates.is_sla_enabled === false
+    const slaTimeChanged = updates.sla_limit_minutes !== undefined
+    const slaReEnabled = updates.is_sla_enabled === true
+
+    if (slaDisabled || slaTimeChanged || slaReEnabled) {
+      // Update leads locally
+      setLeads(current =>
+        (current || []).map(l =>
+          l.stage === stageId
+            ? { ...l, stageEnteredAt: slaDisabled ? null : l.stageEnteredAt, slaCustomLimitMinutes: updates.sla_limit_minutes ?? null }
+            : l
+        )
+      )
+
+      // Update leads in DB (non-blocking)
+      if (!slaDisabled) {
+        import('@/supabase/services/etapas').then(({ syncStageSLALimits }) => {
+           syncStageSLALimits(stageId, updates.sla_limit_minutes ?? null)
+            .catch(err => console.error('[handleEditStage] Error syncing SLA limits:', err))
+        })
       }
     }
 
@@ -605,7 +713,13 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
         ...updatedPipelines[pipelineIndex],
         stages: updatedPipelines[pipelineIndex].stages.map(s =>
           s.id === stageId
-            ? { ...s, ...(updates.name ? { name: updates.name } : {}), ...(updates.color ? { color: updates.color } : {}) }
+            ? {
+                ...s,
+                ...(updates.name !== undefined ? { name: updates.name } : {}),
+                ...(updates.color !== undefined ? { color: updates.color } : {}),
+                ...(updates.is_sla_enabled !== undefined ? { is_sla_enabled: updates.is_sla_enabled } : {}),
+                ...(updates.sla_limit_minutes !== undefined ? { sla_limit_minutes: updates.sla_limit_minutes } : {})
+              }
             : s
         )
       }
@@ -690,9 +804,23 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
 
         {/* Header Row - Title and Actions */}
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-3 shrink-0 flex-wrap">
             <div className="h-8 w-1.5 rounded-full bg-gradient-to-b from-primary via-primary/60 to-primary/20" />
             <h1 className="text-2xl md:text-3xl font-black text-foreground tracking-tighter">{t.pipeline.title}</h1>
+            
+            {/* Indicador de Auto-asignación para el pipeline activo */}
+            {currentPipeline?.assignment_type === 'round_robin' && (
+              <Badge variant="outline" className="ml-2 text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <ArrowsClockwise size={14} weight="bold" />
+                Auto-asignación (Round Robin)
+              </Badge>
+            )}
+            {currentPipeline?.assignment_type === 'random' && (
+              <Badge variant="outline" className="ml-2 text-xs bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <Shuffle size={14} weight="bold" />
+                Auto-asignación (Aleatorio)
+              </Badge>
+            )}
           </div>
 
           {/* Action Buttons - Modern Compact Pill Design */}
@@ -727,7 +855,9 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
                     assignedTo: l.asignado_a,
                     tags: l.tags || [],
                     createdAt: new Date(l.created_at),
-                    lastContact: new Date(l.created_at)
+                    lastContact: new Date(l.created_at),
+                    stageEnteredAt: l.stage_entered_at ? new Date(l.stage_entered_at) : null,
+                    slaCustomLimitMinutes: l.sla_custom_limit_minutes ?? null
                   }))
                 } catch (err) {
                   console.error('[PipelineView] Error searching leads:', err)
@@ -794,6 +924,18 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
                   </AlertDialog>
                 )}
 
+                {/* Settings (Assignment Config) Button */}
+                {isAdminOrOwner && (
+                  <Button
+                    variant="ghost"
+                    className="h-8 w-8 p-0 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background hover:shadow-sm transition-all"
+                    title="Configurar asignación"
+                    onClick={() => setShowEditPipelineDialog(true)}
+                  >
+                    <GearSix size={16} />
+                  </Button>
+                )}
+
                 {canEditLeads && (
                   <AddStageDialog
                     pipelineType={activePipeline}
@@ -826,6 +968,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
                   currentUser={user}
                   companyName={currentCompany?.name}
                   companyId={companyId}
+                  assignmentType={currentPipeline?.assignment_type}
                 />
               </div>
             )}
@@ -840,15 +983,21 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
               className="overflow-x-auto pb-2 -mx-1 pl-1 pr-20 md:pr-24 scrollbar-none hover:scrollbar-thin scrollbar-thumb-muted-foreground/20 scrollbar-track-transparent transition-all"
             >
               <TabsList className="inline-flex flex-nowrap h-11 items-center justify-start gap-1.5 bg-muted/20 p-1 rounded-xl w-max min-w-full border border-border/30">
-                {(pipelines || []).map(p => (
-                  <TabsTrigger
-                    key={p.id}
-                    value={p.type}
-                    className="inline-flex items-center justify-center whitespace-nowrap rounded-lg px-5 py-2 text-sm font-semibold ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm data-[state=active]:border-b-2 data-[state=active]:border-primary hover:bg-background/60 hover:text-foreground"
-                  >
-                    {p.name}
-                  </TabsTrigger>
-                ))}
+                  {(pipelines || []).map(p => (
+                    <TabsTrigger
+                      key={p.id}
+                      value={p.type}
+                      onDragStart={(e) => handlePipelineDragStart(e, p.id)}
+                      onDragOver={handlePipelineDragOver}
+                      onDrop={(e) => handlePipelineDrop(e, p.id)}
+                      draggable={isAdminOrOwner}
+                      className={cn("inline-flex items-center justify-center whitespace-nowrap rounded-lg px-5 py-2 text-sm font-semibold ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm data-[state=active]:border-b-2 data-[state=active]:border-primary hover:bg-background/60 hover:text-foreground",
+                        draggedPipelineId === p.id && "opacity-50"
+                      )}
+                    >
+                      {p.name}
+                    </TabsTrigger>
+                  ))}
 
                 {/* Botón Crear Pipeline inline */}
                 <button
@@ -937,7 +1086,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
         onDragOver={handleDragOver}
         onDrop={handleDrop}
         onDeleteStage={handleDeleteStage}
-        onEditStage={handleEditStage}
+        onEditStage={handleEditStage} onResetSLA={handleResetSLA}
         onAddLead={handleLeadAddedToState}
         onImportLeads={handleImportLeads}
         onLoadMore={handleLoadMoreStage}
@@ -997,6 +1146,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
                   ubicacion: updated.location,
                   prioridad: updated.priority,
                   presupuesto: updated.budget,
+                  sla_custom_limit_minutes: updated.slaCustomLimitMinutes,
                   asignado_a: updated.assignedTo === 'todos' ? NIL_UUID : updated.assignedTo || NIL_UUID
                 }, user?.id, actorNombre)
 
@@ -1090,6 +1240,20 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
         }}
         empresaId={companyId}
       />
+
+      {/* Dialog para editar configuración de asignación del pipeline */}
+      {currentPipeline && (
+        <EditPipelineDialog
+          open={showEditPipelineDialog}
+          onClose={() => setShowEditPipelineDialog(false)}
+          pipeline={currentPipeline}
+          onUpdate={(updated) => {
+            setPipelines((current) =>
+              (current || []).map(p => p.id === updated.id ? { ...p, assignment_type: updated.assignment_type } : p)
+            )
+          }}
+        />
+      )}
     </div >
   )
 }

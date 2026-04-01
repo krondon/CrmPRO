@@ -39,7 +39,8 @@ interface PipelineBoardProps {
     onDragOver: (e: React.DragEvent) => void
     onDrop: (e: React.DragEvent, stageId: string) => void
     onDeleteStage: (stageId: string) => void
-    onEditStage: (stageId: string, updates: { name?: string; color?: string }) => void
+    onEditStage: (stageId: string, updates: { name?: string; color?: string; is_sla_enabled?: boolean; sla_limit_minutes?: number | null }) => void
+    onResetSLA?: (stageId: string) => void
     onAddLead: (lead: Lead) => void
     onImportLeads: (leads: Lead[]) => void
     onLoadMore: (stageId: string) => void
@@ -84,6 +85,7 @@ export function PipelineBoard({
     onDrop,
     onDeleteStage,
     onEditStage,
+    onResetSLA,
     onAddLead,
     onImportLeads,
     onLoadMore,
@@ -135,8 +137,7 @@ export function PipelineBoard({
                             onDragOver={onDragOver}
                             onDrop={onDrop}
                             onDeleteStage={onDeleteStage}
-                            onEditStage={onEditStage}
-                            onAddLead={onAddLead}
+                            onEditStage={onEditStage}                              onResetSLA={onResetSLA}                            onAddLead={onAddLead}
                             onImportLeads={onImportLeads}
                             onLoadMore={onLoadMore}
 

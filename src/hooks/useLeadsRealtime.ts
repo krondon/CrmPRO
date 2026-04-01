@@ -27,7 +27,9 @@ export function useLeadsRealtime({ companyId, onInsert, onUpdate, onDelete }: Us
     assignedTo: dbLead.asignado_a,
     tags: dbLead.tags || [],
     createdAt: new Date(dbLead.created_at),
-    lastContact: dbLead.last_message_at ? new Date(dbLead.last_message_at) : new Date(dbLead.created_at)
+    lastContact: dbLead.last_message_at ? new Date(dbLead.last_message_at) : new Date(dbLead.created_at),
+    stageEnteredAt: dbLead.stage_entered_at ? new Date(dbLead.stage_entered_at) : undefined,
+    slaCustomLimitMinutes: dbLead.sla_custom_limit_minutes ?? null,
   });
 
   useEffect(() => {

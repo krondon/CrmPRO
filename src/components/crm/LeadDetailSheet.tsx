@@ -295,6 +295,25 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null)
   const [newTagName, setNewTagName] = useState('')
   const [newTagColor, setNewTagColor] = useState('#3b82f6')
+  const [savedTagIds, setSavedTagIds] = useState<Set<string>>(new Set())
+  const TAGS_PAGE_SIZE = 12
+  const [savedTagsVisible, setSavedTagsVisible] = useState(TAGS_PAGE_SIZE)
+  const [unsavedTagsVisible, setUnsavedTagsVisible] = useState(TAGS_PAGE_SIZE)
+
+  // Cargar etiquetas guardadas cuando se abre el diálogo de tags
+  useEffect(() => {
+    if (showTagDialog && companyId) {
+      setSavedTagsVisible(TAGS_PAGE_SIZE)
+      setUnsavedTagsVisible(TAGS_PAGE_SIZE)
+      Promise.all([
+        import('@/supabase/services/tags').then(m => m.getAllUniqueTags(companyId)),
+        import('@/supabase/services/tags').then(m => m.getSavedTags(companyId))
+      ]).then(([allUnique, saved]) => {
+        setAllTags(allUnique)
+        setSavedTagIds(new Set(saved.map(t => t.id)))
+      })
+    }
+  }, [showTagDialog, companyId])
   const [deletingMeetingId, setDeletingMeetingId] = useState<string | null>(null)
 
   const leadMessages = messages // Now we fetch specific messages for this lead
@@ -461,7 +480,7 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
     // Persist
     try {
       const { addTagToLead } = await import('@/supabase/services/tags')
-      await addTagToLead(lead.id, lead.tags, newTag)
+      await addTagToLead(lead.id, lead.tags, newTag, companyId)
 
       // 🤖 Automation: fire tag_added trigger (non-blocking)
       const { evaluateAndApplyRules } = await import('@/supabase/helpers/automationEngine')
@@ -499,7 +518,7 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
     // Persist
     try {
       const { addTagToLead } = await import('@/supabase/services/tags')
-      await addTagToLead(lead.id, lead.tags, tag)
+      await addTagToLead(lead.id, lead.tags, tag, companyId)
 
       // 🤖 Automation: fire tag_added trigger (non-blocking)
       const { evaluateAndApplyRules } = await import('@/supabase/helpers/automationEngine')
@@ -703,6 +722,8 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
   }
 
   const availableTags = (allTags || []).filter(tag => !lead.tags.find(t => t.id === tag.id))
+  const savedAvailable = availableTags.filter(t => savedTagIds.has(t.id))
+  const unsavedAvailable = availableTags.filter(t => !savedTagIds.has(t.id))
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
 
   return (
@@ -827,15 +848,17 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
                     Crea o selecciona etiquetas para organizar este chat.
                   </DialogDescription>
                 </DialogHeader>
-                <div className="space-y-4">
-                  {availableTags.length > 0 && (
+                <ScrollArea className="max-h-[60vh]">
+                <div className="space-y-4 pr-2">
+                  {/* Etiquetas guardadas (persistentes / reutilizables) */}
+                  {savedAvailable.length > 0 && (
                     <div>
-                      <Label>Etiquetas Existentes</Label>
+                      <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">📌 Guardadas ({savedAvailable.length})</Label>
                       <div className="flex flex-wrap gap-2 mt-2">
-                        {availableTags.map(tag => (
+                        {savedAvailable.slice(0, savedTagsVisible).map(tag => (
                           <Badge
                             key={tag.id}
-                            className="cursor-pointer"
+                            className="cursor-pointer hover:opacity-80 transition-opacity"
                             style={{ backgroundColor: tag.color, color: 'white' }}
                             onClick={() => {
                               addExistingTag(tag)
@@ -846,11 +869,74 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
                           </Badge>
                         ))}
                       </div>
-                      <Separator className="my-4" />
+                      {savedAvailable.length > savedTagsVisible && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="mt-2 text-xs text-primary h-7"
+                          onClick={() => setSavedTagsVisible(prev => prev + TAGS_PAGE_SIZE)}
+                        >
+                          Ver más ({savedAvailable.length - savedTagsVisible} restantes)
+                        </Button>
+                      )}
+                      {savedTagsVisible > TAGS_PAGE_SIZE && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="mt-1 text-xs text-muted-foreground h-7"
+                          onClick={() => setSavedTagsVisible(TAGS_PAGE_SIZE)}
+                        >
+                          Ver menos
+                        </Button>
+                      )}
                     </div>
                   )}
+                  {/* Etiquetas en uso (no guardadas, solo existen en leads) */}
+                  {unsavedAvailable.length > 0 && (
+                    <div>
+                      {savedAvailable.length > 0 && <Separator className="my-2" />}
+                      <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">En uso ({unsavedAvailable.length})</Label>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {unsavedAvailable.slice(0, unsavedTagsVisible).map(tag => (
+                          <Badge
+                            key={tag.id}
+                            className="cursor-pointer hover:opacity-80 transition-opacity"
+                            style={{ backgroundColor: tag.color, color: 'white' }}
+                            onClick={() => {
+                              addExistingTag(tag)
+                              setShowTagDialog(false)
+                            }}
+                          >
+                            {tag.name}
+                          </Badge>
+                        ))}
+                      </div>
+                      {unsavedAvailable.length > unsavedTagsVisible && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="mt-2 text-xs text-primary h-7"
+                          onClick={() => setUnsavedTagsVisible(prev => prev + TAGS_PAGE_SIZE)}
+                        >
+                          Ver más ({unsavedAvailable.length - unsavedTagsVisible} restantes)
+                        </Button>
+                      )}
+                      {unsavedTagsVisible > TAGS_PAGE_SIZE && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="mt-1 text-xs text-muted-foreground h-7"
+                          onClick={() => setUnsavedTagsVisible(TAGS_PAGE_SIZE)}
+                        >
+                          Ver menos
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                  {(savedAvailable.length > 0 || unsavedAvailable.length > 0) && <Separator className="my-2" />}
+                  {/* Crear nueva etiqueta */}
                   <div>
-                    <Label>Nueva Etiqueta</Label>
+                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Nueva Etiqueta</Label>
                     <Input
                       value={newTagName}
                       onChange={(e) => setNewTagName(e.target.value)}
@@ -869,6 +955,7 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
                   </div>
                   <Button onClick={addNewTag} className="w-full">{t.buttons.add}</Button>
                 </div>
+                </ScrollArea>
               </DialogContent>
             </Dialog>
           </div>

@@ -98,7 +98,7 @@ function getChannelIcon(channel: Channel) {
 // ============================================
 
 /** Renderiza el contenido multimedia de un mensaje */
-function MessageMedia({ msg }: { msg: Message }) {
+function MessageMedia({ msg, onImageClick }: { msg: Message, onImageClick?: (url: string) => void }) {
     const data = (msg.metadata as any)?.data || msg.metadata || {}
 
     // Detectar URL de media
@@ -126,32 +126,43 @@ function MessageMedia({ msg }: { msg: Message }) {
 
     if (!mediaUrl) return null
 
-    const lowerUrl = mediaUrl.toLowerCase()
-    const isImage = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].some(ext => lowerUrl.includes(ext)) || (data.type === 'image')
-    const isVideo = ['.mp4', '.webm', '.ogg', '.mov'].some(ext => lowerUrl.includes(ext)) || (data.type === 'video')
-    const isAudio = ['.mp3', '.wav', '.ogg', '.oga', '.m4a', '.aac', '.opus'].some(ext => lowerUrl.includes(ext)) ||
-        (data.type === 'audio') || (data.type === 'ptt')
+    // Preferir URL almacenada en bucket
+    const resolvedUrl = data.storedMediaUrl || mediaUrl
+    const lowerUrl = resolvedUrl.toLowerCase()
+    const mimeType = data.file?.mimeType || data.media?.mimeType || data.media?.type || data.media?.contentType || data.type
+    const lowerMime = (mimeType || '').toLowerCase()
+
+    // Audio se evalúa ANTES que video para evitar conflicto con .ogg
+    const isAudio = ['.mp3', '.wav', '.oga', '.m4a', '.aac', '.opus'].some(ext => lowerUrl.includes(ext))
+        || lowerMime.startsWith('audio/')
+        || data.type === 'audio'
+        || data.type === 'ptt'
+        || (lowerUrl.includes('.ogg') && !lowerMime.startsWith('video/'))
+    const isImage = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].some(ext => lowerUrl.includes(ext))
+        || lowerMime.startsWith('image/')
+        || (data.type === 'image')
+    const isVideo = !isAudio && (
+        ['.mp4', '.webm', '.mov'].some(ext => lowerUrl.includes(ext))
+        || lowerMime.startsWith('video/')
+        || (data.type === 'video')
+    )
     const isPdf = lowerUrl.includes('.pdf')
 
     if (isImage) {
         return (
-            <div className="mt-2 rounded-md overflow-hidden">
+            <button
+                type="button"
+                className="mt-2 rounded-md overflow-hidden bg-black/5 cursor-zoom-in focus:outline-none w-full text-left"
+                onClick={() => onImageClick?.(resolvedUrl!)}
+            >
                 <img
-                    src={mediaUrl}
+                    src={resolvedUrl}
                     alt="Imagen adjunta"
                     className="max-w-full h-auto object-cover max-h-60"
                     loading="lazy"
                     onError={(e) => { e.currentTarget.style.display = 'none' }}
                 />
-            </div>
-        )
-    }
-
-    if (isVideo) {
-        return (
-            <div className="mt-2 rounded-md overflow-hidden">
-                <video src={mediaUrl} controls className="max-w-full h-auto max-h-60" />
-            </div>
+            </button>
         )
     }
 
@@ -165,7 +176,7 @@ function MessageMedia({ msg }: { msg: Message }) {
                     <p className="text-xs text-muted-foreground mb-1">
                         {data.type === 'ptt' ? '🎤 Nota de voz' : '🔊 Audio'}
                     </p>
-                    <audio src={mediaUrl} controls className="w-full max-w-sm h-8" style={{ maxHeight: '32px' }}>
+                    <audio src={resolvedUrl} controls className="w-full max-w-sm h-8" style={{ maxHeight: '32px' }}>
                         Tu navegador no soporta reproducción de audio.
                     </audio>
                 </div>
@@ -173,8 +184,16 @@ function MessageMedia({ msg }: { msg: Message }) {
         )
     }
 
+    if (isVideo) {
+        return (
+            <div className="mt-2 rounded-md overflow-hidden">
+                <video src={resolvedUrl} controls className="max-w-full h-auto max-h-60" />
+            </div>
+        )
+    }
+
     // Archivo genérico (PDF u otro)
-    const fileName = mediaUrl.split('/').pop()?.split('?')[0] || 'Archivo adjunto'
+    const fileName = resolvedUrl.split('/').pop()?.split('?')[0] || 'Archivo adjunto'
     return (
         <div className="mt-2 flex items-center gap-3 bg-muted/50 p-3 rounded-md border border-border max-w-full hover:bg-muted transition-colors">
             <div className="bg-background p-2 rounded-md text-primary shadow-sm">
@@ -183,7 +202,7 @@ function MessageMedia({ msg }: { msg: Message }) {
             <div className="flex-1 min-w-0 overflow-hidden">
                 <p className="text-sm font-medium truncate" title={fileName}>{fileName}</p>
                 <a
-                    href={mediaUrl}
+                    href={resolvedUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-xs text-blue-500 hover:underline flex items-center gap-1"
@@ -192,7 +211,7 @@ function MessageMedia({ msg }: { msg: Message }) {
                 </a>
             </div>
             <a
-                href={mediaUrl}
+                href={resolvedUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="p-2 hover:bg-background rounded-full transition-colors text-muted-foreground hover:text-foreground"
@@ -307,6 +326,7 @@ export function ChatTab({
 }: ChatTabProps) {
     const fileInputRef = useRef<HTMLInputElement>(null)
     const [historyLimit, setHistoryLimit] = useState(20)
+    const [lightboxImage, setLightboxImage] = useState<string | null>(null)
 
     const filteredMessages = messages.filter(m => m.channel === selectedChannel)
     const displayedMessages = filteredMessages.slice(-historyLimit)
@@ -400,49 +420,63 @@ export function ChatTab({
                                 </Button>
                             </div>
                         )}
-                        {displayedMessages.map(msg => (
-                            <div
-                                key={msg.id}
-                                className={cn(
-                                    'group relative p-3 rounded-lg max-w-[80%]',
-                                    msg.sender === 'team'
-                                        ? 'ml-auto bg-primary text-primary-foreground'
-                                        : 'bg-muted'
-                                )}
-                            >
-                                {canEdit && (
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            onDeleteMessage(msg.id)
-                                        }}
-                                        className={cn(
-                                            "absolute -top-2 p-1 rounded-full bg-destructive text-white opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10",
-                                            msg.sender === 'team' ? "-left-2" : "-right-2"
-                                        )}
-                                        title="Eliminar mensaje"
-                                    >
-                                        <Trash size={12} weight="bold" />
-                                    </button>
-                                )}
+                        {displayedMessages.map((msg, idx) => {
+                            const msgDate = safeFormatDate(msg.timestamp, 'yyyy-MM-dd')
+                            const prevMsgDate = idx > 0 ? safeFormatDate(displayedMessages[idx - 1].timestamp, 'yyyy-MM-dd') : null
+                            const showDateLabel = msgDate !== prevMsgDate
 
-                                <MessageContent msg={msg} />
-                                <MessageMedia msg={msg} />
-
-                                <div className="flex justify-between items-center mt-1 opacity-70">
-                                    <span className="text-xs">{safeFormatDate(msg.timestamp, 'h:mm a')}</span>
-                                    {msg.sender === 'team' && (
-                                        (msg.metadata as any)?.error ? (
-                                            <span title="Error enviando a WhatsApp">
-                                                <WarningCircle className="w-3.5 h-3.5 text-red-500 ml-1" weight="fill" />
+                            return (
+                                <div key={msg.id || idx} className="contents">
+                                    {showDateLabel && (
+                                        <div className="flex justify-center my-6">
+                                            <span className="px-3 py-1 bg-muted border border-border/40 text-[10px] font-bold text-muted-foreground rounded-full uppercase tracking-wider shadow-sm">
+                                                {safeFormatDate(msg.timestamp, "EEEE, d 'de' MMMM")}
                                             </span>
-                                        ) : (
-                                            msg.read ? <Check size={14} weight="bold" className="text-blue-500 ml-1" /> : <Check size={14} className="ml-1" />
-                                        )
+                                        </div>
                                     )}
+                                    <div
+                                        className={cn(
+                                            'group relative p-3 rounded-lg max-w-[80%] mb-2',
+                                            msg.sender === 'team'
+                                                ? 'ml-auto bg-primary text-primary-foreground'
+                                                : 'mr-auto bg-muted'
+                                        )}
+                                    >
+                                        {canEdit && (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    onDeleteMessage(msg.id)
+                                                }}
+                                                className={cn(
+                                                    "absolute -top-2 p-1 rounded-full bg-destructive text-white opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10",
+                                                    msg.sender === 'team' ? "-left-2" : "-right-2"
+                                                )}
+                                                title="Eliminar mensaje"
+                                            >
+                                                <Trash size={12} weight="bold" />
+                                            </button>
+                                        )}
+
+                                        <MessageContent msg={msg} />
+                                        <MessageMedia msg={msg} onImageClick={setLightboxImage} />
+
+                                        <div className="flex justify-between items-center mt-1 opacity-70">
+                                            <span className="text-xs">{safeFormatDate(msg.timestamp, 'h:mm a')}</span>
+                                            {msg.sender === 'team' && (
+                                                (msg.metadata as any)?.error ? (
+                                                    <span title="Error enviando a WhatsApp">
+                                                        <WarningCircle className="w-3.5 h-3.5 text-red-500 ml-1" weight="fill" />
+                                                    </span>
+                                                ) : (
+                                                    msg.read ? <Check size={14} weight="bold" className="text-blue-500 ml-1" /> : <Check size={14} className="ml-1" />
+                                                )
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            )
+                        })}
                         <div ref={messagesEndRef} />
                         {filteredMessages.length === 0 && (
                             <p className="text-center text-muted-foreground text-sm py-8">
@@ -514,6 +548,27 @@ export function ChatTab({
                     </div>
                 )}
             </div>
+
+            {/* Lightbox para imágenes */}
+            {lightboxImage && (
+                <div role="dialog" aria-modal="true" className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 cursor-zoom-out" onClick={() => setLightboxImage(null)}>
+                    <div className="relative max-w-[90vw] max-h-[90vh]">
+                        <button
+                            title="Cerrar (Click afuera también cierra)"
+                            className="absolute -top-4 -right-4 bg-background/20 hover:bg-background/40 backdrop-blur-md text-white rounded-full p-2 transition-all"
+                            onClick={() => setLightboxImage(null)}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 256 256"><path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"></path></svg>
+                        </button>
+                        <img
+                            src={lightboxImage}
+                            alt="Vista ampliada"
+                            className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

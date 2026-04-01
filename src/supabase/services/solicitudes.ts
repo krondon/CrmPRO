@@ -9,6 +9,12 @@ export async function buscarEmpresaPorId(empresaId: string) {
     const trimmedId = empresaId.trim()
     if (!trimmedId) return null
 
+    // Validar formato UUID antes de enviar a PostgreSQL
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(trimmedId)) {
+        throw new Error('El ID de empresa debe ser un UUID válido (ej: a1b2c3d4-e5f6-7890-abcd-ef1234567890)')
+    }
+
     const { data, error } = await supabase
         .rpc('buscar_empresa_por_id', { p_id: trimmedId })
 
@@ -110,11 +116,13 @@ export async function getSolicitudesPendientes(empresaId: string): Promise<Solic
 }
 
 /**
- * Aprobar solicitud — inserta en empresa_miembros y actualiza status
+ * Aprobar solicitud — inserta en empresa_miembros, crea persona, asigna pipelines y actualiza status
  */
 export async function aprobarSolicitud(
     solicitudId: string,
-    roleAsignado: string = 'viewer'
+    roleAsignado: string = 'viewer',
+    roleId?: string | null,
+    crmConfig?: { equipo_id: string; pipeline_ids: string[] } | null
 ): Promise<void> {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('No autenticado')
@@ -130,25 +138,58 @@ export async function aprobarSolicitud(
     if (solicitud.status !== 'pending') throw new Error('Esta solicitud ya fue procesada')
 
     // 2. Insertar en empresa_miembros
+    const memberPayload: Record<string, unknown> = {
+        empresa_id: solicitud.empresa_id,
+        usuario_id: solicitud.solicitante_id,
+        email: solicitud.solicitante_email,
+        role: roleAsignado,
+    }
+    if (roleId) memberPayload.role_id = roleId
+
     const { error: memberErr } = await supabase
         .from('empresa_miembros')
-        .insert({
-            empresa_id: solicitud.empresa_id,
-            usuario_id: solicitud.solicitante_id,
-            email: solicitud.solicitante_email,
-            role: roleAsignado,
-        })
+        .insert(memberPayload)
 
     if (memberErr) {
         if (memberErr.code === '23505') {
-            // Ya es miembro, solo actualizar la solicitud
             console.warn('[SOLICITUDES] Usuario ya es miembro, actualizando solicitud')
         } else {
             throw memberErr
         }
     }
 
-    // 3. Actualizar solicitud
+    // 3. Crear persona en el equipo asignado (si se proporcionó configuración CRM)
+    if (crmConfig?.equipo_id) {
+        const { data: persona, error: personaErr } = await supabase
+            .from('persona')
+            .insert({
+                nombre: solicitud.solicitante_nombre || solicitud.solicitante_email,
+                email: solicitud.solicitante_email,
+                equipo_id: crmConfig.equipo_id,
+                usuario_id: solicitud.solicitante_id,
+            })
+            .select('id')
+            .single()
+
+        if (personaErr) {
+            console.error('[SOLICITUDES] Error creando persona:', personaErr)
+        } else if (persona && crmConfig.pipeline_ids?.length > 0) {
+            // 4. Asignar pipelines
+            const pipelineInserts = crmConfig.pipeline_ids.map(pid => ({
+                persona_id: persona.id,
+                pipeline_id: pid
+            }))
+            const { error: pipeErr } = await supabase
+                .from('persona_pipeline')
+                .insert(pipelineInserts)
+
+            if (pipeErr) {
+                console.error('[SOLICITUDES] Error asignando pipelines:', pipeErr)
+            }
+        }
+    }
+
+    // 5. Actualizar solicitud
     const { error: updateErr } = await supabase
         .from('solicitudes_union')
         .update({
@@ -161,7 +202,7 @@ export async function aprobarSolicitud(
 
     if (updateErr) throw updateErr
 
-    // 5. Notificar al solicitante
+    // 6. Notificar al solicitante
     try {
         const { data: empresa } = await supabase
             .from('empresa')

@@ -45,8 +45,8 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
       tags: l.tags || [],
       createdAt: new Date(l.created_at),
       lastContact: l.last_message_at ? new Date(l.last_message_at) : new Date(l.created_at),
-      archived: l.archived,
-      archivedAt: l.archived_at ? new Date(l.archived_at) : undefined
+      stageEnteredAt: l.stage_entered_at ? new Date(l.stage_entered_at) : null,
+      slaCustomLimitMinutes: l.sla_custom_limit_minutes ?? null
     })
 
     Promise.all([
@@ -69,56 +69,76 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
   const metrics = useMemo(() => {
     const now = new Date()
     let startDate = new Date()
-    let prevStartDate = new Date()
 
     if (dateRange === '30days') {
       startDate.setDate(now.getDate() - 30)
-      prevStartDate.setDate(now.getDate() - 60)
     } else {
       startDate.setMonth(now.getMonth() - 3)
-      prevStartDate.setMonth(now.getMonth() - 6)
     }
 
-    const currentLeads = allLeads.filter(l => l.createdAt >= startDate)
-    const prevLeads = allLeads.filter(l => l.createdAt >= prevStartDate && l.createdAt < startDate)
+    // Filtrar TODOS los leads por el rango de fechas seleccionado
+    const filteredLeads = allLeads.filter(l => l.createdAt >= startDate)
 
-    const currentRevenue = currentLeads.reduce((acc, l) => acc + (l.budget || 0), 0)
-    const prevRevenue = prevLeads.reduce((acc, l) => acc + (l.budget || 0), 0)
+    // Consideramos "Ganado" si la etapa interactúa con nombres de cierre positivo (opcional, o todo el pipeline value)
+    // Para simplificar "Pipeline Value", usaremos la suma del presupuesto de todos los leads filtrados.
+    const totalPipelineValue = filteredLeads.reduce((acc, l) => acc + (l.budget || 0), 0)
+    
+    // Tasa de conversión: asumiendo que las etapas con nombre "Ganado", "Cierre", "Won", "Venta" representan conversión.
+    // Buscamos a qué etapa pertenecen para contar los ganados.
+    const wonLeads = filteredLeads.filter(l => {
+      const p = pipelinesData.find(pipe => pipe.id === l.pipeline)
+      if (!p) return false
+      const stageName = p.stageNames[l.stage] || ''
+      return /ganad|cierre|won|venta|compr/i.test(stageName)
+    })
 
-    const currentAvgDeal = currentLeads.length ? currentRevenue / currentLeads.length : 0
-    const prevAvgDeal = prevLeads.length ? prevRevenue / prevLeads.length : 0
-
-    const calcTrend = (curr: number, prev: number) => {
-      if (!prev) return curr > 0 ? 100 : 0
-      return Math.round(((curr - prev) / prev) * 100)
-    }
+    const closedWonValue = wonLeads.reduce((acc, l) => acc + (l.budget || 0), 0)
+    const conversionRate = filteredLeads.length > 0 ? Math.round((wonLeads.length / filteredLeads.length) * 100) : 0
 
     return {
-      totalRevenue: currentRevenue,
-      revenueTrend: calcTrend(currentRevenue, prevRevenue),
-      avgDealSize: currentAvgDeal,
-      dealSizeTrend: calcTrend(currentAvgDeal, prevAvgDeal),
-      activeLeads: currentLeads.length,
-      leadsTrend: calcTrend(currentLeads.length, prevLeads.length),
-      totalLeads: allLeads.length
+      totalRevenue: totalPipelineValue,
+      closedWonValue,
+      conversionRate,
+      activeLeads: filteredLeads.length,
+      wonLeads: wonLeads.length,
+      totalLeads: allLeads.length // Este lo dejamos como histórico total para la tarjeta final
     }
-  }, [allLeads, dateRange])
+  }, [allLeads, dateRange, pipelinesData])
 
-  const pipelineData = useMemo(() =>
-    pipelinesData.map(p => ({
+  const pipelineData = useMemo(() => {
+    const now = new Date()
+    let startDate = new Date()
+    if (dateRange === '30days') {
+      startDate.setDate(now.getDate() - 30)
+    } else {
+      startDate.setMonth(now.getMonth() - 3)
+    }
+    const filteredLeads = allLeads.filter(l => l.createdAt >= startDate)
+
+    return pipelinesData.map(p => ({
       name: p.name,
-      count: allLeads.filter(l => l.pipeline === p.id).length
-    })),
-    [allLeads, pipelinesData]
-  )
+      count: filteredLeads.filter(l => l.pipeline === p.id).length
+    }))
+  }, [allLeads, pipelinesData, dateRange])
 
   const pipelineChartWidth = Math.max(100 + (pipelineData.length * 120), 600)
 
-  const priorityData = useMemo(() => [
-    { name: 'Alta', value: allLeads.filter(l => l.priority === 'high').length, color: '#f43f5e' },
-    { name: 'Media', value: allLeads.filter(l => l.priority === 'medium').length, color: '#f59e0b' },
-    { name: 'Baja', value: allLeads.filter(l => l.priority === 'low').length, color: '#10b981' }
-  ], [allLeads])
+  const priorityData = useMemo(() => {
+    const now = new Date()
+    let startDate = new Date()
+    if (dateRange === '30days') {
+      startDate.setDate(now.getDate() - 30)
+    } else {
+      startDate.setMonth(now.getMonth() - 3)
+    }
+    const filteredLeads = allLeads.filter(l => l.createdAt >= startDate)
+
+    return [
+      { name: 'Alta', value: filteredLeads.filter(l => l.priority === 'high').length, color: '#f43f5e' },
+      { name: 'Media', value: filteredLeads.filter(l => l.priority === 'medium').length, color: '#f59e0b' },
+      { name: 'Baja', value: filteredLeads.filter(l => l.priority === 'low').length, color: '#10b981' }
+    ]
+  }, [allLeads, dateRange])
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -157,42 +177,42 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <KpiCard
-          title="Valor Oportunidades"
+          title="Valor del Embudo"
           value={`$${metrics.totalRevenue.toLocaleString()}`}
-          subtitle="En periodo seleccionado"
+          subtitle="Presupuesto potencial filtrado"
           icon={<CurrencyDollar size={20} weight="bold" className="text-blue-600" />}
           gradient="bg-gradient-to-br from-blue-500/20 to-transparent border-blue-100/50"
           themeColor="text-blue-600"
           bgIcon={CurrencyDollar}
-          trend={`${metrics.revenueTrend > 0 ? '+' : ''}${metrics.revenueTrend}%`}
-          trendUp={metrics.revenueTrend >= 0}
+          trend={`${metrics.activeLeads} prospectos`}
+          trendUp={true}
         />
         <KpiCard
-          title="Promedio Oferta"
-          value={`$${Math.round(metrics.avgDealSize).toLocaleString()}`}
-          subtitle="Valor medio por oportunidad"
-          icon={<TrendUp size={20} weight="bold" className="text-purple-600" />}
-          gradient="bg-gradient-to-br from-purple-500/20 to-transparent border-purple-100/50"
-          themeColor="text-purple-600"
-          bgIcon={TrendUp}
-          trend={`${metrics.dealSizeTrend > 0 ? '+' : ''}${metrics.dealSizeTrend}%`}
-          trendUp={metrics.dealSizeTrend >= 0}
-        />
-        <KpiCard
-          title="Oportunidades Nuevas"
-          value={metrics.activeLeads.toString()}
-          subtitle="En periodo seleccionado"
-          icon={<Users size={20} weight="bold" className="text-emerald-600" />}
+          title="Ingresos Cerrados"
+          value={`$${metrics.closedWonValue.toLocaleString()}`}
+          subtitle="Ventas ganadas confirmadas"
+          icon={<TrendUp size={20} weight="bold" className="text-emerald-600" />}
           gradient="bg-gradient-to-br from-emerald-500/20 to-transparent border-emerald-100/50"
           themeColor="text-emerald-600"
-          bgIcon={Users}
-          trend={`${metrics.leadsTrend > 0 ? '+' : ''}${metrics.leadsTrend}%`}
-          trendUp={metrics.leadsTrend >= 0}
+          bgIcon={TrendUp}
+          trend={`${metrics.wonLeads} clientes`}
+          trendUp={true}
         />
         <KpiCard
-          title="Total Oportunidades"
+          title="Tasa de Conversión"
+          value={`${metrics.conversionRate}%`}
+          subtitle="Promedio de cierre"
+          icon={<Users size={20} weight="bold" className="text-purple-600" />}
+          gradient="bg-gradient-to-br from-purple-500/20 to-transparent border-purple-100/50"
+          themeColor="text-purple-600"
+          bgIcon={Users}
+          trend="Efectividad"
+          trendUp={metrics.conversionRate > 0}
+        />
+        <KpiCard
+          title="Histórico de Oportunidades"
           value={metrics.totalLeads.toString()}
-          subtitle="Todas las oportunidades activas"
+          subtitle="Todas las oportunidades y chats"
           icon={<CheckCircle size={20} weight="bold" className="text-rose-600" />}
           gradient="bg-gradient-to-br from-rose-500/20 to-transparent border-rose-100/50"
           themeColor="text-rose-600"
