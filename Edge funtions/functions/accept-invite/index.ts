@@ -23,6 +23,7 @@ serve(async (req) => {
       .from("equipo_invitaciones")
       .select(`
         id,
+        status,
         empresa_id,
         equipo_id,
         pipeline_ids,
@@ -44,6 +45,26 @@ serve(async (req) => {
       .single();
 
     if (inviteError) throw new Error("Invitación no encontrada");
+
+    // Validar que la invitación aún esté pendiente
+    if (invite.status && invite.status !== 'pending') {
+      throw new Error("Esta invitación ya fue procesada");
+    }
+
+    // Obtener el nombre real del usuario desde la tabla usuarios
+    let realUserName = invite.invited_nombre;
+    try {
+      const { data: usuarioRow } = await supabaseAdmin
+        .from('usuarios')
+        .select('nombre')
+        .eq('id', userId)
+        .maybeSingle();
+      if (usuarioRow?.nombre) {
+        realUserName = usuarioRow.nombre;
+      }
+    } catch (e) {
+      console.warn('[accept-invite] No se pudo obtener nombre real del usuario:', e);
+    }
 
     // 2. Resolver role_id desde la tabla roles (buscar por nombre del permission_role)
     const permRole = invite.permission_role || 'viewer';
@@ -95,7 +116,7 @@ serve(async (req) => {
       const { data: newPersona, error: personaError } = await supabaseAdmin
         .from('persona')
         .insert({
-          nombre: invite.invited_nombre,
+          nombre: realUserName,
           email: invite.invited_email,
           titulo_trabajo: invite.invited_titulo_trabajo,
           equipo_id: invite.equipo_id,

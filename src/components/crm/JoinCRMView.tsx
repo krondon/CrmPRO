@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 import { CircleNotch, MagnifyingGlass, Buildings, PaperPlaneTilt, Clock, CheckCircle, XCircle, SignOut } from '@phosphor-icons/react'
 import { buscarEmpresaPorId, crearSolicitud, getMisSolicitudes } from '@/supabase/services/solicitudes'
 import type { SolicitudUnionDB } from '@/lib/types'
+import { supabase } from '@/supabase/client'
 
 interface JoinCRMViewProps {
   onLogout: () => void
@@ -67,7 +68,20 @@ export function JoinCRMView({ onLogout }: JoinCRMViewProps) {
 
     setSending(true)
     try {
-      await crearSolicitud(empresaEncontrada.id, empresaEncontrada.nombre_empresa, mensaje || undefined)
+      // Obtener el nombre real del usuario actual desde la tabla usuarios
+      const { data: { user } } = await supabase.auth.getUser()
+      let nombreSolicitante = user?.email || 'Usuario'
+      if (user) {
+        const { data: usuarioRow } = await supabase
+          .from('usuarios')
+          .select('nombre')
+          .eq('id', user.id)
+          .maybeSingle()
+        if (usuarioRow?.nombre) {
+          nombreSolicitante = usuarioRow.nombre
+        }
+      }
+      await crearSolicitud(empresaEncontrada.id, nombreSolicitante, mensaje || undefined)
       toast.success('Solicitud enviada correctamente')
       setEmpresaEncontrada(null)
       setEmpresaId('')

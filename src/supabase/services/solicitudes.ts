@@ -160,10 +160,25 @@ export async function aprobarSolicitud(
 
     // 3. Crear persona en el equipo asignado (si se proporcionó configuración CRM)
     if (crmConfig?.equipo_id) {
+        // Obtener el nombre real del usuario desde la tabla usuarios
+        let nombreReal = solicitud.solicitante_nombre || solicitud.solicitante_email
+        try {
+            const { data: usuarioRow } = await supabase
+                .from('usuarios')
+                .select('nombre')
+                .eq('id', solicitud.solicitante_id)
+                .maybeSingle()
+            if (usuarioRow?.nombre) {
+                nombreReal = usuarioRow.nombre
+            }
+        } catch (e) {
+            console.warn('[SOLICITUDES] No se pudo obtener nombre real del usuario:', e)
+        }
+
         const { data: persona, error: personaErr } = await supabase
             .from('persona')
             .insert({
-                nombre: solicitud.solicitante_nombre || solicitud.solicitante_email,
+                nombre: nombreReal,
                 email: solicitud.solicitante_email,
                 equipo_id: crmConfig.equipo_id,
                 usuario_id: solicitud.solicitante_id,
