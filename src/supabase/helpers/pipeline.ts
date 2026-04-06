@@ -131,29 +131,6 @@ export const getNextAssignee = async (pipelineId: string): Promise<{ userId: str
 
     console.log('[getNextAssignee] Seleccionado personaId:', selected.personaId, 'userId:', selected.userId)
     return selected
- * Usa la función RPC `get_next_assignee` de PostgreSQL que ejecuta todo de forma
- * atómica con FOR UPDATE, evitando race conditions cuando dos leads se crean al
- * mismo tiempo.
- */
-export const getNextAssignee = async (pipelineId: string): Promise<{ userId: string; personaId: string } | null> => {
-    const { data, error } = await supabase.rpc('get_next_assignee', { p_pipeline_id: pipelineId })
-
-    if (error) {
-        console.error('[getNextAssignee] RPC error:', error)
-        return null
-    }
-
-    if (!data || data.length === 0) return null
-
-    // Manejar caso donde postgrest retorna un object directo en vez de array
-    const result = Array.isArray(data) ? data[0] : data;
-
-    if (!result || !result.user_id) return null;
-
-    return {
-        userId: result.user_id,
-        personaId: result.persona_id
-    }
 }
 
 /**

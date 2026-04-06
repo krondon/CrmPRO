@@ -206,30 +206,18 @@ export function AddLeadDialog({
         try {
           const assignee = await getNextAssignee(pipelineId)
           if (assignee) {
-            finalAssignedTo = assignee.personaId
-            console.log('[AddLeadDialog] Auto-asignado a:', assignee.personaId)
+            // Usar userId (auth.users UUID), no personaId (persona table UUID)
+            finalAssignedTo = assignee.userId
+            console.log('[AddLeadDialog] Auto-asignado a userId:', assignee.userId, 'personaId:', assignee.personaId)
           }
         } catch (err: any) {
           console.warn('[AddLeadDialog] Error en auto-asignación:', err)
         }
       }
 
-      // Si no se asignó explícitamente, verificar auto-asignación del pipeline
-      if (pipelineId && (!finalAssignedTo || finalAssignedTo === NIL_UUID)) {
-        try {
-          const assignee = await getNextAssignee(pipelineId)
-          if (assignee) {
-            finalAssignedTo = assignee.personaId
-            console.log('[AddLeadDialog] Auto-asignado a:', assignee.personaId)
-          }
-        } catch (err: any) {
-          console.warn('[AddLeadDialog] Error en auto-asignación:', err)
-        }
-      }
-
-      const dbLead = await createLead({
+      const leadDTO = {
         nombre_completo: data.name,
-        correo_electronico: data.email?.trim() || undefined,
+        correo_electronico: data.email?.trim() || `lead-${Date.now()}@placeholder.crm`,
         telefono: data.phone || undefined,
         empresa: data.company || undefined,
         ubicacion: data.location || undefined,
@@ -242,7 +230,9 @@ export function AddLeadDialog({
         asignado_a: finalAssignedTo,
         prioridad: data.priority,
         preferred_instance_id: data.preferredInstanceId || null
-      }, effectiveUser?.id, actorNombre)
+      }
+      console.log('[AddLeadDialog] DTO a insertar:', JSON.stringify(leadDTO, null, 2))
+      const dbLead = await createLead(leadDTO, effectiveUser?.id, actorNombre)
 
       if (dbLead) {
         // Notificar asignación si corresponde
@@ -293,10 +283,16 @@ export function AddLeadDialog({
         toast.success('Oportunidad creada exitosamente')
         setOpen(false)
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error creating lead:', err)
-      const message = err instanceof Error ? err.message : 'Error al crear la oportunidad'
+      let message = err?.message || (typeof err === 'string' ? err : 'Error al crear la oportunidad')
+      // Mensaje amigable para constraint de teléfono duplicado
+      if (message.includes('uq_lead_empresa_telefono')) {
+        message = 'Ya existe una oportunidad con este número de teléfono en esta empresa'
+      }
       toast.error(message)
+      if (err?.details) console.error('[AddLeadDialog] Details:', err.details)
+      if (err?.hint) console.error('[AddLeadDialog] Hint:', err.hint)
     } finally {
       setIsSubmitting(false)
     }
