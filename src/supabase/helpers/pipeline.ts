@@ -58,24 +58,79 @@ export const deletePipeline = (id: string) =>
 /**
  * Obtiene el siguiente asignado para auto-asignación (round_robin o random).
  * 
- * Usa la función RPC `get_next_assignee` de PostgreSQL que ejecuta todo de forma
- * atómica con FOR UPDATE, evitando race conditions cuando dos leads se crean al
- * mismo tiempo.
+ * Retorna el usuario_id del miembro seleccionado, o null si no hay miembros disponibles.
+ * Actualiza `last_assigned_persona_id` en la tabla pipeline para round robin.
  */
 export const getNextAssignee = async (pipelineId: string): Promise<{ userId: string; personaId: string } | null> => {
-    const { data, error } = await supabase.rpc('get_next_assignee', { p_pipeline_id: pipelineId })
+    // 1. Leer configuración del pipeline
+    const { data: pipeline, error: pErr } = await supabase
+        .from('pipeline')
+        .select('assignment_type, last_assigned_persona_id')
+        .eq('id', pipelineId)
+        .single()
 
-    if (error) {
-        console.error('[getNextAssignee] RPC error:', error)
+    if (pErr || !pipeline) {
+        console.error('[getNextAssignee] Error leyendo pipeline:', pErr)
         return null
     }
 
-    if (!data || data.length === 0) return null
+    const assignmentType = pipeline.assignment_type as string
+    if (!assignmentType || assignmentType === 'manual') return null
 
-    return {
-        userId: data[0].user_id,
-        personaId: data[0].persona_id
+    // 2. Obtener miembros del pipeline (left join, no !inner para no perder miembros)
+    const { data: members, error: mErr } = await supabase
+        .from('persona_pipeline')
+        .select('persona_id, persona(id, usuario_id)')
+        .eq('pipeline_id', pipelineId)
+
+    if (mErr || !members || members.length === 0) {
+        console.warn('[getNextAssignee] No hay miembros en el pipeline:', pipelineId)
+        return null
     }
+
+    // Filtrar solo miembros con usuario_id válido
+    const validMembers = members
+        .map((m: any) => ({
+            personaId: m.persona_id as string,
+            userId: (Array.isArray(m.persona) ? m.persona[0]?.usuario_id : m.persona?.usuario_id) as string | null
+        }))
+        .filter(m => m.userId != null) as { personaId: string; userId: string }[]
+
+    if (validMembers.length === 0) {
+        console.warn('[getNextAssignee] Ningún miembro tiene usuario_id vinculado')
+        return null
+    }
+
+    let selected: { personaId: string; userId: string }
+
+    if (assignmentType === 'round_robin') {
+        validMembers.sort((a, b) => a.personaId.localeCompare(b.personaId))
+        const lastId = pipeline.last_assigned_persona_id as string | null
+        let nextIndex = 0
+        if (lastId) {
+            const lastIndex = validMembers.findIndex(m => m.personaId === lastId)
+            nextIndex = lastIndex === -1 ? 0 : (lastIndex + 1) % validMembers.length
+        }
+        selected = validMembers[nextIndex]
+
+        // Actualizar el puntero (no bloquea el flujo si falla)
+        supabase
+            .from('pipeline')
+            .update({ last_assigned_persona_id: selected.personaId })
+            .eq('id', pipelineId)
+            .then(({ error }) => {
+                if (error) console.warn('[getNextAssignee] No se pudo actualizar puntero:', error)
+            })
+
+    } else if (assignmentType === 'random') {
+        const randomIndex = Math.floor(Math.random() * validMembers.length)
+        selected = validMembers[randomIndex]
+    } else {
+        return null
+    }
+
+    console.log('[getNextAssignee] Seleccionado personaId:', selected.personaId, 'userId:', selected.userId)
+    return selected
 }
 
 /**

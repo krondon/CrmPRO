@@ -1357,53 +1357,20 @@ serve(async (req) => {
               finalName = `${defaultName} ${sourceType} ${cleanPhone}`;
             }
 
-            // ==== AUTO-ASIGNACIÓN (Round Robin / Random) ====
+            // ==== AUTO-ASIGNACIÓN (Round Robin / Random) con RPC atómica ====
             let autoAssignedTo = '00000000-0000-0000-0000-000000000000';
             if (targetPipelineId) {
               try {
-                const { data: pipelineConfig } = await supabase
-                  .from('pipeline')
-                  .select('assignment_type, last_assigned_persona_id')
-                  .eq('id', targetPipelineId)
-                  .single();
-
-                if (pipelineConfig && pipelineConfig.assignment_type && pipelineConfig.assignment_type !== 'manual') {
-                  const { data: members } = await supabase
-                    .from('persona_pipeline')
-                    .select('persona_id, persona:persona!inner(id, usuario_id)')
-                    .eq('pipeline_id', targetPipelineId);
-
-                  const validMembers = (members || [])
-                    .map((m: any) => ({
-                      personaId: m.persona_id as string,
-                      userId: (m.persona?.usuario_id || null) as string | null
-                    }))
-                    .filter((m: any) => m.userId != null) as { personaId: string; userId: string }[];
-
-                  if (validMembers.length > 0) {
-                    if (pipelineConfig.assignment_type === 'round_robin') {
-                      validMembers.sort((a: any, b: any) => a.personaId.localeCompare(b.personaId));
-                      const lastId = pipelineConfig.last_assigned_persona_id;
-                      let nextIndex = 0;
-                      if (lastId) {
-                        const lastIndex = validMembers.findIndex((m: any) => m.personaId === lastId);
-                        nextIndex = lastIndex === -1 ? 0 : (lastIndex + 1) % validMembers.length;
-                      }
-                      const selected = validMembers[nextIndex];
-                      autoAssignedTo = selected.userId;
-
-                      await supabase
-                        .from('pipeline')
-                        .update({ last_assigned_persona_id: selected.personaId })
-                        .eq('id', targetPipelineId);
-
-                      console.log(`[webhook-chat] Round Robin auto-assigned to: ${selected.userId}`);
-                    } else if (pipelineConfig.assignment_type === 'random') {
-                      const randomIndex = Math.floor(Math.random() * validMembers.length);
-                      autoAssignedTo = validMembers[randomIndex].userId;
-                      console.log(`[webhook-chat] Random auto-assigned to: ${autoAssignedTo}`);
-                    }
-                  }
+                const { data: assigneeData, error: rpcError } = await supabase.rpc('get_next_assignee', {
+                  p_pipeline_id: targetPipelineId
+                });
+                if (rpcError) {
+                  console.warn('[webhook-chat] Error llamando a get_next_assignee:', rpcError);
+                } else if (assigneeData && assigneeData.length > 0 && assigneeData[0].persona_id) {
+                  autoAssignedTo = assigneeData[0].persona_id;
+                  console.log(`[webhook-chat] RPC Round Robin asignó a persona: ${autoAssignedTo}`);
+                } else {
+                  console.log(`[webhook-chat] Pipeline manual o sin miembros, sin auto-asignar.`);
                 }
               } catch (assignErr) {
                 console.warn('[webhook-chat] Error en auto-asignación, continuando sin asignar:', assignErr);
