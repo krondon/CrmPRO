@@ -1387,7 +1387,7 @@ serve(async (req) => {
               prioridad: 'medium',
               empresa: `${sourceType} Contact`,
               correo_electronico: `${cleanPhone}@${sourceType.toLowerCase()}.com`,
-              asignado_a: autoAssignedTo
+              asignado_a: '00000000-0000-0000-0000-000000000000'
             };
 
             // Insertar Lead (con manejo de race condition)

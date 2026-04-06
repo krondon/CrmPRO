@@ -92,7 +92,10 @@ export function SingleLeadForm({
     const [budget, setBudget] = useState('')
     const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('medium')
     const [stageId, setStageId] = useState(defaultStageId || stages[0]?.id || '')
-    const [assignedTo, setAssignedTo] = useState(defaultAssignedTo || eligibleMembers[0]?.id || '')
+    // Si el pipeline tiene auto-asignación, siempre iniciamos con 'todos' para que el RPC lo maneje
+    const [assignedTo, setAssignedTo] = useState(
+        assignmentType !== 'manual' ? 'todos' : (defaultAssignedTo || eligibleMembers[0]?.id || '')
+    )
     const [preferredInstanceId, setPreferredInstanceId] = useState<string | undefined>(
         whatsappInstances.length === 1 ? whatsappInstances[0].id : undefined
     )
@@ -103,8 +106,9 @@ export function SingleLeadForm({
     }, [defaultStageId])
 
     useEffect(() => {
-        if (defaultAssignedTo) setAssignedTo(defaultAssignedTo)
-    }, [defaultAssignedTo])
+        // Solo actualizar el asignado por defecto si el pipeline es manual
+        if (defaultAssignedTo && assignmentType === 'manual') setAssignedTo(defaultAssignedTo)
+    }, [defaultAssignedTo, assignmentType])
 
     // Pre-fill form when a contact is selected
     useEffect(() => {
