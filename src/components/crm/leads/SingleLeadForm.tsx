@@ -283,7 +283,7 @@ export function SingleLeadForm({
                         autoComplete="off"
                         className={selectedContact ? "border-primary/50 bg-primary/5" : ""}
                     />
-                    
+
                     {/* Autocomplete Dropdown */}
                     {showSuggestions && (isSearching || contactResults.length > 0) && (
                         <div className="absolute top-full left-0 right-0 mt-1 bg-background border border-border rounded-md shadow-md max-h-48 overflow-y-auto z-50">
