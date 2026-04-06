@@ -123,21 +123,21 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
       </div>
 
       <Tabs defaultValue="companies">
-        <TabsList className="w-full justify-start overflow-x-auto h-auto p-1.5 no-scrollbar bg-muted/50 rounded-xl backdrop-blur-sm border border-border/40">
-          <TabsTrigger value="account" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold">
+        <TabsList className="w-full justify-start overflow-x-auto h-auto p-1.5 no-scrollbar bg-muted/50 rounded-xl backdrop-blur-sm border border-border/40 flex-nowrap">
+          <TabsTrigger value="account" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
             <Envelope size={14} weight="duotone" />
             Mi Cuenta
           </TabsTrigger>
-          <TabsTrigger value="companies" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold">
+          <TabsTrigger value="companies" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
             <Buildings size={14} weight="duotone" />
             Empresas
           </TabsTrigger>
 
-          <TabsTrigger value="tags" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold">
+          <TabsTrigger value="tags" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
             <Tag size={14} weight="duotone" />
             Etiquetas
           </TabsTrigger>
-          <TabsTrigger value="pipelines" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold">
+          <TabsTrigger value="pipelines" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
             <Funnel size={14} weight="duotone" />
             Pipelines
           </TabsTrigger>
@@ -148,31 +148,31 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
             </TabsTrigger>
           )} */}
           {isAdminOrOwner && (
-            <TabsTrigger value="roles" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold">
+            <TabsTrigger value="roles" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
               <ShieldCheck size={14} weight="duotone" />
               Roles
             </TabsTrigger>
           )}
           {isAdminOrOwner && (
-            <TabsTrigger value="automations" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold">
+            <TabsTrigger value="automations" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
               <Lightning size={14} weight="duotone" />
               Automatizaciones
             </TabsTrigger>
           )}
           {isAdminOrOwner && (
-            <TabsTrigger value="integrations" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold">
+            <TabsTrigger value="integrations" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
               <Plug size={14} weight="duotone" />
               Integraciones
             </TabsTrigger>
           )}
           {isAdminOrOwner && (
-            <TabsTrigger value="landing-tokens" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold">
+            <TabsTrigger value="landing-tokens" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
               <Key size={14} weight="duotone" />
               Landing Tokens
             </TabsTrigger>
           )}
           {isAdminOrOwner && (
-            <TabsTrigger value="ids" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold">
+            <TabsTrigger value="ids" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
               <IdentificationBadge size={14} weight="duotone" />
               IDs
             </TabsTrigger>

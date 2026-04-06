@@ -161,7 +161,7 @@ export function CRMLayout({ isGuestMode: forcedGuestMode }: CRMLayoutProps) {
                 notificationCount={unreadNotificationsCount}
             />
 
-            <main className="flex-1 flex flex-col overflow-hidden relative pb-20 md:pb-0">
+            <main className="flex-1 flex flex-col overflow-hidden relative pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0">
                 {/* Collaborator Mode Banner - Ultra Slim Top Bar */}
                 {isGuestMode && currentCompany && (
                     <div className="w-full bg-amber-500/10 border-b border-amber-500/20 px-4 h-10 flex items-center justify-between shrink-0 animate-in fade-in slide-in-from-top-2 duration-300">

@@ -138,7 +138,7 @@ export const ChatList = memo(function ChatList({
 
     return (
         <div className={cn(
-            "flex flex-col border-r bg-muted/10 h-full w-full md:w-96 shrink-0 transition-all duration-300",
+            "flex flex-col border-r bg-muted/10 min-h-0 w-full md:w-96 shrink-0 transition-all duration-300",
             selectedLeadId ? "hidden md:flex" : "flex"
         )}>
             {/* Header */}

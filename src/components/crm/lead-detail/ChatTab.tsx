@@ -126,11 +126,26 @@ function MessageMedia({ msg, onImageClick }: { msg: Message, onImageClick?: (url
 
     if (!mediaUrl) return null
 
-    const lowerUrl = mediaUrl.toLowerCase()
-    const isImage = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].some(ext => lowerUrl.includes(ext)) || (data.type === 'image')
-    const isVideo = ['.mp4', '.webm', '.ogg', '.mov'].some(ext => lowerUrl.includes(ext)) || (data.type === 'video')
-    const isAudio = ['.mp3', '.wav', '.ogg', '.oga', '.m4a', '.aac', '.opus'].some(ext => lowerUrl.includes(ext)) ||
-        (data.type === 'audio') || (data.type === 'ptt')
+    // Preferir URL almacenada en bucket
+    const resolvedUrl = data.storedMediaUrl || mediaUrl
+    const lowerUrl = resolvedUrl.toLowerCase()
+    const mimeType = data.file?.mimeType || data.media?.mimeType || data.media?.type || data.media?.contentType || data.type
+    const lowerMime = (mimeType || '').toLowerCase()
+
+    // Audio se evalúa ANTES que video para evitar conflicto con .ogg
+    const isAudio = ['.mp3', '.wav', '.oga', '.m4a', '.aac', '.opus'].some(ext => lowerUrl.includes(ext))
+        || lowerMime.startsWith('audio/')
+        || data.type === 'audio'
+        || data.type === 'ptt'
+        || (lowerUrl.includes('.ogg') && !lowerMime.startsWith('video/'))
+    const isImage = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].some(ext => lowerUrl.includes(ext))
+        || lowerMime.startsWith('image/')
+        || (data.type === 'image')
+    const isVideo = !isAudio && (
+        ['.mp4', '.webm', '.mov'].some(ext => lowerUrl.includes(ext))
+        || lowerMime.startsWith('video/')
+        || (data.type === 'video')
+    )
     const isPdf = lowerUrl.includes('.pdf')
 
     if (isImage) {
@@ -138,24 +153,16 @@ function MessageMedia({ msg, onImageClick }: { msg: Message, onImageClick?: (url
             <button
                 type="button"
                 className="mt-2 rounded-md overflow-hidden bg-black/5 cursor-zoom-in focus:outline-none w-full text-left"
-                onClick={() => onImageClick?.(mediaUrl!)}
+                onClick={() => onImageClick?.(resolvedUrl!)}
             >
                 <img
-                    src={mediaUrl}
+                    src={resolvedUrl}
                     alt="Imagen adjunta"
                     className="max-w-full h-auto object-cover max-h-60"
                     loading="lazy"
                     onError={(e) => { e.currentTarget.style.display = 'none' }}
                 />
             </button>
-        )
-    }
-
-    if (isVideo) {
-        return (
-            <div className="mt-2 rounded-md overflow-hidden">
-                <video src={mediaUrl} controls className="max-w-full h-auto max-h-60" />
-            </div>
         )
     }
 
@@ -169,7 +176,7 @@ function MessageMedia({ msg, onImageClick }: { msg: Message, onImageClick?: (url
                     <p className="text-xs text-muted-foreground mb-1">
                         {data.type === 'ptt' ? '🎤 Nota de voz' : '🔊 Audio'}
                     </p>
-                    <audio src={mediaUrl} controls className="w-full max-w-sm h-8" style={{ maxHeight: '32px' }}>
+                    <audio src={resolvedUrl} controls className="w-full max-w-sm h-8" style={{ maxHeight: '32px' }}>
                         Tu navegador no soporta reproducción de audio.
                     </audio>
                 </div>
@@ -177,8 +184,16 @@ function MessageMedia({ msg, onImageClick }: { msg: Message, onImageClick?: (url
         )
     }
 
+    if (isVideo) {
+        return (
+            <div className="mt-2 rounded-md overflow-hidden">
+                <video src={resolvedUrl} controls className="max-w-full h-auto max-h-60" />
+            </div>
+        )
+    }
+
     // Archivo genérico (PDF u otro)
-    const fileName = mediaUrl.split('/').pop()?.split('?')[0] || 'Archivo adjunto'
+    const fileName = resolvedUrl.split('/').pop()?.split('?')[0] || 'Archivo adjunto'
     return (
         <div className="mt-2 flex items-center gap-3 bg-muted/50 p-3 rounded-md border border-border max-w-full hover:bg-muted transition-colors">
             <div className="bg-background p-2 rounded-md text-primary shadow-sm">
@@ -187,7 +202,7 @@ function MessageMedia({ msg, onImageClick }: { msg: Message, onImageClick?: (url
             <div className="flex-1 min-w-0 overflow-hidden">
                 <p className="text-sm font-medium truncate" title={fileName}>{fileName}</p>
                 <a
-                    href={mediaUrl}
+                    href={resolvedUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-xs text-blue-500 hover:underline flex items-center gap-1"
@@ -196,7 +211,7 @@ function MessageMedia({ msg, onImageClick }: { msg: Message, onImageClick?: (url
                 </a>
             </div>
             <a
-                href={mediaUrl}
+                href={resolvedUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="p-2 hover:bg-background rounded-full transition-colors text-muted-foreground hover:text-foreground"

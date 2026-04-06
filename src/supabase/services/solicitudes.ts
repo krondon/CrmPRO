@@ -116,12 +116,13 @@ export async function getSolicitudesPendientes(empresaId: string): Promise<Solic
 }
 
 /**
- * Aprobar solicitud — inserta en empresa_miembros y actualiza status
+ * Aprobar solicitud — inserta en empresa_miembros, crea persona, asigna pipelines y actualiza status
  */
 export async function aprobarSolicitud(
     solicitudId: string,
     roleAsignado: string = 'viewer',
-    roleId?: string | null
+    roleId?: string | null,
+    crmConfig?: { equipo_id: string; pipeline_ids: string[] } | null
 ): Promise<void> {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('No autenticado')
@@ -151,14 +152,59 @@ export async function aprobarSolicitud(
 
     if (memberErr) {
         if (memberErr.code === '23505') {
-            // Ya es miembro, solo actualizar la solicitud
             console.warn('[SOLICITUDES] Usuario ya es miembro, actualizando solicitud')
         } else {
             throw memberErr
         }
     }
 
-    // 3. Actualizar solicitud
+    // 3. Crear persona en el equipo asignado (si se proporcionó configuración CRM)
+    if (crmConfig?.equipo_id) {
+        // Obtener el nombre real del usuario desde la tabla usuarios
+        let nombreReal = solicitud.solicitante_nombre || solicitud.solicitante_email
+        try {
+            const { data: usuarioRow } = await supabase
+                .from('usuarios')
+                .select('nombre')
+                .eq('id', solicitud.solicitante_id)
+                .maybeSingle()
+            if (usuarioRow?.nombre) {
+                nombreReal = usuarioRow.nombre
+            }
+        } catch (e) {
+            console.warn('[SOLICITUDES] No se pudo obtener nombre real del usuario:', e)
+        }
+
+        const { data: persona, error: personaErr } = await supabase
+            .from('persona')
+            .insert({
+                nombre: nombreReal,
+                email: solicitud.solicitante_email,
+                equipo_id: crmConfig.equipo_id,
+                usuario_id: solicitud.solicitante_id,
+            })
+            .select('id')
+            .single()
+
+        if (personaErr) {
+            console.error('[SOLICITUDES] Error creando persona:', personaErr)
+        } else if (persona && crmConfig.pipeline_ids?.length > 0) {
+            // 4. Asignar pipelines
+            const pipelineInserts = crmConfig.pipeline_ids.map(pid => ({
+                persona_id: persona.id,
+                pipeline_id: pid
+            }))
+            const { error: pipeErr } = await supabase
+                .from('persona_pipeline')
+                .insert(pipelineInserts)
+
+            if (pipeErr) {
+                console.error('[SOLICITUDES] Error asignando pipelines:', pipeErr)
+            }
+        }
+    }
+
+    // 5. Actualizar solicitud
     const { error: updateErr } = await supabase
         .from('solicitudes_union')
         .update({
@@ -171,7 +217,7 @@ export async function aprobarSolicitud(
 
     if (updateErr) throw updateErr
 
-    // 5. Notificar al solicitante
+    // 6. Notificar al solicitante
     try {
         const { data: empresa } = await supabase
             .from('empresa')

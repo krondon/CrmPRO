@@ -248,8 +248,8 @@ export function CalendarView({ companyId, user }: { companyId?: string, user?: a
                     </div>
                     <div className="h-8 w-px bg-border mx-2 hidden md:block" />
 
-                    {/* Controles de Vista Desktop */}
-                    <div className="hidden md:flex bg-muted/50 p-1 rounded-lg border">
+                    {/* Controles de Vista */}
+                    <div className="flex bg-muted/50 p-1 rounded-lg border">
                         <button
                             onClick={() => setViewMode('month')}
                             className={cn(

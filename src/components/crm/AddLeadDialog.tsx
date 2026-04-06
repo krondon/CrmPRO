@@ -196,12 +196,10 @@ export function AddLeadDialog({
     try {
       // Generar email dummy si no existe (para cumplir con restricción NOT NULL de DB)
 
-
       const actorNombre = effectiveUser?.businessName || (effectiveUser as any)?.nombre || effectiveUser?.email
 
       const NIL_UUID = '00000000-0000-0000-0000-000000000000'
       let finalAssignedTo = data.assignedTo === 'todos' ? NIL_UUID : data.assignedTo
-
       // ==== AUTO-ASIGNACIÓN (Round Robin / Random) ====
       // Si no se asignó manualmente, verificar si el pipeline tiene auto-asignación
       if (pipelineId && (!finalAssignedTo || finalAssignedTo === NIL_UUID)) {

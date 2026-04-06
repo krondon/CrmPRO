@@ -102,18 +102,18 @@ export function HistorialView({ companyId }: HistorialViewProps) {
     })
 
     return (
-        <div className="flex flex-col h-full bg-background overflow-hidden">
+        <div className="flex-1 flex flex-col min-h-0 bg-background overflow-hidden">
             {/* Header */}
-            <div className="flex-none px-6 pt-8 pb-4 border-b border-border/50 bg-gradient-to-b from-muted/10 to-transparent">
+            <div className="flex-none px-4 sm:px-6 pt-5 sm:pt-8 pb-4 border-b border-border/50 bg-gradient-to-b from-muted/10 to-transparent">
                 <div className="max-w-5xl mx-auto">
-                    <div className="flex items-center justify-between mb-6">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-5 sm:mb-6">
                         <div className="space-y-1">
                             <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center ring-1 ring-primary/20">
-                                    <Clock size={22} className="text-primary" weight="duotone" />
+                                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-primary/10 flex items-center justify-center ring-1 ring-primary/20">
+                                    <Clock size={20} className="text-primary sm:w-[22px] sm:h-[22px]" weight="duotone" />
                                 </div>
                                 <div>
-                                    <h1 className="text-2xl font-black tracking-tight text-foreground">Historial</h1>
+                                    <h1 className="text-xl sm:text-2xl font-black tracking-tight text-foreground">Historial</h1>
                                     <p className="text-xs text-muted-foreground font-medium">
                                         Registro de actividad de todas las oportunidades
                                     </p>
@@ -125,7 +125,7 @@ export function HistorialView({ companyId }: HistorialViewProps) {
                             size="sm"
                             onClick={loadHistory}
                             disabled={loading}
-                            className="gap-2 rounded-xl border-border/50 hover:border-primary/30 hover:bg-primary/5 transition-all"
+                            className="gap-2 rounded-xl border-border/50 hover:border-primary/30 hover:bg-primary/5 transition-all h-10 w-full sm:w-auto"
                         >
                             <ArrowsClockwise
                                 size={15}
@@ -151,14 +151,14 @@ export function HistorialView({ companyId }: HistorialViewProps) {
                     </div>
 
                     {/* Filters */}
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
                         <Funnel size={14} className="text-muted-foreground/50 shrink-0" />
                         {FILTER_OPTIONS.map(opt => (
                             <button
                                 key={opt.id}
                                 onClick={() => setFilter(opt.id)}
                                 className={cn(
-                                    "px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border transition-all",
+                                    "px-3 py-2 rounded-full text-[11px] font-bold uppercase tracking-wider border transition-all whitespace-nowrap flex-none min-h-9",
                                     filter === opt.id
                                         ? opt.color + " ring-2 ring-current/20 scale-105"
                                         : "bg-muted/30 text-muted-foreground border-border/30 hover:bg-muted/60"
@@ -211,18 +211,10 @@ export function HistorialView({ companyId }: HistorialViewProps) {
                                         </div>
 
                                         {/* Card */}
-                                        <div className="flex-1 bg-card border border-border/50 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-border/80 transition-all group-hover:translate-x-0.5">
-                                            <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
-                                                <div className="flex-1 min-w-0 space-y-1">
-                                                    {/* Lead name */}
-                                                    <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground/50">
-                                                        Oportunidad
-                                                    </p>
-                                                    <h3 className="font-bold text-foreground text-sm leading-tight truncate">
-                                                        {entry.lead_nombre || 'Oportunidad desconocida'}
-                                                    </h3>
-                                                </div>
-                                                <div className="flex items-center gap-2 shrink-0">
+                                        <div className="flex-1 min-w-0 bg-card border border-border/50 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-border/80 transition-all group-hover:translate-x-0.5">
+                                            
+                                            <div className="flex flex-col gap-2 mb-3">
+                                                <div className="flex flex-wrap items-center gap-2">
                                                     <Badge
                                                         variant="outline"
                                                         className={cn(
@@ -232,9 +224,18 @@ export function HistorialView({ companyId }: HistorialViewProps) {
                                                     >
                                                         {getAccionLabel(entry.accion)}
                                                     </Badge>
-                                                    <span className="text-[10px] font-bold text-muted-foreground/50 bg-muted/30 px-2 py-0.5 rounded-full border border-border/20 whitespace-nowrap">
+                                                    <span className="text-[10px] font-bold text-muted-foreground/50 bg-muted/30 px-2 py-0.5 rounded-full border border-border/20 whitespace-nowrap truncate max-w-full">
                                                         {format(new Date(entry.created_at), "HH:mm · dd MMM yyyy", { locale: es })}
                                                     </span>
+                                                </div>
+
+                                                <div className="flex-1 min-w-0 space-y-0.5">
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">
+                                                        Oportunidad
+                                                    </p>
+                                                    <h3 className="font-bold text-foreground text-sm leading-tight break-words whitespace-normal">
+                                                        {entry.lead_nombre || 'Oportunidad desconocida'}
+                                                    </h3>
                                                 </div>
                                             </div>
 
