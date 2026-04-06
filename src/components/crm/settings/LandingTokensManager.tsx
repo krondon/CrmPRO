@@ -375,27 +375,27 @@ export function LandingTokensManager({ empresaId }: LandingTokensManagerProps) {
         {tokens.map(token => (
           <Card key={token.id} className={`border-none shadow-sm rounded-2xl overflow-hidden transition-all ${!token.active ? 'opacity-60' : ''}`}>
             <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`h-9 w-9 rounded-xl flex items-center justify-center ${token.active ? 'bg-amber-500/10' : 'bg-muted'}`}>
+              <div className="flex flex-row items-center justify-between gap-2 overflow-hidden">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className={`h-9 w-9 shrink-0 rounded-xl flex items-center justify-center ${token.active ? 'bg-amber-500/10' : 'bg-muted'}`}>
                     <Key size={18} weight="duotone" className={token.active ? 'text-amber-600' : 'text-muted-foreground'} />
                   </div>
-                  <div>
-                    <CardTitle className="text-base font-bold">{token.nombre}</CardTitle>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <Badge variant="outline" className="text-[10px] py-0 gap-1">
+                  <div className="min-w-0 flex-1">
+                    <CardTitle className="text-base font-bold truncate pr-2">{token.nombre}</CardTitle>
+                    <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                      <Badge variant="outline" className="text-[10px] py-0 gap-1 whitespace-nowrap">
                         <Funnel size={10} />
-                        {getPipelineName(token.pipeline_id)}
+                        <span className="truncate max-w-[80px]">{getPipelineName(token.pipeline_id)}</span>
                       </Badge>
-                      <Badge variant="secondary" className="text-[10px] py-0">
-                        {getStageName(token.pipeline_id, token.etapa_id)}
+                      <Badge variant="secondary" className="text-[10px] py-0 whitespace-nowrap">
+                        <span className="truncate max-w-[80px]">{getStageName(token.pipeline_id, token.etapa_id)}</span>
                       </Badge>
                       {token.active ? (
-                        <Badge className="text-[10px] py-0 bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
+                        <Badge className="text-[10px] py-0 bg-emerald-500/10 text-emerald-600 border-emerald-500/20 whitespace-nowrap">
                           <CheckCircle size={10} className="mr-0.5" /> Activo
                         </Badge>
                       ) : (
-                        <Badge variant="destructive" className="text-[10px] py-0">
+                        <Badge variant="destructive" className="text-[10px] py-0 whitespace-nowrap">
                           Inactivo
                         </Badge>
                       )}
@@ -412,7 +412,7 @@ export function LandingTokensManager({ empresaId }: LandingTokensManagerProps) {
             </CardHeader>
             <CardContent className="space-y-3 pt-0">
               {/* Token value */}
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 <div className="flex-1 flex items-center gap-2 bg-muted/50 rounded-xl px-3 py-2 border border-border/40">
                   <Key size={14} className="text-muted-foreground shrink-0" />
                   <code className="text-xs font-mono truncate flex-1">{token.token}</code>
@@ -420,7 +420,7 @@ export function LandingTokensManager({ empresaId }: LandingTokensManagerProps) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-9 w-9 p-0 rounded-xl"
+                  className="h-10 w-full sm:w-10 p-0 rounded-xl"
                   onClick={() => copyToClipboard(token.token, token.id)}
                 >
                   {copiedId === token.id ? <CheckCircle size={16} className="text-emerald-500" /> : <Copy size={16} />}
@@ -428,7 +428,7 @@ export function LandingTokensManager({ empresaId }: LandingTokensManagerProps) {
               </div>
 
               {/* Endpoint URL */}
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 <div className="flex-1 flex items-center gap-2 bg-muted/50 rounded-xl px-3 py-2 border border-border/40">
                   <LinkIcon size={14} className="text-muted-foreground shrink-0" />
                   <code className="text-[11px] font-mono truncate flex-1">{ENDPOINT_BASE}?token={token.token}</code>
@@ -436,7 +436,7 @@ export function LandingTokensManager({ empresaId }: LandingTokensManagerProps) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-9 w-9 p-0 rounded-xl"
+                  className="h-10 w-full sm:w-10 p-0 rounded-xl"
                   onClick={() => copyToClipboard(`${ENDPOINT_BASE}?token=${token.token}`, `url_${token.id}`)}
                 >
                   {copiedId === `url_${token.id}` ? <CheckCircle size={16} className="text-emerald-500" /> : <Copy size={16} />}
@@ -459,11 +459,11 @@ export function LandingTokensManager({ empresaId }: LandingTokensManagerProps) {
               </div>
 
               {/* Action buttons */}
-              <div className="flex items-center gap-2 pt-1">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-1">
                 <Button
                   variant="outline"
                   size="sm"
-                  className="rounded-xl gap-1.5 text-xs"
+                  className="rounded-xl gap-1.5 text-xs h-10 w-full sm:w-auto"
                   onClick={() => setShowExample(showExample === token.id ? null : token.id)}
                 >
                   <Code size={14} />
@@ -471,7 +471,7 @@ export function LandingTokensManager({ empresaId }: LandingTokensManagerProps) {
                 </Button>
                 <Dialog>
                   <DialogTrigger asChild>
-                    <Button variant="outline" size="sm" className="rounded-xl gap-1.5 text-xs" onClick={() => startEdit(token)}>
+                    <Button variant="outline" size="sm" className="rounded-xl gap-1.5 text-xs h-10 w-full sm:w-auto" onClick={() => startEdit(token)}>
                       <PencilSimple size={14} />
                       Editar
                     </Button>
@@ -489,7 +489,7 @@ export function LandingTokensManager({ empresaId }: LandingTokensManagerProps) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="rounded-xl gap-1.5 text-xs text-destructive hover:bg-destructive/10"
+                  className="rounded-xl gap-1.5 text-xs text-destructive hover:bg-destructive/10 h-10 w-full sm:w-auto"
                   onClick={() => handleDelete(token.id)}
                 >
                   <Trash size={14} />

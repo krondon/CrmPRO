@@ -198,7 +198,7 @@ export function ChatWindow({
     // Render vacío si no hay lead
     if (!lead) {
         return (
-            <div className="flex-1 flex flex-col items-center justify-center text-center p-8 bg-gradient-to-br from-background via-background to-primary/5 h-full">
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-8 bg-gradient-to-br from-background via-background to-primary/5 min-h-0">
                 <div className="relative mb-8">
                     <div className="absolute inset-0 bg-primary/20 rounded-full blur-3xl scale-150 opacity-30" />
                     <div className="w-40 h-40 bg-card border border-border/50 rounded-[2.5rem] flex items-center justify-center shadow-2xl relative z-10 animate-in zoom-in duration-700">
@@ -231,8 +231,8 @@ export function ChatWindow({
     }
 
     return (
-        <div className="flex-1 flex flex-row relative h-full overflow-hidden bg-[#efeae2] dark:bg-background/95">
-            <div className="flex-1 flex flex-col h-full min-w-0 relative transition-all duration-300">
+        <div className="flex-1 flex flex-row relative min-h-0 overflow-hidden bg-[#efeae2] dark:bg-background/95">
+            <div className="flex-1 flex flex-col min-h-0 relative transition-all duration-300">
                 {/* Header */}
                 <div
                     className="h-16 px-4 border-b bg-background flex items-center justify-between shrink-0 cursor-pointer hover:bg-muted/30 transition-colors group"
@@ -453,8 +453,8 @@ export function ChatWindow({
             {/* Contact Info Panel */}
             {showContactInfo && (
                 <div className={cn(
-                    "h-full flex flex-col shrink-0 animate-in slide-in-from-right duration-300 shadow-2xl overflow-hidden z-20 bg-background border-l border-border",
-                    "absolute inset-0 w-full md:static md:w-[360px]"
+                    "flex flex-col shrink-0 animate-in slide-in-from-right duration-300 shadow-2xl overflow-hidden z-20 bg-background border-l border-border",
+                    "absolute inset-0 w-full md:static md:w-[360px] min-h-0"
                 )}>
                     {/* ... Contenido del panel de info ... */}
                     <div className="h-16 px-4 bg-muted/10 border-b flex items-center justify-between shrink-0">
