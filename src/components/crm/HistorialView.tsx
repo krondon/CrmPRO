@@ -211,18 +211,10 @@ export function HistorialView({ companyId }: HistorialViewProps) {
                                         </div>
 
                                         {/* Card */}
-                                        <div className="flex-1 bg-card border border-border/50 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-border/80 transition-all group-hover:translate-x-0.5">
-                                            <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
-                                                <div className="flex-1 min-w-0 space-y-1">
-                                                    {/* Lead name */}
-                                                    <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground/50">
-                                                        Oportunidad
-                                                    </p>
-                                                    <h3 className="font-bold text-foreground text-sm leading-tight truncate">
-                                                        {entry.lead_nombre || 'Oportunidad desconocida'}
-                                                    </h3>
-                                                </div>
-                                                <div className="flex items-center gap-2 shrink-0">
+                                        <div className="flex-1 min-w-0 bg-card border border-border/50 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-border/80 transition-all group-hover:translate-x-0.5">
+                                            
+                                            <div className="flex flex-col gap-2 mb-3">
+                                                <div className="flex flex-wrap items-center gap-2">
                                                     <Badge
                                                         variant="outline"
                                                         className={cn(
@@ -232,9 +224,18 @@ export function HistorialView({ companyId }: HistorialViewProps) {
                                                     >
                                                         {getAccionLabel(entry.accion)}
                                                     </Badge>
-                                                    <span className="text-[10px] font-bold text-muted-foreground/50 bg-muted/30 px-2 py-0.5 rounded-full border border-border/20 whitespace-nowrap">
+                                                    <span className="text-[10px] font-bold text-muted-foreground/50 bg-muted/30 px-2 py-0.5 rounded-full border border-border/20 whitespace-nowrap truncate max-w-full">
                                                         {format(new Date(entry.created_at), "HH:mm · dd MMM yyyy", { locale: es })}
                                                     </span>
+                                                </div>
+
+                                                <div className="flex-1 min-w-0 space-y-0.5">
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50">
+                                                        Oportunidad
+                                                    </p>
+                                                    <h3 className="font-bold text-foreground text-sm leading-tight break-words whitespace-normal">
+                                                        {entry.lead_nombre || 'Oportunidad desconocida'}
+                                                    </h3>
                                                 </div>
                                             </div>
 
