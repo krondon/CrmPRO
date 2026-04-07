@@ -34,6 +34,8 @@ interface ChatWindowProps {
     updateLeadListOrder: (leadId: string, msg: any) => void
     updateUnreadCount: (leadId: string, count: number) => void
     onLeadUpdate?: (lead: Lead) => void
+    deletedLeadInfo?: { name: string; phone?: string } | null
+    onDismissDeleted?: () => void
 }
 
 export function ChatWindow({
@@ -46,7 +48,9 @@ export function ChatWindow({
     onNavigateToPipeline,
     updateLeadListOrder,
     updateUnreadCount,
-    onLeadUpdate
+    onLeadUpdate,
+    deletedLeadInfo,
+    onDismissDeleted
 }: ChatWindowProps) {
     // Estados locales
     const [messages, setMessages] = useState<DbMessage[]>([])
@@ -58,6 +62,12 @@ export function ChatWindow({
     const [activeInstance, setActiveInstance] = useState<EmpresaInstanciaDB | null>(null)
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
+
+    // Refs para callbacks estables (evitar re-suscripción del socket)
+    const updateLeadListOrderRef = useRef(updateLeadListOrder)
+    updateLeadListOrderRef.current = updateLeadListOrder
+    const updateUnreadCountRef = useRef(updateUnreadCount)
+    updateUnreadCountRef.current = updateUnreadCount
 
     // Cargar mensajes cuando cambia el lead
     useEffect(() => {
@@ -83,7 +93,7 @@ export function ChatWindow({
         const markRead = async () => {
             try {
                 await markMessagesAsRead(lead.id)
-                updateUnreadCount(lead.id, 0)
+                updateUnreadCountRef.current(lead.id, 0)
             } catch { }
         }
         markRead()
@@ -102,7 +112,6 @@ export function ChatWindow({
                     const found = instances.find(i => i.id === instanceId) || null
                     setActiveInstance(found)
                 } else {
-                    // Si no hay mensajes entrantes, intentar con el primer mensaje saliente
                     const lastTeamMsg = [...allMsgs].reverse().find(
                         m => m.sender === 'team' && (m.metadata?.instanceId || m.metadata?.instance_id)
                     )
@@ -121,10 +130,10 @@ export function ChatWindow({
         }
         void detectInstance()
 
-        // Suscribirse a nuevos mensajes del lead
+        // Suscribirse a nuevos mensajes del lead (canal único para evitar colisiones)
         const sub = subscribeToMessages(lead.id, (newMsg) => {
             setMessages(prev => prev.some(m => m.id === newMsg.id) ? prev : [...prev, newMsg])
-            updateLeadListOrder(lead.id, newMsg)
+            updateLeadListOrderRef.current(lead.id, newMsg)
 
             if (newMsg.sender === 'lead') {
                 markRead() // Marcar como leído si entra mientras vemos el chat
@@ -134,7 +143,7 @@ export function ChatWindow({
         return () => {
             try { sub.unsubscribe() } catch { }
         }
-    }, [lead?.id, updateLeadListOrder, updateUnreadCount])
+    }, [lead?.id, companyId])
 
     // Scroll automático y al cambiar de mensajes
     useEffect(() => {
@@ -193,6 +202,37 @@ export function ChatWindow({
         if (window.confirm(`¿Eliminar el lead "${lead.name || lead.phone || lead.id}"? Esta acción no se puede deshacer.`)) {
             await onDelete(lead)
         }
+    }
+
+    // Render de "Chat eliminado" cuando el lead fue borrado/archivado
+    if (!lead && deletedLeadInfo) {
+        return (
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-8 bg-gradient-to-br from-background via-background to-destructive/5 min-h-0">
+                <div className="relative mb-8">
+                    <div className="absolute inset-0 bg-destructive/15 rounded-full blur-3xl scale-150 opacity-30" />
+                    <div className="w-36 h-36 bg-card border border-border/50 rounded-[2.5rem] flex items-center justify-center shadow-2xl relative z-10 animate-in zoom-in duration-500">
+                        <div className="w-18 h-18 bg-destructive/10 rounded-full flex items-center justify-center p-4">
+                            <Trash className="w-10 h-10 text-destructive/70" weight="duotone" />
+                        </div>
+                    </div>
+                </div>
+                <h3 className="text-2xl font-black mb-2 tracking-tight">Chat eliminado</h3>
+                <p className="text-muted-foreground font-medium mb-1">
+                    La conversación con <span className="font-bold text-foreground">{deletedLeadInfo.name}</span> fue eliminada.
+                </p>
+                {deletedLeadInfo.phone && (
+                    <p className="text-sm text-muted-foreground/70 mb-6">{deletedLeadInfo.phone}</p>
+                )}
+                <Button
+                    variant="outline"
+                    className="mt-4 rounded-xl font-bold px-6"
+                    onClick={onDismissDeleted}
+                >
+                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    Volver a conversaciones
+                </Button>
+            </div>
+        )
     }
 
     // Render vacío si no hay lead

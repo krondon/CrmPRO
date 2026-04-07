@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { Lead } from '@/lib/types'
 import { subscribeToAllMessages, getUnreadMessagesCount } from '@/supabase/services/mensajes'
 import { ChatSettingsDialog } from './ChatSettingsDialog'
@@ -87,37 +87,31 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
   })
   useEffect(() => {
     // Escuchar mensajes incluso si la lista está vacía (para recibir el primer lead)
+    // Usamos refs para leer el estado actual sin causar re-suscripciones
     const ch = subscribeToAllMessages(async (msg) => {
       // 1. Verificar si el lead ya está en la lista
-      const leadExists = leads.some(l => l.id === msg.lead_id)
+      const leadExists = leadsRef.current.some(l => l.id === msg.lead_id)
 
       if (leadExists) {
         updateLeadListOrder(msg.lead_id, msg)
         if (msg.sender === 'lead') {
-          if (selectedLeadId !== msg.lead_id) {
-            const currentCount = unreadCounts[msg.lead_id] || 0
+          if (selectedLeadIdRef.current !== msg.lead_id) {
+            const currentCount = unreadCountsRef.current[msg.lead_id] || 0
             updateUnreadCount(msg.lead_id, currentCount + 1)
           }
         }
       } else {
         // 2. Si no existe, es un lead NUEVO (o archivado que no tenemos cargado).
-        // Intentar buscarlo y agregarlo a la lista.
-        // Solo si el scope es 'active' (no queremos resucitar leads archivados en la vista de activos automáticamente
-        // a menos que la lógica de negocio lo dicte, pero por ahora solo nuevos).
-        if (chatScope === 'active') {
+        // Solo si el scope es 'active'
+        if (chatScopeRef.current === 'active') {
           try {
-            // Import dinámico para evitar dependencias circulares si las hubiera, 
-            // o simplemente usar la función importada arriba si ya la tenemos.
-            // Necesitamos importar getLeadById de services/leads
             const { getLeadById } = await import('@/supabase/services/leads')
             const newLeadDB = await getLeadById(msg.lead_id)
 
             if (newLeadDB && newLeadDB.empresa_id === companyId && !newLeadDB.archived) {
-              // Mapear y agregar
               const { mapDBToLead } = await import('@/hooks/useLeadsList')
               const newLead = mapDBToLead(newLeadDB)
 
-              // Asegurar que el último mensaje esté sincronizado con el que acabamos de recibir
               newLead.lastMessage = msg.content || ''
               newLead.lastMessageAt = new Date(msg.created_at)
               newLead.lastMessageSender = msg.sender as any
@@ -135,7 +129,6 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
       }
 
       if (msg.sender !== 'lead') {
-        // Respuesta del equipo/IA: actualizar desde servidor
         setTimeout(async () => {
           try {
             const counts = await getUnreadMessagesCount([msg.lead_id])
@@ -145,7 +138,7 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
       }
     })
     return () => { try { ch.unsubscribe() } catch { } }
-  }, [leads, selectedLeadId, updateLeadListOrder, updateUnreadCount, unreadCounts, companyId, chatScope, addLead])
+  }, [companyId, updateLeadListOrder, updateUnreadCount, addLead])
 
   // Handlers para archivar/eliminar leads (ahora usan funciones del hook)
   async function handleArchiveToggle(lead: Lead | undefined, nextState: boolean) {
@@ -167,9 +160,7 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
     if (!confirmed) return
     try {
       await removeLead(lead.id)
-      if (selectedLeadId === lead.id) {
-        setSelectedLeadId(null)
-      }
+      // No limpiar selectedLeadId: el estado "Chat eliminado" se mostrará automáticamente
     } catch (err) {
       // Error handling done in hook
     }
@@ -179,9 +170,30 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
   // handleSendMessage ahora están en el componente MessageInput.
   // Se eliminaron ~70 líneas de código duplicado.
 
+  // Refs para evitar re-suscripciones en el useEffect de realtime
+  const leadsRef = useRef(leads)
+  leadsRef.current = leads
+  const selectedLeadIdRef = useRef(selectedLeadId)
+  selectedLeadIdRef.current = selectedLeadId
+  const unreadCountsRef = useRef(unreadCounts)
+  unreadCountsRef.current = unreadCounts
+  const chatScopeRef = useRef(chatScope)
+  chatScopeRef.current = chatScope
+
   const selectedLead = leads.find(l => l.id === selectedLeadId)
 
+  // Rastrear el último lead seleccionado para detectar eliminación
+  const lastSelectedLeadRef = useRef<Lead | null>(null)
+  if (selectedLead) {
+    lastSelectedLeadRef.current = selectedLead
+  }
 
+  // Detectar si el lead seleccionado fue eliminado/archivado (ya no está en la lista)
+  const isLeadDeleted = selectedLeadId !== null && !selectedLead && lastSelectedLeadRef.current?.id === selectedLeadId
+  const deletedLeadInfo = isLeadDeleted ? {
+    name: lastSelectedLeadRef.current!.name || lastSelectedLeadRef.current!.phone || 'Lead',
+    phone: lastSelectedLeadRef.current!.phone
+  } : null
 
   return (
     <div className="flex flex-1 min-h-0 bg-background rounded-tl-2xl border-t border-l shadow-sm overflow-hidden w-full">
@@ -215,6 +227,8 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
         updateLeadListOrder={updateLeadListOrder}
         updateUnreadCount={updateUnreadCount}
         onLeadUpdate={(updatedLead) => handleLeadUpdate(updatedLead)}
+        deletedLeadInfo={deletedLeadInfo}
+        onDismissDeleted={() => { setSelectedLeadId(null); lastSelectedLeadRef.current = null }}
       />
       <ChatSettingsDialog open={showChatSettings} onClose={() => setShowChatSettings(false)} empresaId={companyId} />
     </div >

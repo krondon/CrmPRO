@@ -100,7 +100,7 @@ export function subscribeToMessages(leadId: string, onMessage: (msg: Message) =>
   // Suscripción sin filtro de servidor para evitar incompatibilidades.
   // Filtramos por lead_id en el cliente y añadimos logs de depuración.
   return supabase
-    .channel(`messages:${leadId}`)
+    .channel(`messages:${leadId}-${Date.now()}`)
     .on(
       'postgres_changes',
       {
@@ -188,7 +188,7 @@ export async function markMessagesAsRead(leadId: string) {
 // Suscribirse a nuevos mensajes de lead (sender='lead') para toda la empresa
 export function subscribeToAllMessages(callback: (msg: Message) => void) {
   return supabase
-    .channel('all-messages')
+    .channel(`all-messages-${Date.now()}`)
     .on(
       'postgres_changes',
       {
