@@ -541,9 +541,18 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
     // Carga inicial y lógica de visualización
     // ==========================================
 
-    // Memoizar leads a mostrar: Resultados de búsqueda O Lista normal
+    // Memoizar leads a mostrar: Resultados de búsqueda + matches locales por tag O Lista normal
     const displayedLeads = useMemo(() => {
-        if (searchTerm && searchResults) return searchResults
+        if (searchTerm && searchResults) {
+            // Server no busca por tags, agregar matches locales por tag name
+            const search = searchTerm.toLowerCase()
+            const serverIds = new Set(searchResults.map(l => l.id))
+            const tagMatches = leads.filter(l =>
+                !serverIds.has(l.id) &&
+                l.tags?.some(t => (t.name || '').toLowerCase().includes(search))
+            )
+            return tagMatches.length > 0 ? [...searchResults, ...tagMatches] : searchResults
+        }
         return leads
     }, [searchTerm, searchResults, leads])
 

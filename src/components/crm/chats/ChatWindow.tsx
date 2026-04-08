@@ -8,13 +8,13 @@ import {
     ArrowLeft, X, VideoCamera, Check, WarningCircle,
     File as FileIcon, Microphone, WhatsappLogo, InstagramLogo, FacebookLogo,
     Archive, Trash, PencilSimple, ArrowSquareOut, CaretRight,
-    ChatCircleDots, Spinner, Info
+    ChatCircleDots, Spinner, Info, Broom
 } from '@phosphor-icons/react'
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
 import { safeFormatDate } from '@/hooks/useDateFormat'
 import { detectChannel } from '@/hooks/useLeadsList'
-import { getMessages, subscribeToMessages, markMessagesAsRead, deleteMessage } from '@/supabase/services/mensajes'
+import { getMessages, subscribeToMessages, markMessagesAsRead, deleteMessage, deleteConversation } from '@/supabase/services/mensajes'
 import type { Message as DbMessage } from '@/supabase/services/mensajes'
 import { MessageInput } from './MessageInput'
 import { LeadTags } from './LeadTags'
@@ -304,60 +304,70 @@ export function ChatWindow({
             <div className="flex-1 flex flex-col min-h-0 relative transition-all duration-300">
                 {/* Header */}
                 <div
-                    className="h-16 px-4 border-b bg-background flex items-center justify-between shrink-0 cursor-pointer hover:bg-muted/30 transition-colors group"
+                    className="h-14 sm:h-16 px-2 sm:px-4 border-b bg-background flex items-center justify-between shrink-0 cursor-pointer hover:bg-muted/30 transition-colors group"
                     onClick={() => setShowContactInfo(!showContactInfo)}
                 >
-                    <div className="flex items-center gap-3 min-w-0 overflow-hidden">
+                    <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
                         <Button
                             variant="ghost"
                             size="icon"
-                            className="md:hidden shrink-0 -ml-2 mr-1 h-10 w-10 text-muted-foreground hover:text-foreground"
+                            className="md:hidden shrink-0 -ml-1 h-8 w-8 sm:h-10 sm:w-10 text-muted-foreground hover:text-foreground"
                             onClick={(e) => { e.stopPropagation(); onBack() }}
                         >
-                            <ArrowLeft className="w-6 h-6" />
+                            <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
                         </Button>
-                        <Avatar className="h-10 w-10 shadow-sm border border-border/50 shrink-0">
+                        <Avatar className="h-8 w-8 sm:h-10 sm:w-10 shadow-sm border border-border/50 shrink-0">
                             <AvatarImage src={lead.avatar} />
-                            <AvatarFallback className="bg-muted text-muted-foreground font-bold">
+                            <AvatarFallback className="bg-muted text-muted-foreground font-bold text-xs sm:text-sm">
                                 {(lead.name || 'Unknown').substring(0, 2).toUpperCase()}
                             </AvatarFallback>
                         </Avatar>
-                        <div className="flex flex-col min-w-0">
-                            <h3 className="font-bold truncate text-sm sm:text-base leading-tight tracking-tight">
+                        <div className="flex flex-col min-w-0 flex-1">
+                            <h3 className="font-bold truncate text-[13px] sm:text-base leading-tight tracking-tight">
                                 {lead.name}
                             </h3>
-                            <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground min-w-0 flex-wrap">
-                                <span className="whitespace-nowrap flex-shrink-0">{lead.phone}</span>
-                                {lead.company && (
-                                    <>
-                                        <span className="mx-1.5 flex-shrink-0 opacity-50">•</span>
-                                        <span className="truncate min-w-0">{lead.company}</span>
-                                    </>
-                                )}
-                                {activeInstance && (
-                                    <>
-                                        <span className="flex-shrink-0 opacity-50">•</span>
-                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold flex-shrink-0">
-                                            <WhatsappLogo size={10} weight="fill" />
-                                            {activeInstance.label || activeInstance.client_id || 'WhatsApp'}
-                                        </span>
-                                    </>
-                                )}
-                            </div>
+                            <p className="truncate text-[10px] sm:text-[11px] font-medium text-muted-foreground">
+                                {lead.phone}
+                                {lead.company && <span className="hidden sm:inline"> • {lead.company}</span>}
+                            </p>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 text-muted-foreground shrink-0">
-                        <div className="h-4 w-px bg-border/60 mx-1 hidden sm:block" />
+                    <div className="flex items-center shrink-0 ml-1">
+                        {activeInstance && (
+                            <span className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 mr-2 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold">
+                                <WhatsappLogo size={10} weight="fill" />
+                                {activeInstance.label || activeInstance.client_id || 'WhatsApp'}
+                            </span>
+                        )}
+                        <button
+                            type="button"
+                            onClick={async (e) => {
+                                e.stopPropagation()
+                                if (!lead) return
+                                if (window.confirm(`¿Eliminar toda la conversación con "${lead.name || lead.phone}"? Se borrarán todos los mensajes. Esta acción no se puede deshacer.`)) {
+                                    try {
+                                        await deleteConversation(lead.id)
+                                        setMessages([])
+                                    } catch (err) {
+                                        console.error('Error eliminando conversación:', err)
+                                    }
+                                }
+                            }}
+                            className="p-1.5 sm:p-2 rounded-full hover:bg-orange-500/10 hover:text-orange-500 transition-all active:scale-95"
+                            title="Limpiar chat (borrar mensajes)"
+                        >
+                            <Broom className="w-[18px] h-[18px] sm:w-5 sm:h-5" />
+                        </button>
                         <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); setShowContactInfo(!showContactInfo); }}
                             className={cn(
-                                "p-2 rounded-full hover:bg-muted transition-all active:scale-95",
+                                "p-1.5 sm:p-2 rounded-full hover:bg-muted transition-all active:scale-95",
                                 showContactInfo ? "bg-primary/10 text-primary" : ""
                             )}
                         >
-                            <Info className="w-5 h-5" weight={showContactInfo ? "fill" : "regular"} />
+                            <Info className="w-[18px] h-[18px] sm:w-5 sm:h-5" weight={showContactInfo ? "fill" : "regular"} />
                         </button>
                     </div>
                 </div>
