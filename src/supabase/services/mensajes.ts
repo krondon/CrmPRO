@@ -15,6 +15,8 @@ export interface Message {
 export interface MediaPayload {
   downloadUrl: string
   fileName: string
+  ptt?: boolean
+  mimetype?: string
 }
 
 // Subir archivo al bucket de Storage y obtener URL pública
@@ -65,7 +67,7 @@ export async function sendMessage(
       const { data, error } = await supabase.functions.invoke('send-message', {
         body: {
           lead_id: leadId,
-          content: content || undefined,
+          content: content ?? '',
           channel,
           media
         }
@@ -99,8 +101,10 @@ export async function sendMessage(
 export function subscribeToMessages(leadId: string, onMessage: (msg: Message) => void) {
   // Suscripción sin filtro de servidor para evitar incompatibilidades.
   // Filtramos por lead_id en el cliente y añadimos logs de depuración.
+  const channelId = `messages:${leadId}-${Date.now()}-${Math.random().toString(36).substring(7)}`
+  
   return supabase
-    .channel(`messages:${leadId}-${Date.now()}`)
+    .channel(channelId)
     .on(
       'postgres_changes',
       {
@@ -187,8 +191,10 @@ export async function markMessagesAsRead(leadId: string) {
 
 // Suscribirse a nuevos mensajes de lead (sender='lead') para toda la empresa
 export function subscribeToAllMessages(callback: (msg: Message) => void) {
+  const channelId = `all-messages-${Date.now()}-${Math.random().toString(36).substring(7)}`
+
   return supabase
-    .channel(`all-messages-${Date.now()}`)
+    .channel(channelId)
     .on(
       'postgres_changes',
       {

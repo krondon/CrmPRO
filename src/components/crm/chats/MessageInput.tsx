@@ -54,6 +54,8 @@ export function MessageInput({
         setIsUploading(true)
         try {
             const mediaData = await uploadChatAttachment(audioFile, leadId)
+            mediaData.ptt = true
+            mediaData.mimetype = audioFile.type || 'audio/ogg; codecs=opus'
             const msg = await sendMessage(leadId, '', 'team', channel, mediaData)
             toast.success('Nota de voz enviada')
             onMessageSent?.(msg)

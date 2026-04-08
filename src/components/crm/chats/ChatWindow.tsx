@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import type { Lead } from '@/lib/types'
 import { Button } from '@/components/ui/button'
@@ -14,7 +14,7 @@ import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
 import { safeFormatDate } from '@/hooks/useDateFormat'
 import { detectChannel } from '@/hooks/useLeadsList'
-import { getMessages, subscribeToMessages, markMessagesAsRead } from '@/supabase/services/mensajes'
+import { getMessages, subscribeToMessages, markMessagesAsRead, deleteMessage } from '@/supabase/services/mensajes'
 import type { Message as DbMessage } from '@/supabase/services/mensajes'
 import { MessageInput } from './MessageInput'
 import { LeadTags } from './LeadTags'
@@ -36,6 +36,7 @@ interface ChatWindowProps {
     onLeadUpdate?: (lead: Lead) => void
     deletedLeadInfo?: { name: string; phone?: string } | null
     onDismissDeleted?: () => void
+    incomingMessage?: { msg: DbMessage; ts: number } | null
 }
 
 export function ChatWindow({
@@ -50,7 +51,8 @@ export function ChatWindow({
     updateUnreadCount,
     onLeadUpdate,
     deletedLeadInfo,
-    onDismissDeleted
+    onDismissDeleted,
+    incomingMessage
 }: ChatWindowProps) {
     // Estados locales
     const [messages, setMessages] = useState<DbMessage[]>([])
@@ -60,8 +62,27 @@ export function ChatWindow({
     const [archivingLeadId, setArchivingLeadId] = useState<string | null>(null)
     const [lightboxImage, setLightboxImage] = useState<string | null>(null)
     const [activeInstance, setActiveInstance] = useState<EmpresaInstanciaDB | null>(null)
+    const [activeDeleteMsgId, setActiveDeleteMsgId] = useState<string | null>(null)
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
+
+    // Dismiss delete button when tapping outside
+    useEffect(() => {
+        if (!activeDeleteMsgId) return
+        const dismiss = () => setActiveDeleteMsgId(null)
+        document.addEventListener('click', dismiss)
+        return () => document.removeEventListener('click', dismiss)
+    }, [activeDeleteMsgId])
+
+    const handleDeleteMessage = useCallback(async (messageId: string) => {
+        try {
+            await deleteMessage(messageId)
+            setMessages(prev => prev.filter(m => m.id !== messageId))
+            setActiveDeleteMsgId(null)
+        } catch (e) {
+            console.error('Error deleting message:', e)
+        }
+    }, [])
 
     // Refs para callbacks estables (evitar re-suscripción del socket)
     const updateLeadListOrderRef = useRef(updateLeadListOrder)
@@ -144,6 +165,14 @@ export function ChatWindow({
             try { sub.unsubscribe() } catch { }
         }
     }, [lead?.id, companyId])
+
+    // Fallback: si subscribeToMessages falla, recibir mensajes desde subscribeToAllMessages vía prop
+    useEffect(() => {
+        if (!incomingMessage || !lead) return
+        const msg = incomingMessage.msg
+        if (msg.lead_id !== lead.id) return
+        setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg])
+    }, [incomingMessage, lead?.id])
 
     // Scroll automático y al cambiar de mensajes
     useEffect(() => {
@@ -367,13 +396,35 @@ export function ChatWindow({
                                             </span>
                                         </div>
                                     )}
-                                    <div className={cn("flex w-full group/msg", isTeam ? "justify-end" : "justify-start")}>
-                                        <div className={cn(
-                                            "max-w-[85%] sm:max-w-[70%] min-w-0 px-3.5 py-2.5 rounded-2xl shadow-sm text-[15px] relative animate-in fade-in slide-in-from-bottom-2 duration-300 break-words overflow-hidden",
-                                            isTeam
-                                                ? "bg-primary text-primary-foreground rounded-tr-none shadow-primary/10"
-                                                : "bg-white text-black rounded-tl-none border border-border/10 shadow-black/5"
-                                        )}>
+                                    <div
+                                        className={cn("flex w-full group/msg relative", isTeam ? "justify-end" : "justify-start")}
+                                    >
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                handleDeleteMessage(msg.id)
+                                            }}
+                                            className={cn(
+                                                "absolute top-1/2 -translate-y-1/2 p-2 rounded-full bg-destructive text-white transition-all shadow-lg z-20",
+                                                "opacity-0 scale-75 group-hover/msg:opacity-100 group-hover/msg:scale-100",
+                                                activeDeleteMsgId === msg.id && "!opacity-100 !scale-100",
+                                                isTeam ? "-left-1 sm:-left-5" : "-right-1 sm:-right-5"
+                                            )}
+                                            title="Eliminar mensaje"
+                                        >
+                                            <Trash size={16} weight="bold" />
+                                        </button>
+                                        <div
+                                            className={cn(
+                                                "max-w-[85%] sm:max-w-[70%] min-w-0 px-3.5 py-2.5 rounded-2xl shadow-sm text-[15px] relative animate-in fade-in slide-in-from-bottom-2 duration-300 break-words overflow-hidden cursor-pointer sm:cursor-default",
+                                                isTeam
+                                                    ? "bg-primary text-primary-foreground rounded-tr-none shadow-primary/10"
+                                                    : "bg-white text-black rounded-tl-none border border-border/10 shadow-black/5"
+                                            )}
+                                            onClick={() => {
+                                                setActiveDeleteMsgId(prev => prev === msg.id ? null : msg.id)
+                                            }}
+                                        >
                                             {(() => {
                                                 if (!msg.content) return null;
                                                 if (msg.content.startsWith('http')) return null;

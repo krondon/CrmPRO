@@ -33,6 +33,8 @@ import {
     Timer
 } from '@phosphor-icons/react'
 
+import { HistoryTab } from './HistoryTab'
+
 interface User {
     id: string
     email: string
@@ -262,6 +264,14 @@ export function OverviewTab({
                         <div className="pl-8 py-4 text-xs font-bold text-muted-foreground/30 italic">Sin actividad reciente</div>
                     )}
                 </div>
+            </div>
+            
+            <Separator className="my-8" />
+            
+            <div className="relative">
+                <div className="absolute top-0 left-0 w-8 h-1 rounded-full bg-gradient-to-r from-primary to-transparent" />
+                <h3 className="text-sm font-black uppercase tracking-[0.2em] text-foreground/40 mb-5">Historial</h3>
+                <HistoryTab leadId={lead.id} />
             </div>
         </div>
     )

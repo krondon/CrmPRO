@@ -424,6 +424,7 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
      * Actualizar orden del lead cuando llega mensaje
      */
     const updateLeadOrder = useCallback((leadId: string, msg: DbMessage) => {
+        if (!msg) return
         setLeads(prev => prev.map(l =>
             l.id === leadId
                 ? { ...l, lastMessageAt: new Date(msg.created_at), lastMessageSender: msg.sender as any, lastMessage: msg.content }

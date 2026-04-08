@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import type { Lead } from '@/lib/types'
-import { subscribeToAllMessages, getUnreadMessagesCount } from '@/supabase/services/mensajes'
+import { subscribeToAllMessages, getUnreadMessagesCount, type Message } from '@/supabase/services/mensajes'
 import { ChatSettingsDialog } from './ChatSettingsDialog'
 import { useLeadsList } from '@/hooks/useLeadsList'
 import { useLeadsRealtime } from '@/hooks/useLeadsRealtime'
@@ -54,6 +54,10 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null)
   const [showChatSettings, setShowChatSettings] = useState(false)
 
+  // Fallback: mensaje entrante propagado desde subscribeToAllMessages hacia ChatWindow
+  // Usa timestamp para garantizar que cada mensaje genere una nueva referencia
+  const [incomingMessage, setIncomingMessage] = useState<{ msg: Message; ts: number } | null>(null)
+
 
 
 
@@ -99,6 +103,10 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
             const currentCount = unreadCountsRef.current[msg.lead_id] || 0
             updateUnreadCount(msg.lead_id, currentCount + 1)
           }
+        }
+        // Fallback: si el mensaje es del lead abierto, propagarlo a ChatWindow
+        if (msg.lead_id === selectedLeadIdRef.current) {
+          setIncomingMessage({ msg, ts: Date.now() })
         }
       } else {
         // 2. Si no existe, es un lead NUEVO (o archivado que no tenemos cargado).
@@ -229,6 +237,7 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
         onLeadUpdate={(updatedLead) => handleLeadUpdate(updatedLead)}
         deletedLeadInfo={deletedLeadInfo}
         onDismissDeleted={() => { setSelectedLeadId(null); lastSelectedLeadRef.current = null }}
+        incomingMessage={incomingMessage}
       />
       <ChatSettingsDialog open={showChatSettings} onClose={() => setShowChatSettings(false)} empresaId={companyId} />
     </div >

@@ -43,12 +43,14 @@ interface UseAudioRecorderReturn {
 }
 
 // Formatos de audio preferidos, en orden de prioridad
-// OGG/Opus es el formato nativo de WhatsApp para notas de voz
+// WhatsApp reproduce OGG Opus y MP4/AAC de forma nativa
+// Chrome no soporta OGG pero sí MP4 desde v121+
 const PREFERRED_FORMATS = [
-    'audio/ogg;codecs=opus',
-    'audio/ogg',
-    'audio/mp4',
-    'audio/webm;codecs=opus',
+    'audio/ogg;codecs=opus',     // Firefox - formato nativo de WhatsApp
+    'audio/ogg',                 // Firefox fallback
+    'audio/mp4;codecs=opus',     // Chrome 121+ - compatible con WhatsApp
+    'audio/mp4',                 // Chrome/Safari - AAC, compatible con WhatsApp
+    'audio/webm;codecs=opus',    // Último recurso
     'audio/webm'
 ]
 
@@ -183,11 +185,16 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}): UseAudi
                     return
                 }
 
-                // Crear archivo con extensión .ogg para compatibilidad con WhatsApp
+                // Extensión según el formato real grabado
+                const actualMime = mediaRecorder.mimeType || 'audio/webm'
+                let ext = 'webm'
+                if (actualMime.includes('ogg')) ext = 'ogg'
+                else if (actualMime.includes('mp4')) ext = 'm4a'
+
                 const audioFile = new File(
                     [audioBlob],
-                    `voice-note-${Date.now()}.ogg`,
-                    { type: 'audio/ogg' }
+                    `voice-note-${Date.now()}.${ext}`,
+                    { type: actualMime }
                 )
 
                 // Notificar que el audio está listo

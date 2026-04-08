@@ -302,6 +302,20 @@ export async function setLeadArchived(id: string, archived: boolean, actorId?: s
  * Elimina un lead
  */
 export async function deleteLead(id: string): Promise<boolean> {
+    // Si en BD no tienen ON DELETE CASCADE, las borramos manualmente
+    // Limpiamos mensajes del chat
+    await supabase.from('mensajes').delete().eq('lead_id', id);
+    // Limpiamos historial de la oportunidad
+    await supabase.from('lead_historial').delete().eq('lead_id', id);
+    // Limpiamos tareas de la oportunidad
+    await supabase.from('tasks').delete().eq('lead_id', id);
+    // Limpiamos notas
+    await supabase.from('nota_lead').delete().eq('lead_id', id);
+    // Limpiamos reuniones
+    await supabase.from('lead_reuniones').delete().eq('lead_id', id);
+    // Limpiamos presupuestos
+    await supabase.from('presupuesto_pdf').delete().eq('lead_id', id);
+
     const { error } = await supabase
         .from('lead')
         .delete()

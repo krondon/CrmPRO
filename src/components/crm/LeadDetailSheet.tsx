@@ -126,6 +126,8 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
     setIsUploading(true)
     try {
       const mediaData = await uploadChatAttachment(audioFile, lead.id)
+      mediaData.ptt = true
+      mediaData.mimetype = audioFile.type || 'audio/ogg; codecs=opus'
       const sentMsg = await sendDbMessage(lead.id, '', 'team', selectedChannel, mediaData)
       if (sentMsg) {
         const mappedMsg = {
@@ -1227,7 +1229,6 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
               }}
             />
           </TabsContent>
-
 
         </Tabs >
       </SheetContent >
