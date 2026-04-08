@@ -276,14 +276,14 @@ export function SingleLeadForm({
                             }
                         }}
                         onBlur={() => {
-                            // Delay hiding to allow clicks on suggestions
-                            setTimeout(() => setShowSuggestions(false), 200)
+                            // Delay hiding to allow clicks/taps on suggestions
+                            setTimeout(() => setShowSuggestions(false), 400)
                         }}
                         placeholder="Nombre de la oportunidad"
                         autoComplete="off"
                         className={selectedContact ? "border-primary/50 bg-primary/5" : ""}
                     />
-                    
+
                     {/* Autocomplete Dropdown */}
                     {showSuggestions && (isSearching || contactResults.length > 0) && (
                         <div className="absolute top-full left-0 right-0 mt-1 bg-background border border-border rounded-md shadow-md max-h-48 overflow-y-auto z-50">
@@ -297,7 +297,8 @@ export function SingleLeadForm({
                                         <button
                                             key={c.id}
                                             type="button"
-                                            onClick={() => {
+                                            onMouseDown={(e) => {
+                                                e.preventDefault() // Prevent input blur from firing first
                                                 if (onContactSelect) onContactSelect(c)
                                                 setShowSuggestions(false)
                                             }}

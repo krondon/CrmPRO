@@ -361,7 +361,7 @@ export function InstancesManager({ empresaId }: InstancesManagerProps) {
         </CardHeader>
         <CardContent className="space-y-5 pt-5">
           {/* Row 1: Platform, Client ID, Label */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             <div className="space-y-1.5">
               <Label className="text-sm font-semibold">Plataforma *</Label>
               <Select value={form.plataforma} onValueChange={(v: any) => setForm(s => ({ ...s, plataforma: v }))}>
@@ -505,15 +505,15 @@ export function InstancesManager({ empresaId }: InstancesManagerProps) {
                 const colors = platformColor(inst.plataforma)
 
                 return (
-                  <div key={inst.id} className={`rounded-xl border ${colors.border} bg-gradient-to-r ${colors.gradient} to-transparent p-4 space-y-3 hover:shadow-sm transition-all`}>
+                  <div key={inst.id} className={`rounded-xl border ${colors.border} bg-gradient-to-r ${colors.gradient} to-transparent p-3 sm:p-4 space-y-3 hover:shadow-sm transition-all`}>
                     {/* Header */}
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className={`h-10 w-10 rounded-xl ${colors.bg} flex items-center justify-center`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+                        <div className={`h-9 w-9 sm:h-10 sm:w-10 shrink-0 rounded-xl ${colors.bg} flex items-center justify-center`}>
                           {platformIcon(inst.plataforma)}
                         </div>
-                        <div>
-                          <div className="flex items-center gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                             <span className="font-bold text-sm capitalize">{inst.plataforma}</span>
                             {inst.label && (
                               <Badge variant="outline" className="text-[10px] font-bold rounded-md">{inst.label}</Badge>
@@ -533,12 +533,13 @@ export function InstancesManager({ empresaId }: InstancesManagerProps) {
                             {inst.client_id ? (
                               <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
                                 <CheckCircle size={12} weight="fill" />
-                                <span className="font-mono text-muted-foreground">{inst.client_id}</span>
+                                <span className="font-mono text-muted-foreground truncate max-w-[150px] sm:max-w-none">{inst.client_id}</span>
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-600 dark:text-amber-400">
                                 <Clock size={12} weight="fill" />
-                                Pendiente — se aprenderá automáticamente
+                                <span className="hidden sm:inline">Pendiente — se aprenderá automáticamente</span>
+                                <span className="sm:hidden">Pendiente</span>
                               </span>
                             )}
                           </div>
@@ -546,7 +547,7 @@ export function InstancesManager({ empresaId }: InstancesManagerProps) {
                       </div>
 
                       {/* Actions */}
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 shrink-0">
                         <Switch checked={inst.active} onCheckedChange={(v) => handleToggleActive(inst.id, v)} />
                         <Dialog>
                           <DialogTrigger asChild>
@@ -554,7 +555,7 @@ export function InstancesManager({ empresaId }: InstancesManagerProps) {
                               <PencilSimple size={16} />
                             </Button>
                           </DialogTrigger>
-                          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl">
+                          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl w-[95vw] sm:w-auto">
                             <DialogHeader>
                               <DialogTitle className="flex items-center gap-2 text-lg font-bold">
                                 {platformIcon(inst.plataforma, 22)}
@@ -563,7 +564,7 @@ export function InstancesManager({ empresaId }: InstancesManagerProps) {
                               </DialogTitle>
                             </DialogHeader>
                             <div className="space-y-5 pt-2">
-                              <div className="grid grid-cols-2 gap-4">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div className="space-y-1.5">
                                   <Label className="text-sm font-semibold flex items-center gap-1.5">
                                     Client ID
@@ -644,20 +645,20 @@ export function InstancesManager({ empresaId }: InstancesManagerProps) {
                     </div>
 
                     {/* Credentials Info */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px] pt-2 border-t border-border/20">
-                      <div className="flex items-center gap-1.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] pt-2 border-t border-border/20">
+                      <div className="flex items-center gap-1.5 min-w-0">
                         <Key size={10} className="text-muted-foreground shrink-0" />
-                        <span className="text-muted-foreground">Token:</span>
-                        <span className="font-mono font-medium">{maskToken((inst as any).api_token)}</span>
+                        <span className="text-muted-foreground shrink-0">Token:</span>
+                        <span className="font-mono font-medium truncate">{maskToken((inst as any).api_token)}</span>
                       </div>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
                         <Key size={10} className="text-muted-foreground shrink-0" />
-                        <span className="text-muted-foreground">Secret:</span>
-                        <span className="font-mono font-medium">{maskToken((inst as any).webhook_secret)}</span>
+                        <span className="text-muted-foreground shrink-0">Secret:</span>
+                        <span className="font-mono font-medium truncate">{maskToken((inst as any).webhook_secret)}</span>
                       </div>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
                         <Globe size={10} className="text-muted-foreground shrink-0" />
-                        <span className="text-muted-foreground">URL:</span>
+                        <span className="text-muted-foreground shrink-0">URL:</span>
                         <span className="font-mono font-medium truncate">{inst.api_url || 'v4.iasuperapi.com'}</span>
                       </div>
                     </div>
@@ -669,8 +670,8 @@ export function InstancesManager({ empresaId }: InstancesManagerProps) {
                           <LinkSimple size={12} className="text-muted-foreground" />
                           <span className="text-[11px] font-semibold text-muted-foreground">Webhook URL</span>
                         </div>
-                        <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/40 border border-border/30">
-                          <code className="text-[11px] font-mono text-foreground/80 truncate flex-1 select-all">
+                        <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/40 border border-border/30 min-w-0">
+                          <code className="text-[10px] sm:text-[11px] font-mono text-foreground/80 truncate flex-1 select-all">
                             {`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/webhook-chat?secret=${(inst as any).webhook_secret}`}
                           </code>
                           <Button

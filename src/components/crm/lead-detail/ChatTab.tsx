@@ -327,6 +327,15 @@ export function ChatTab({
     const fileInputRef = useRef<HTMLInputElement>(null)
     const [historyLimit, setHistoryLimit] = useState(20)
     const [lightboxImage, setLightboxImage] = useState<string | null>(null)
+    const [activeDeleteMsgId, setActiveDeleteMsgId] = useState<string | null>(null)
+
+    // Dismiss delete button when tapping outside
+    useEffect(() => {
+        if (!activeDeleteMsgId) return
+        const dismiss = () => setActiveDeleteMsgId(null)
+        document.addEventListener('click', dismiss)
+        return () => document.removeEventListener('click', dismiss)
+    }, [activeDeleteMsgId])
 
     const filteredMessages = messages.filter(m => m.channel === selectedChannel)
     const displayedMessages = filteredMessages.slice(-historyLimit)
@@ -436,25 +445,32 @@ export function ChatTab({
                                     )}
                                     <div
                                         className={cn(
-                                            'group relative p-3 rounded-lg max-w-[80%] mb-2',
+                                            'group relative p-3 rounded-lg max-w-[80%] mb-2 cursor-pointer sm:cursor-default',
                                             msg.sender === 'team'
                                                 ? 'ml-auto bg-primary text-primary-foreground'
                                                 : 'mr-auto bg-muted'
                                         )}
+                                        onClick={() => {
+                                            if (!canEdit) return
+                                            setActiveDeleteMsgId(prev => prev === msg.id ? null : msg.id)
+                                        }}
                                     >
                                         {canEdit && (
                                             <button
                                                 onClick={(e) => {
                                                     e.stopPropagation()
                                                     onDeleteMessage(msg.id)
+                                                    setActiveDeleteMsgId(null)
                                                 }}
                                                 className={cn(
-                                                    "absolute -top-2 p-1 rounded-full bg-destructive text-white opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10",
-                                                    msg.sender === 'team' ? "-left-2" : "-right-2"
+                                                    "absolute -top-3 p-2 rounded-full bg-destructive text-white transition-all shadow-lg z-20",
+                                                    "opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100",
+                                                    activeDeleteMsgId === msg.id && "!opacity-100 !scale-100",
+                                                    msg.sender === 'team' ? "-left-3" : "-right-3"
                                                 )}
                                                 title="Eliminar mensaje"
                                             >
-                                                <Trash size={12} weight="bold" />
+                                                <Trash size={14} weight="bold" />
                                             </button>
                                         )}
 

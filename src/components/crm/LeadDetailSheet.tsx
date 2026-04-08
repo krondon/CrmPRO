@@ -126,6 +126,8 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
     setIsUploading(true)
     try {
       const mediaData = await uploadChatAttachment(audioFile, lead.id)
+      mediaData.ptt = true
+      mediaData.mimetype = audioFile.type || 'audio/ogg; codecs=opus'
       const sentMsg = await sendDbMessage(lead.id, '', 'team', selectedChannel, mediaData)
       if (sentMsg) {
         const mappedMsg = {
@@ -981,8 +983,8 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0 overflow-hidden bg-background">
-          <div className="px-6 sm:px-8 mt-4">
-            <TabsList className="w-full flex justify-start gap-1 bg-transparent p-0 border-b border-border/50 rounded-none h-auto">
+          <div className="relative px-6 sm:px-8 mt-4 overflow-x-auto scrollbar-none touch-pan-x overscroll-x-contain">
+            <TabsList className="inline-flex min-w-max flex-nowrap items-center justify-start gap-1.5 bg-muted/30 p-1.5 rounded-2xl border border-border/40 shadow-sm">
               {[
                 { value: 'overview', label: t.tabs.overview },
                 { value: 'chat', label: t.tabs.chat },
@@ -993,7 +995,7 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
                 <TabsTrigger
                   key={tab.value}
                   value={tab.value}
-                  className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none border-b-2 border-transparent px-4 py-2.5 text-xs font-black uppercase tracking-widest transition-all hover:text-foreground text-muted-foreground h-auto"
+                  className="flex-none min-h-11 rounded-xl border border-transparent px-4 py-2.5 text-[11px] font-black uppercase tracking-[0.18em] transition-all hover:bg-background/70 hover:text-foreground data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm data-[state=active]:border-border/60 sm:text-xs"
                 >
                   {tab.label}
                 </TabsTrigger>
@@ -1227,7 +1229,6 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
               }}
             />
           </TabsContent>
-
 
         </Tabs >
       </SheetContent >

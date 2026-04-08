@@ -1357,6 +1357,26 @@ serve(async (req) => {
               finalName = `${defaultName} ${sourceType} ${cleanPhone}`;
             }
 
+            // ==== AUTO-ASIGNACIÓN (Round Robin / Random) con RPC atómica ====
+            let autoAssignedTo = '00000000-0000-0000-0000-000000000000';
+            if (targetPipelineId) {
+              try {
+                const { data: assigneeData, error: rpcError } = await supabase.rpc('get_next_assignee', {
+                  p_pipeline_id: targetPipelineId
+                });
+                if (rpcError) {
+                  console.warn('[webhook-chat] Error llamando a get_next_assignee:', rpcError);
+                } else if (assigneeData && assigneeData.length > 0 && assigneeData[0].persona_id) {
+                  autoAssignedTo = assigneeData[0].persona_id;
+                  console.log(`[webhook-chat] RPC Round Robin asignó a persona: ${autoAssignedTo}`);
+                } else {
+                  console.log(`[webhook-chat] Pipeline manual o sin miembros, sin auto-asignar.`);
+                }
+              } catch (assignErr) {
+                console.warn('[webhook-chat] Error en auto-asignación, continuando sin asignar:', assignErr);
+              }
+            }
+
             // Objeto del nuevo Lead usando 'finalName'
             const newLeadPayload = {
               nombre_completo: finalName,

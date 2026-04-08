@@ -28,7 +28,8 @@ import {
     X,
     Gear,
     CaretLeft,
-    CaretRight
+    CaretRight,
+    Tag as TagIcon
 } from '@phosphor-icons/react'
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
@@ -84,7 +85,21 @@ export const ChatList = memo(function ChatList({
     // Estados de filtros LOCALES (solo afectan la vista, no la query)
     const [channelFilter, setChannelFilter] = useState<'all' | 'whatsapp' | 'instagram' | 'facebook'>('all')
     const [unreadFilter, setUnreadFilter] = useState(false)
+    const [tagFilter, setTagFilter] = useState<string | null>(null)
     // El searchTerm ahora viene del padre (hook)
+
+    // Tags únicas de todos los leads
+    const uniqueTags = useMemo(() => {
+        const tagMap = new Map<string, { name: string; color: string }>()
+        for (const lead of leads) {
+            if (lead.tags) {
+                for (const tag of lead.tags) {
+                    if (!tagMap.has(tag.id)) tagMap.set(tag.id, { name: tag.name, color: tag.color })
+                }
+            }
+        }
+        return Array.from(tagMap.entries()).map(([id, t]) => ({ id, ...t }))
+    }, [leads])
 
     // Refs
     const listParentRef = useRef<HTMLDivElement | null>(null)
@@ -94,11 +109,12 @@ export const ChatList = memo(function ChatList({
     const sortedLeads = useMemo(() => {
         let filtered = leads
 
-        // El hook ya filtra por searchTerm si hay búsqueda server-side.
-        // Pero si estamos buscando, NO aplicamos filtros locales de canal/leídos para no confundir resultados.
+        // Cuando hay búsqueda, el hook ya incluye matches por tag.
+        // Solo aplicamos filtros locales cuando NO hay búsqueda.
         if (!searchTerm) {
             if (unreadFilter) filtered = filtered.filter(l => (unreadCounts[l.id] || 0) > 0)
             if (channelFilter !== 'all') filtered = filtered.filter(l => (channelByLead[l.id] || 'whatsapp') === channelFilter)
+            if (tagFilter) filtered = filtered.filter(l => l.tags?.some(t => t.id === tagFilter))
         }
 
         return filtered.sort((a, b) => {
@@ -118,7 +134,7 @@ export const ChatList = memo(function ChatList({
             // 3. Leídos: más reciente arriba (DESC)
             return dateB - dateA
         })
-    }, [leads, searchTerm, channelFilter, unreadFilter, channelByLead, unreadCounts])
+    }, [leads, searchTerm, channelFilter, unreadFilter, tagFilter, channelByLead, unreadCounts])
 
     // Virtualizer para lista infinita
     const rowVirtualizer = useVirtualizer({
@@ -138,7 +154,7 @@ export const ChatList = memo(function ChatList({
 
     return (
         <div className={cn(
-            "flex flex-col border-r bg-muted/10 h-full w-full md:w-96 shrink-0 transition-all duration-300",
+            "flex flex-col border-r bg-muted/10 min-h-0 w-full md:w-96 shrink-0 transition-all duration-300",
             selectedLeadId ? "hidden md:flex" : "flex"
         )}>
             {/* Header */}
@@ -207,10 +223,10 @@ export const ChatList = memo(function ChatList({
                         </button>
                         <div className="w-px h-4 bg-border mx-1 shrink-0" />
                         <button
-                            onClick={() => { setUnreadFilter(false); setChannelFilter('all'); onSearchChange(''); onScopeChange('active') }}
+                            onClick={() => { setUnreadFilter(false); setChannelFilter('all'); setTagFilter(null); onSearchChange(''); onScopeChange('active') }}
                             className={cn(
                                 "px-4 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap border shrink-0",
-                                !unreadFilter && channelFilter === 'all'
+                                !unreadFilter && channelFilter === 'all' && !tagFilter
                                     ? "bg-zinc-900 text-white border-zinc-900 shadow-md shadow-black/10"
                                     : "bg-background text-muted-foreground border-border hover:bg-muted hover:border-muted-foreground/30"
                             )}
@@ -264,6 +280,27 @@ export const ChatList = memo(function ChatList({
                             <FacebookLogo weight="fill" className="h-3.5 w-3.5" />
                             Facebook
                         </button>
+                        {uniqueTags.length > 0 && (
+                            <>
+                                <div className="w-px h-4 bg-border mx-1 shrink-0" />
+                                {uniqueTags.map(tag => (
+                                    <button
+                                        key={tag.id}
+                                        onClick={() => { setTagFilter(tagFilter === tag.id ? null : tag.id); onScopeChange('active') }}
+                                        className={cn(
+                                            "px-3 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 border shrink-0",
+                                            tagFilter === tag.id
+                                                ? "text-white shadow-md"
+                                                : "bg-background text-muted-foreground border-border hover:bg-muted hover:border-muted-foreground/30"
+                                        )}
+                                        style={tagFilter === tag.id ? { backgroundColor: tag.color, borderColor: tag.color } : {}}
+                                    >
+                                        <TagIcon weight="fill" className="h-3 w-3" />
+                                        {tag.name}
+                                    </button>
+                                ))}
+                            </>
+                        )}
                     </div>
                     <div className="hidden md:flex absolute inset-y-0 right-1 items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
