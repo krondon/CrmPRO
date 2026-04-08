@@ -8,7 +8,7 @@ import {
     ArrowLeft, X, VideoCamera, Check, WarningCircle,
     File as FileIcon, Microphone, WhatsappLogo, InstagramLogo, FacebookLogo,
     Archive, Trash, PencilSimple, ArrowSquareOut, CaretRight,
-    ChatCircleDots, Spinner, Info, Broom
+    ChatCircleDots, Spinner, Info, Broom, MagnifyingGlass, CaretUp, CaretDown
 } from '@phosphor-icons/react'
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
@@ -63,8 +63,12 @@ export function ChatWindow({
     const [lightboxImage, setLightboxImage] = useState<string | null>(null)
     const [activeInstance, setActiveInstance] = useState<EmpresaInstanciaDB | null>(null)
     const [activeDeleteMsgId, setActiveDeleteMsgId] = useState<string | null>(null)
+    const [showChatSearch, setShowChatSearch] = useState(false)
+    const [chatSearchTerm, setChatSearchTerm] = useState('')
+    const [chatSearchIndex, setChatSearchIndex] = useState(0)
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const chatSearchInputRef = useRef<HTMLInputElement>(null)
 
     // Dismiss delete button when tapping outside
     useEffect(() => {
@@ -215,6 +219,50 @@ export function ChatWindow({
         }).filter(m => m.url).reverse();
     }, [messages]);
 
+    // Buscar mensajes que coinciden con el término de búsqueda
+    const chatSearchMatches = useMemo(() => {
+        if (!chatSearchTerm.trim()) return [] as string[]
+        const term = chatSearchTerm.toLowerCase()
+        return messages
+            .filter(m => m.content && m.content.toLowerCase().includes(term))
+            .map(m => m.id)
+    }, [messages, chatSearchTerm])
+
+    // Scroll al match actual cuando cambia el índice o los matches
+    useEffect(() => {
+        if (chatSearchMatches.length === 0) return
+        const targetId = chatSearchMatches[chatSearchIndex]
+        if (!targetId) return
+        const el = document.getElementById(`msg-${targetId}`)
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+    }, [chatSearchIndex, chatSearchMatches])
+
+    // Reset search index when term changes
+    useEffect(() => {
+        setChatSearchIndex(0)
+    }, [chatSearchTerm])
+
+    // Reset search when changing lead
+    useEffect(() => {
+        setShowChatSearch(false)
+        setChatSearchTerm('')
+    }, [lead?.id])
+
+    // Helper para resaltar texto de búsqueda en mensajes
+    const highlightText = useCallback((text: string) => {
+        if (!chatSearchTerm.trim()) return text
+        const escaped = chatSearchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const parts = text.split(new RegExp(`(${escaped})`, 'gi'))
+        if (parts.length === 1) return text
+        return parts.map((part, i) =>
+            part.toLowerCase() === chatSearchTerm.toLowerCase()
+                ? <mark key={i} className="bg-yellow-300 dark:bg-yellow-500/60 text-inherit rounded-sm px-0.5">{part}</mark>
+                : part
+        )
+    }, [chatSearchTerm])
+
     // Handlers locales
     const handleArchive = async () => {
         if (!lead) return
@@ -342,6 +390,22 @@ export function ChatWindow({
                         )}
                         <button
                             type="button"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                setShowChatSearch(v => !v)
+                                if (!showChatSearch) setTimeout(() => chatSearchInputRef.current?.focus(), 100)
+                                else setChatSearchTerm('')
+                            }}
+                            className={cn(
+                                "p-1.5 sm:p-2 rounded-full transition-all active:scale-95",
+                                showChatSearch ? "bg-primary/10 text-primary" : "hover:bg-muted"
+                            )}
+                            title="Buscar en chat"
+                        >
+                            <MagnifyingGlass className="w-[18px] h-[18px] sm:w-5 sm:h-5" />
+                        </button>
+                        <button
+                            type="button"
                             onClick={async (e) => {
                                 e.stopPropagation()
                                 if (!lead) return
@@ -371,6 +435,65 @@ export function ChatWindow({
                         </button>
                     </div>
                 </div>
+
+                {/* Search in chat bar */}
+                {showChatSearch && (
+                    <div className="flex items-center gap-2 px-3 py-2 border-b bg-background shrink-0 animate-in slide-in-from-top-2 duration-200">
+                        <MagnifyingGlass className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <input
+                            ref={chatSearchInputRef}
+                            type="text"
+                            placeholder="Buscar en esta conversación..."
+                            value={chatSearchTerm}
+                            onChange={(e) => setChatSearchTerm(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    if (chatSearchMatches.length > 0) {
+                                        setChatSearchIndex(prev => (prev + 1) % chatSearchMatches.length)
+                                    }
+                                }
+                                if (e.key === 'Escape') {
+                                    setShowChatSearch(false)
+                                    setChatSearchTerm('')
+                                }
+                            }}
+                            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
+                        />
+                        {chatSearchTerm && (
+                            <span className="text-[11px] font-semibold text-muted-foreground whitespace-nowrap">
+                                {chatSearchMatches.length > 0
+                                    ? `${chatSearchIndex + 1} de ${chatSearchMatches.length}`
+                                    : 'Sin resultados'}
+                            </span>
+                        )}
+                        <div className="flex items-center gap-0.5">
+                            <button
+                                type="button"
+                                onClick={() => setChatSearchIndex(prev => prev > 0 ? prev - 1 : chatSearchMatches.length - 1)}
+                                disabled={chatSearchMatches.length === 0}
+                                className="p-1 rounded hover:bg-muted disabled:opacity-30 transition-colors"
+                            >
+                                <CaretUp className="w-4 h-4" weight="bold" />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setChatSearchIndex(prev => (prev + 1) % chatSearchMatches.length)}
+                                disabled={chatSearchMatches.length === 0}
+                                className="p-1 rounded hover:bg-muted disabled:opacity-30 transition-colors"
+                            >
+                                <CaretDown className="w-4 h-4" weight="bold" />
+                            </button>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => { setShowChatSearch(false); setChatSearchTerm('') }}
+                            className="p-1 rounded hover:bg-muted transition-colors"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                )}
 
                 {/* Messages Area */}
                 <div className="flex-1 overflow-y-auto p-4 sm:p-6 scrollbar-thin scrollbar-thumb-muted-foreground/10" id="chat-scroll-area">
@@ -407,7 +530,12 @@ export function ChatWindow({
                                         </div>
                                     )}
                                     <div
-                                        className={cn("flex w-full group/msg relative", isTeam ? "justify-end" : "justify-start")}
+                                        id={`msg-${msg.id}`}
+                                        className={cn(
+                                            "flex w-full group/msg relative transition-colors duration-300",
+                                            isTeam ? "justify-end" : "justify-start",
+                                            chatSearchMatches[chatSearchIndex] === msg.id && "bg-yellow-200/40 dark:bg-yellow-500/20 rounded-xl"
+                                        )}
                                     >
                                         <button
                                             onClick={(e) => {
@@ -443,11 +571,11 @@ export function ChatWindow({
                                                     const urlRegex = /https?:\/\/[^\s]+/gi;
                                                     const cleanedContent = msg.content.replace(urlRegex, '').trim();
                                                     if (cleanedContent && cleanedContent.length > 0) {
-                                                        return <div className="whitespace-pre-wrap break-words leading-relaxed mb-2 font-medium">{cleanedContent}</div>;
+                                                        return <div className="whitespace-pre-wrap break-words leading-relaxed mb-2 font-medium">{highlightText(cleanedContent)}</div>;
                                                     }
                                                     return null;
                                                 }
-                                                return <div className="whitespace-pre-wrap break-words leading-relaxed font-medium">{msg.content}</div>;
+                                                return <div className="whitespace-pre-wrap break-words leading-relaxed font-medium">{highlightText(msg.content)}</div>;
                                             })()}
 
                                             {(() => {
