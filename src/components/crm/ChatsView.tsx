@@ -45,7 +45,9 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
     addLead,
     searchTerm,
     setSearchTerm,
-    isSearching
+    isSearching,
+    messageSearchResults,
+    allLeads
   } = useLeadsList({ companyId })
 
   const [currentUser] = usePersistentState<User | null>('current-user', null)
@@ -188,7 +190,7 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
   const chatScopeRef = useRef(chatScope)
   chatScopeRef.current = chatScope
 
-  const selectedLead = leads.find(l => l.id === selectedLeadId)
+  const selectedLead = allLeads.find(l => l.id === selectedLeadId) || leads.find(l => l.id === selectedLeadId)
 
   // Rastrear el último lead seleccionado para detectar eliminación
   const lastSelectedLeadRef = useRef<Lead | null>(null)
@@ -197,7 +199,8 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
   }
 
   // Detectar si el lead seleccionado fue eliminado/archivado (ya no está en la lista)
-  const isLeadDeleted = selectedLeadId !== null && !selectedLead && lastSelectedLeadRef.current?.id === selectedLeadId
+  // NO detectar eliminación cuando hay búsqueda activa (el lead sigue existiendo, solo no está en los resultados filtrados)
+  const isLeadDeleted = selectedLeadId !== null && !selectedLead && !searchTerm && lastSelectedLeadRef.current?.id === selectedLeadId
   const deletedLeadInfo = isLeadDeleted ? {
     name: lastSelectedLeadRef.current!.name || lastSelectedLeadRef.current!.phone || 'Lead',
     phone: lastSelectedLeadRef.current!.phone
@@ -223,6 +226,8 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
         isSearching={isSearching}
+        messageSearchResults={messageSearchResults}
+        onSelectLeadFromMessage={setSelectedLeadId}
       />
       <ChatWindow
         lead={selectedLead || null}

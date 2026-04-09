@@ -25,8 +25,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import type { Lead } from '@/lib/types'
 import { getLeadsPaged, setLeadArchived, deleteLead, searchLeads } from '@/supabase/services/leads'
-import { getLastMessagesForLeadIds, getUnreadMessagesCount } from '@/supabase/services/mensajes'
-import type { Message as DbMessage } from '@/supabase/services/mensajes'
+import { getLastMessagesForLeadIds, getUnreadMessagesCount, searchMessages } from '@/supabase/services/mensajes'
+import type { Message as DbMessage, MessageSearchResult } from '@/supabase/services/mensajes'
 import { getCachedLeads, setCachedLeads, updateCachedLeads, invalidateLeadsCache } from '@/lib/chatsCache'
 import { toast } from 'sonner'
 
@@ -87,6 +87,10 @@ interface UseLeadsListReturn {
     setSearchTerm: (term: string) => void
     /** Si está buscando activamente */
     isSearching: boolean
+    /** Resultados de búsqueda en mensajes (estilo WhatsApp) */
+    messageSearchResults: MessageSearchResult[]
+    /** Lista completa de leads (sin filtrar por búsqueda) */
+    allLeads: Lead[]
 }
 
 // Detecta el canal del lead basado en el teléfono y metadata
@@ -167,6 +171,7 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
     const [searchTerm, setSearchTerm] = useState('')
     const [isSearching, setIsSearching] = useState(false)
     const [searchResults, setSearchResults] = useState<Lead[] | null>(null)
+    const [msgSearchResults, setMsgSearchResults] = useState<MessageSearchResult[]>([])
 
     // Datos adicionales
     const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({})
@@ -499,6 +504,7 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
     useEffect(() => {
         if (!searchTerm) {
             setSearchResults(null)
+            setMsgSearchResults([])
             return
         }
 
@@ -507,11 +513,14 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
 
             setIsSearching(true)
             try {
-                // Si estamos en archivados, buscar en archivados. Si no, default (activos).
-                const results = await searchLeads(companyId, searchTerm, {
-                    archived: chatScope === 'archived',
-                    limit: 20
-                })
+                // Buscar leads y mensajes en paralelo
+                const [results, msgResults] = await Promise.all([
+                    searchLeads(companyId, searchTerm, {
+                        archived: chatScope === 'archived',
+                        limit: 20
+                    }),
+                    searchMessages(companyId, searchTerm, 30)
+                ])
 
                 const mapped = (results || []).map(mapDBToLead)
 
@@ -525,6 +534,8 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
                 })
 
                 setSearchResults(mapped)
+                setMsgSearchResults(msgResults)
+                console.log('[useLeadsList] Búsqueda completada:', { leads: mapped.length, messages: msgResults.length, term: searchTerm })
             } catch (err) {
                 console.error('[useLeadsList] Error buscando:', err)
                 toast.error('Error al buscar chats')
@@ -551,9 +562,22 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
                 !serverIds.has(l.id) &&
                 l.tags?.some(t => (t.name || '').toLowerCase().includes(search))
             )
-            return tagMatches.length > 0 ? [...searchResults, ...tagMatches] : searchResults
+            const combined = tagMatches.length > 0 ? [...searchResults, ...tagMatches] : searchResults
+            // Deduplicar por id
+            const seen = new Set<string>()
+            return combined.filter(l => {
+                if (seen.has(l.id)) return false
+                seen.add(l.id)
+                return true
+            })
         }
-        return leads
+        // Deduplicar lista normal también
+        const seen = new Set<string>()
+        return leads.filter(l => {
+            if (seen.has(l.id)) return false
+            seen.add(l.id)
+            return true
+        })
     }, [searchTerm, searchResults, leads])
 
     // Carga inicial (solo si NO hay búsqueda)
@@ -618,6 +642,8 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
         invalidateCache,
         searchTerm,
         setSearchTerm,
-        isSearching
+        isSearching,
+        messageSearchResults: msgSearchResults,
+        allLeads: leads
     }
 }
