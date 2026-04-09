@@ -29,12 +29,14 @@ import {
     Gear,
     CaretLeft,
     CaretRight,
-    Tag as TagIcon
+    Tag as TagIcon,
+    ArrowLeft
 } from '@phosphor-icons/react'
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
 import { safeFormatDate } from '@/hooks/useDateFormat'
 import type { ChatScope } from '@/hooks/useLeadsList'
+import type { MessageSearchResult } from '@/supabase/services/mensajes'
 
 interface ChatListProps {
     // Datos del padre
@@ -61,6 +63,10 @@ interface ChatListProps {
     searchTerm: string
     onSearchChange: (term: string) => void
     isSearching: boolean
+
+    // Resultados de búsqueda en mensajes (estilo WhatsApp)
+    messageSearchResults?: MessageSearchResult[]
+    onSelectLeadFromMessage?: (leadId: string) => void
 }
 
 export const ChatList = memo(function ChatList({
@@ -80,13 +86,42 @@ export const ChatList = memo(function ChatList({
     onOpenSettings,
     searchTerm,
     onSearchChange,
-    isSearching
+    isSearching,
+    messageSearchResults = [],
+    onSelectLeadFromMessage
 }: ChatListProps) {
     // Estados de filtros LOCALES (solo afectan la vista, no la query)
     const [channelFilter, setChannelFilter] = useState<'all' | 'whatsapp' | 'instagram' | 'facebook'>('all')
     const [unreadFilter, setUnreadFilter] = useState(false)
     const [tagFilter, setTagFilter] = useState<string | null>(null)
     // El searchTerm ahora viene del padre (hook)
+
+    // Ref y estado para el buscador estilo WhatsApp
+    const searchInputRef = useRef<HTMLInputElement | null>(null)
+    const [searchFocused, setSearchFocused] = useState(false)
+    const isSearchActive = searchTerm.length > 0 || searchFocused
+
+    // Función para resaltar texto que coincide con la búsqueda
+    const highlightMatch = (text: string, query: string) => {
+        if (!query || query.length < 1) return <>{text}</>
+        try {
+            const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            const regex = new RegExp(`(${escaped})`, 'gi')
+            const parts = text.split(regex)
+            if (parts.length <= 1) return <>{text}</>
+            return (
+                <>
+                    {parts.map((part, i) =>
+                        regex.test(part)
+                            ? <mark key={i} className="bg-emerald-400/30 text-foreground rounded-sm px-0.5 font-bold">{part}</mark>
+                            : <span key={i}>{part}</span>
+                    )}
+                </>
+            )
+        } catch {
+            return <>{text}</>
+        }
+    }
 
     // Tags únicas de todos los leads
     const uniqueTags = useMemo(() => {
@@ -178,19 +213,73 @@ export const ChatList = memo(function ChatList({
                     </div>
                 </div>
 
-                {/* Barra de búsqueda */}
+                {/* Barra de búsqueda estilo WhatsApp */}
                 <div className="relative group">
-                    {isSearching ? (
-                        <Spinner className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary animate-spin" />
-                    ) : (
-                        <MagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                    <div className={cn(
+                        "flex items-center gap-2 rounded-xl transition-all duration-200",
+                        isSearchActive
+                            ? "bg-background ring-1 ring-primary/40 shadow-sm"
+                            : "bg-muted/40"
+                    )}>
+                        <div className="flex items-center pl-3 shrink-0">
+                            {isSearchActive ? (
+                                <button
+                                    type="button"
+                                    onClick={() => { onSearchChange(''); setSearchFocused(false); searchInputRef.current?.blur() }}
+                                    className="text-primary hover:text-primary/80 transition-colors"
+                                >
+                                    <ArrowLeft className="h-4 w-4" weight="bold" />
+                                </button>
+                            ) : isSearching ? (
+                                <Spinner className="h-4 w-4 text-primary animate-spin" />
+                            ) : (
+                                <MagnifyingGlass className="h-4 w-4 text-muted-foreground" />
+                            )}
+                        </div>
+                        <Input
+                            ref={searchInputRef}
+                            placeholder="Buscar..."
+                            className="h-10 bg-transparent border-none shadow-none focus-visible:ring-0 pl-1 pr-0 text-[15px]"
+                            value={searchTerm}
+                            onChange={(e) => onSearchChange(e.target.value)}
+                            onFocus={() => setSearchFocused(true)}
+                            onBlur={() => { if (!searchTerm) setSearchFocused(false) }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Escape') {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    // Solo en desktop (md+): limpiar búsqueda con Escape
+                                    if (window.innerWidth >= 768) {
+                                        onSearchChange('')
+                                        setSearchFocused(false)
+                                        searchInputRef.current?.blur()
+                                    }
+                                }
+                            }}
+                        />
+                        {searchTerm && (
+                            <button
+                                type="button"
+                                onClick={() => { onSearchChange(''); searchInputRef.current?.focus() }}
+                                className="flex items-center justify-center h-7 w-7 mr-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-all shrink-0"
+                            >
+                                <X className="h-3.5 w-3.5" weight="bold" />
+                            </button>
+                        )}
+                        {isSearching && searchTerm && (
+                            <Spinner className="h-4 w-4 text-primary animate-spin mr-3 shrink-0" />
+                        )}
+                    </div>
+                    {searchTerm && !isSearching && (
+                        <div className="flex items-center gap-1.5 mt-1.5 px-1">
+                            <span className="text-[11px] text-muted-foreground font-medium">
+                                {sortedLeads.length === 0 && messageSearchResults.length === 0
+                                    ? 'Sin resultados'
+                                    : `${sortedLeads.length} contacto${sortedLeads.length !== 1 ? 's' : ''}${messageSearchResults.length > 0 ? ` · ${messageSearchResults.length} mensaje${messageSearchResults.length !== 1 ? 's' : ''}` : ''}`
+                                }
+                            </span>
+                        </div>
                     )}
-                    <Input
-                        placeholder="Buscar conversación..."
-                        className="pl-9 h-10 bg-muted/40 border-none rounded-xl focus-visible:ring-1 focus-visible:ring-primary/30 transition-all"
-                        value={searchTerm}
-                        onChange={(e) => onSearchChange(e.target.value)}
-                    />
                 </div>
 
                 {/* Filtros */}
@@ -393,7 +482,7 @@ export const ChatList = memo(function ChatList({
                                                     "truncate text-[15px] leading-none transition-colors",
                                                     unreadCounts[lead.id] > 0 ? "font-bold text-foreground" : "font-semibold text-foreground/80 group-hover:text-foreground"
                                                 )}>
-                                                    {lead.name}
+                                                    {searchTerm ? highlightMatch(lead.name || 'Unknown', searchTerm) : lead.name}
                                                 </span>
                                                 <span className={cn(
                                                     "text-[10px] uppercase tracking-tighter whitespace-nowrap ml-2 font-bold",
@@ -411,8 +500,7 @@ export const ChatList = memo(function ChatList({
                                                         lead.lastMessageSender === 'lead' && unreadCounts[lead.id] > 0
                                                             ? "font-bold text-foreground/90"
                                                             : "text-muted-foreground group-hover:text-muted-foreground/80"
-                                                    )}>
-                                                        {lead.lastMessage || 'Sin mensaje reciente'}
+                                                    )}>                                                        {searchTerm ? highlightMatch(lead.lastMessage || 'Sin mensaje reciente', searchTerm) : (lead.lastMessage || 'Sin mensaje reciente')}
                                                     </p>
                                                 </div>
 
@@ -457,6 +545,66 @@ export const ChatList = memo(function ChatList({
                             )}
                             {isFetchingMore && (<div className="p-4 text-center text-muted-foreground flex items-center justify-center gap-2"><Spinner className="w-4 h-4 animate-spin" /> Cargando más...</div>)}
                         </div>
+                    </div>
+                )}
+
+                {/* Sección de Mensajes encontrados (estilo WhatsApp) */}
+                {searchTerm && searchTerm.length >= 2 && !isSearching && messageSearchResults.length > 0 && (
+                    <div className="border-t border-border/40">
+                        <div className="px-4 py-2.5 bg-muted/30 sticky top-0 z-10">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600">
+                                Mensajes
+                            </span>
+                        </div>
+                        {messageSearchResults.map((msg) => (
+                            <button
+                                key={msg.id}
+                                onClick={() => onSelectLeadFromMessage?.(msg.lead_id)}
+                                className="flex items-center gap-3 px-4 py-3 text-left transition-all duration-200 border-b border-border/40 w-full hover:bg-muted/50 group"
+                            >
+                                <div className="relative shrink-0">
+                                    <Avatar className="h-11 w-11 border-2 border-background shadow-sm ring-1 ring-border/50">
+                                        <AvatarImage src={msg.lead_avatar} />
+                                        <AvatarFallback className="bg-muted text-muted-foreground font-bold text-xs">
+                                            {(msg.lead_name || '??').substring(0, 2).toUpperCase()}
+                                        </AvatarFallback>
+                                    </Avatar>
+                                    <div className="absolute -bottom-1 -right-1 bg-background rounded-full p-0.5 shadow-sm border border-background">
+                                        {msg.channel === 'instagram' ? (
+                                            <InstagramLogo weight="fill" className="h-3 w-3 text-[#E1306C]" />
+                                        ) : msg.channel === 'facebook' ? (
+                                            <FacebookLogo weight="fill" className="h-3 w-3 text-[#1877F2]" />
+                                        ) : (
+                                            <WhatsappLogo weight="fill" className="h-3 w-3 text-[#25D366]" />
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                                    <div className="flex justify-between items-baseline">
+                                        <span className="truncate text-[14px] font-semibold text-foreground/80 group-hover:text-foreground">
+                                            {msg.lead_name}
+                                        </span>
+                                        <span className="text-[10px] uppercase tracking-tighter whitespace-nowrap ml-2 font-bold text-muted-foreground">
+                                            {safeFormatDate(msg.created_at, 'dd/MM/yyyy', { locale: es })}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                        {msg.sender === 'team' && (
+                                            <Check className="w-3 h-3 text-blue-500 shrink-0" weight="bold" />
+                                        )}
+                                        {msg.lead_phone && (
+                                            <span className="text-[11px] text-muted-foreground shrink-0">
+                                                {msg.lead_phone}:
+                                            </span>
+                                        )}
+                                        <p className="text-sm truncate text-muted-foreground group-hover:text-muted-foreground/80">
+                                            {highlightMatch(msg.content, searchTerm)}
+                                        </p>
+                                    </div>
+                                </div>
+                            </button>
+                        ))}
                     </div>
                 )}
             </div>
