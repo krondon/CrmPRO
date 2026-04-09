@@ -448,14 +448,21 @@ export function ChatTab({
                                             'group relative p-3 rounded-lg max-w-[80%] mb-2 cursor-pointer sm:cursor-default',
                                             msg.sender === 'team'
                                                 ? 'ml-auto bg-primary text-primary-foreground'
-                                                : 'mr-auto bg-muted'
+                                                : 'mr-auto bg-muted',
+                                            canEdit && activeDeleteMsgId === msg.id && 'ring-2 ring-destructive/50 scale-[0.97] transition-transform'
                                         )}
                                         onClick={() => {
                                             if (!canEdit) return
-                                            setActiveDeleteMsgId(prev => prev === msg.id ? null : msg.id)
+                                            if (activeDeleteMsgId === msg.id) {
+                                                onDeleteMessage(msg.id)
+                                                setActiveDeleteMsgId(null)
+                                            } else {
+                                                setActiveDeleteMsgId(msg.id)
+                                            }
                                         }}
                                     >
                                         {canEdit && (
+                                            <>
                                             <button
                                                 onClick={(e) => {
                                                     e.stopPropagation()
@@ -472,6 +479,15 @@ export function ChatTab({
                                             >
                                                 <Trash size={14} weight="bold" />
                                             </button>
+                                            {activeDeleteMsgId === msg.id && (
+                                                <div className={cn(
+                                                    "absolute -top-8 z-30 px-2.5 py-1 rounded-lg bg-destructive text-white text-[11px] font-semibold shadow-lg animate-in fade-in zoom-in-95 duration-200 whitespace-nowrap sm:hidden",
+                                                    msg.sender === 'team' ? "right-0" : "left-0"
+                                                )}>
+                                                    Toca de nuevo para eliminar
+                                                </div>
+                                            )}
+                                            </>
                                         )}
 
                                         <MessageContent msg={msg} />

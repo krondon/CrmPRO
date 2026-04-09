@@ -552,15 +552,29 @@ export function ChatWindow({
                                         >
                                             <Trash size={16} weight="bold" />
                                         </button>
+                                        {/* Hint "Toca de nuevo para eliminar" en móvil */}
+                                        {activeDeleteMsgId === msg.id && (
+                                            <div className={cn(
+                                                "absolute -top-8 z-30 px-2.5 py-1 rounded-lg bg-destructive text-white text-[11px] font-semibold shadow-lg animate-in fade-in zoom-in-95 duration-200 whitespace-nowrap sm:hidden",
+                                                isTeam ? "right-0" : "left-0"
+                                            )}>
+                                                Toca de nuevo para eliminar
+                                            </div>
+                                        )}
                                         <div
                                             className={cn(
                                                 "max-w-[85%] sm:max-w-[70%] min-w-0 px-3.5 py-2.5 rounded-2xl shadow-sm text-[15px] relative animate-in fade-in slide-in-from-bottom-2 duration-300 break-words overflow-hidden cursor-pointer sm:cursor-default",
                                                 isTeam
                                                     ? "bg-primary text-primary-foreground rounded-tr-none shadow-primary/10"
-                                                    : "bg-white text-black rounded-tl-none border border-border/10 shadow-black/5"
+                                                    : "bg-white text-black rounded-tl-none border border-border/10 shadow-black/5",
+                                                activeDeleteMsgId === msg.id && "ring-2 ring-destructive/50 scale-[0.97] transition-transform"
                                             )}
                                             onClick={() => {
-                                                setActiveDeleteMsgId(prev => prev === msg.id ? null : msg.id)
+                                                if (activeDeleteMsgId === msg.id) {
+                                                    handleDeleteMessage(msg.id)
+                                                } else {
+                                                    setActiveDeleteMsgId(msg.id)
+                                                }
                                             }}
                                         >
                                             {(() => {
@@ -823,7 +837,7 @@ export function ChatWindow({
                         </button>
                     </div>
                 </div>,
-                document.body
+                document.getElementById('root')!
             )}
 
         </div>
