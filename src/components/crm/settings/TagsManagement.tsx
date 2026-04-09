@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
-import { Trash, Pencil, Plus, Check, X, Tag as TagIcon } from '@phosphor-icons/react'
+import { Trash, Pencil, Plus, Check, X, Tag as TagIcon, ArrowsClockwise } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
@@ -40,7 +40,7 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
     const [newName, setNewName] = useState('')
     const [newColor, setNewColor] = useState('')
 
-    // Creating State
+    // Syncing State (removed)
     const [showCreateForm, setShowCreateForm] = useState(false)
     const [createName, setCreateName] = useState('')
     const [createColor, setCreateColor] = useState(PRESET_COLORS[5])
@@ -132,21 +132,32 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
                 name: trimmed,
                 color: createColor
             }
-            const { error } = await supabase
+            console.log('[handleCreate] Intentando guardar etiqueta:', newTag)
+            const { data, error } = await supabase
                 .from('saved_tags')
                 .insert(newTag)
-            if (error) throw error
+                .select('id, name, color')
+                .single()
+            if (error) {
+                console.error('[handleCreate] Error completo de Supabase:', JSON.stringify(error, null, 2))
+                throw error
+            }
+            console.log('[handleCreate] ✅ Etiqueta guardada:', data)
             toast.success(`Etiqueta "${trimmed}" creada y guardada`)
             setCreateName('')
             setCreateColor(PRESET_COLORS[5])
             setShowCreateForm(false)
             loadTags()
         } catch (error: any) {
-            console.error('Error creando etiqueta:', error)
-            if (error?.code === '23505') {
+            console.error('[handleCreate] Error creando etiqueta:', error)
+            const code = error?.code
+            const msg = error?.message || ''
+            if (code === '23505') {
                 toast.error('Ya existe una etiqueta con ese nombre')
+            } else if (code === '42501' || msg.includes('policy') || msg.includes('RLS')) {
+                toast.error('Sin permisos para guardar etiquetas. Revisa las políticas RLS de saved_tags en Supabase.')
             } else {
-                toast.error('Error creando etiqueta. Revisa la consola para más detalles.')
+                toast.error(`Error creando etiqueta: ${msg || 'Revisa la consola'}`)
             }
         } finally {
             setIsUpdating(false)
@@ -164,15 +175,17 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
                         Crea, edita o elimina etiquetas. Las etiquetas creadas aquí estarán disponibles para reutilizar en cualquier oportunidad.
                     </p>
                 </div>
-                <Button
-                    onClick={() => setShowCreateForm(prev => !prev)}
-                    size="sm"
-                    variant={showCreateForm ? 'secondary' : 'default'}
-                    className="shrink-0 gap-1.5"
-                >
-                    {showCreateForm ? <X size={14} /> : <Plus size={14} weight="bold" />}
-                    {showCreateForm ? 'Cancelar' : 'Crear etiqueta'}
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button
+                        onClick={() => setShowCreateForm(prev => !prev)}
+                        size="sm"
+                        variant={showCreateForm ? 'secondary' : 'default'}
+                        className="shrink-0 gap-1.5"
+                    >
+                        {showCreateForm ? <X size={14} /> : <Plus size={14} weight="bold" />}
+                        {showCreateForm ? 'Cancelar' : 'Crear etiqueta'}
+                    </Button>
+                </div>
             </div>
 
             {/* Formulario de crear etiqueta */}
@@ -293,14 +306,25 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
                                     </div>
                                 ) : (
                                     <>
-                                        <Badge
-                                            className="px-3 py-1 text-sm font-medium text-white shadow-sm"
-                                            style={{ backgroundColor: tag.color }}
-                                        >
-                                            {tag.name}
-                                        </Badge>
+                                        <div className="flex flex-col gap-2 min-w-0">
+                                            <div className="flex items-center">
+                                                <Badge
+                                                    className="px-3 py-1 text-sm font-medium text-white shadow-sm"
+                                                    style={{ backgroundColor: tag.color }}
+                                                >
+                                                    {tag.name}
+                                                </Badge>
+                                            </div>
+                                            <div 
+                                                className="text-[10px] text-muted-foreground font-mono bg-muted/40 px-2 py-1 rounded truncate select-all cursor-text" 
+                                                title="ID para usar en integraciones y webhooks"
+                                            >
+                                                <span className="font-bold opacity-60 mr-1">ID:</span>
+                                                {tag.id}
+                                            </div>
+                                        </div>
 
-                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                                             <Button
                                                 size="icon"
                                                 variant="ghost"

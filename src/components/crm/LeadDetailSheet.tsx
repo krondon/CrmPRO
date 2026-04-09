@@ -457,7 +457,7 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
     }
 
     const newTag: Tag = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       name: trimmedName,
       color: newTagColor
     }

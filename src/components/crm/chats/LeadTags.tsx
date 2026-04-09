@@ -67,16 +67,25 @@ export function LeadTags({ leadId, currentTags, companyId, onUpdate }: LeadTagsP
         try {
             // Guardar en saved_tags primero para que persista
             const persisted = await saveTag(companyId, newTag)
-            const updated = await addTagToLead(leadId, currentTags, persisted, companyId)
+            // skipSave=true porque ya lo guardamos arriba — evita doble INSERT con mismo id
+            const updated = await addTagToLead(leadId, currentTags, persisted, companyId, true)
             if (updated) {
                 onUpdate(updated)
-                toast.success('Etiqueta creada y guardada')
+                toast.success('Etiqueta creada y guardada en biblioteca')
                 setInputValue('')
                 setOpen(false)
             }
-        } catch (error) {
-            console.error(error)
-            toast.error('Error creando etiqueta')
+        } catch (error: any) {
+            console.error('[handleCreateTag] Error:', error)
+            const code = error?.code
+            const msg = error?.message || ''
+            if (code === '42501' || msg.includes('policy') || msg.includes('RLS')) {
+                toast.error('Sin permisos para guardar etiquetas. Revisa las políticas RLS de saved_tags en Supabase.')
+            } else if (code === '23505') {
+                toast.error('Ya existe una etiqueta con ese nombre')
+            } else {
+                toast.error(`Error creando etiqueta: ${msg || 'Revisa la consola'}`)
+            }
         }
     }
 
