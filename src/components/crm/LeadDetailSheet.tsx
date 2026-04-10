@@ -64,6 +64,7 @@ import { useTranslation } from '@/lib/i18n'
 import { getPresupuestosByLead, uploadPresupuestoPdf, deletePresupuestoPdf, PresupuestoPdf } from '@/supabase/services/presupuestosPdf'
 import { useAudioRecorder } from '@/hooks/useAudioRecorder'
 import { safeFormatDate } from '@/hooks/useDateFormat'
+import { detectChannel } from '@/hooks/useLeadsList'
 import { NotesTab, MeetingsTab, OverviewTab, ChatTab } from './lead-detail'
 
 interface User {
@@ -114,12 +115,17 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
 
   const [activeTab, setActiveTab] = useState('overview')
   const [messageInput, setMessageInput] = useState('')
-  const [selectedChannel, setSelectedChannel] = useState<Channel>('whatsapp')
+  const [selectedChannel, setSelectedChannel] = useState<Channel>(detectChannel(lead) as Channel)
   const NIL_UUID = '00000000-0000-0000-0000-000000000000'
   const [assignedTo, setAssignedTo] = useState<string | null>(lead.assignedTo || null)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [isUploading, setIsUploading] = useState(false)
+
+  // Mantener el canal del chat alineado al lead actual al cambiar de oportunidad.
+  useEffect(() => {
+    setSelectedChannel(detectChannel(lead) as Channel)
+  }, [lead.id])
 
   // Hook de grabación de audio (antes era código duplicado de ~120 líneas)
   const handleAudioReady = useCallback(async (audioBlob: Blob, audioFile: File) => {
