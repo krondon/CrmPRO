@@ -25,8 +25,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import type { Lead } from '@/lib/types'
 import { getLeadsPaged, setLeadArchived, deleteLead, searchLeads } from '@/supabase/services/leads'
-import { getLastMessagesForLeadIds, getUnreadMessagesCount } from '@/supabase/services/mensajes'
-import type { Message as DbMessage } from '@/supabase/services/mensajes'
+import { getLastMessagesForLeadIds, getUnreadMessagesCount, searchMessages } from '@/supabase/services/mensajes'
+import type { Message as DbMessage, MessageSearchResult } from '@/supabase/services/mensajes'
 import { getCachedLeads, setCachedLeads, updateCachedLeads, invalidateLeadsCache } from '@/lib/chatsCache'
 import { toast } from 'sonner'
 
@@ -72,7 +72,7 @@ interface UseLeadsListReturn {
     /** Agregar un nuevo lead al inicio de la lista */
     addLead: (lead: Lead) => void
     /** Archivar/Desarchivar un lead */
-    toggleArchive: (lead: Lead, archive: boolean) => Promise<void>
+    toggleArchive: (lead: Lead, archive: boolean, actorId?: string, actorNombre?: string) => Promise<void>
     /** Eliminar un lead */
     removeLead: (leadId: string) => Promise<void>
     /** Actualizar orden de un lead (cuando llega mensaje) */
@@ -87,16 +87,26 @@ interface UseLeadsListReturn {
     setSearchTerm: (term: string) => void
     /** Si está buscando activamente */
     isSearching: boolean
+    /** Resultados de búsqueda en mensajes (estilo WhatsApp) */
+    messageSearchResults: MessageSearchResult[]
+    /** Lista completa de leads (sin filtrar por búsqueda) */
+    allLeads: Lead[]
 }
 
 // Detecta el canal del lead basado en el teléfono y metadata
-export function detectChannel(lead: Lead): ChannelType {
-    const company = (lead.company || '').toLowerCase()
-    const name = (lead.name || '').toLowerCase()
-    const email = (lead.email || '').toLowerCase()
-    const phone = (lead.phone || '').replace(/\D/g, '')
+export function detectChannel(lead: Lead | any): ChannelType {
+    // 0. PRIORIDAD MÁXIMA: Campo 'fuente' (source) que el webhook guarda con la plataforma exacta
+    const fuente = ((lead as any).fuente || (lead as any).source || '').toLowerCase()
+    if (fuente === 'instagram') return 'instagram'
+    if (fuente === 'facebook') return 'facebook'
+    if (fuente === 'whatsapp') return 'whatsapp'
 
-    // 1. Prioridad: Revisar campo empresa/company (donde el webhook guarda "[Plataforma] Contact")
+    const company = (lead.company || (lead as any).empresa || '').toLowerCase()
+    const name = (lead.name || (lead as any).nombre_completo || '').toLowerCase()
+    const email = (lead.email || (lead as any).correo_electronico || '').toLowerCase()
+    const phone = (lead.phone || (lead as any).telefono || '').replace(/\D/g, '')
+
+    // 1. Revisar campo empresa/company (donde el webhook guarda "[Plataforma] Contact" o similar)
     if (company.includes('facebook')) return 'facebook'
     if (company.includes('instagram')) return 'instagram'
     if (company.includes('whatsapp')) return 'whatsapp'
@@ -109,10 +119,7 @@ export function detectChannel(lead: Lead): ChannelType {
     if (name.includes('facebook')) return 'facebook'
     if (name.includes('instagram')) return 'instagram'
 
-    // 4. Fallback: Longitud del ID (Instagram y Facebook suelen tener IDs largos, pero WhatsApp no)
-    // Si llegamos aquí y no detectamos plataforma por nombre/email, 
-    // y el ID es muy largo, es probable que sea Instagram/Facebook.
-    // Como default para IDs largos sin keywords, mantenemos instagram pero es el último recurso.
+    // 4. Fallback: Longitud del teléfono (Instagram/Facebook usan IDs numéricos largos)
     if (phone.length >= 15) return 'instagram'
 
     // default
@@ -138,6 +145,8 @@ export function mapDBToLead(d: any): Lead {
         company: d.empresa || d.company || undefined,
         evento: d.evento || undefined,
         membresia: d.membresia || undefined,
+        pipeline: d.pipeline_id || d.pipeline || 'sales',
+        stage: d.etapa_id || d.stage || '',
         archived: !!d.archived,
         archivedAt: d.archived_at ? new Date(d.archived_at) : undefined,
     }
@@ -162,6 +171,7 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
     const [searchTerm, setSearchTerm] = useState('')
     const [isSearching, setIsSearching] = useState(false)
     const [searchResults, setSearchResults] = useState<Lead[] | null>(null)
+    const [msgSearchResults, setMsgSearchResults] = useState<MessageSearchResult[]>([])
 
     // Datos adicionales
     const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({})
@@ -419,6 +429,7 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
      * Actualizar orden del lead cuando llega mensaje
      */
     const updateLeadOrder = useCallback((leadId: string, msg: DbMessage) => {
+        if (!msg) return
         setLeads(prev => prev.map(l =>
             l.id === leadId
                 ? { ...l, lastMessageAt: new Date(msg.created_at), lastMessageSender: msg.sender as any, lastMessage: msg.content }
@@ -436,9 +447,9 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
     /**
      * Archivar/Desarchivar lead
      */
-    const toggleArchive = useCallback(async (lead: Lead, archive: boolean) => {
+    const toggleArchive = useCallback(async (lead: Lead, archive: boolean, actorId?: string, actorNombre?: string) => {
         try {
-            await setLeadArchived(lead.id, archive)
+            await setLeadArchived(lead.id, archive, actorId, actorNombre)
             invalidateLeadsCache(companyId)
             toast.success(archive ? 'Chat archivado' : 'Chat restaurado')
 
@@ -493,6 +504,7 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
     useEffect(() => {
         if (!searchTerm) {
             setSearchResults(null)
+            setMsgSearchResults([])
             return
         }
 
@@ -501,11 +513,14 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
 
             setIsSearching(true)
             try {
-                // Si estamos en archivados, buscar en archivados. Si no, default (activos).
-                const results = await searchLeads(companyId, searchTerm, {
-                    archived: chatScope === 'archived',
-                    limit: 20
-                })
+                // Buscar leads y mensajes en paralelo
+                const [results, msgResults] = await Promise.all([
+                    searchLeads(companyId, searchTerm, {
+                        archived: chatScope === 'archived',
+                        limit: 20
+                    }),
+                    searchMessages(companyId, searchTerm, 30)
+                ])
 
                 const mapped = (results || []).map(mapDBToLead)
 
@@ -519,6 +534,8 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
                 })
 
                 setSearchResults(mapped)
+                setMsgSearchResults(msgResults)
+                console.log('[useLeadsList] Búsqueda completada:', { leads: mapped.length, messages: msgResults.length, term: searchTerm })
             } catch (err) {
                 console.error('[useLeadsList] Error buscando:', err)
                 toast.error('Error al buscar chats')
@@ -535,10 +552,32 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
     // Carga inicial y lógica de visualización
     // ==========================================
 
-    // Memoizar leads a mostrar: Resultados de búsqueda O Lista normal
+    // Memoizar leads a mostrar: Resultados de búsqueda + matches locales por tag O Lista normal
     const displayedLeads = useMemo(() => {
-        if (searchTerm && searchResults) return searchResults
-        return leads
+        if (searchTerm && searchResults) {
+            // Server no busca por tags, agregar matches locales por tag name
+            const search = searchTerm.toLowerCase()
+            const serverIds = new Set(searchResults.map(l => l.id))
+            const tagMatches = leads.filter(l =>
+                !serverIds.has(l.id) &&
+                l.tags?.some(t => (t.name || '').toLowerCase().includes(search))
+            )
+            const combined = tagMatches.length > 0 ? [...searchResults, ...tagMatches] : searchResults
+            // Deduplicar por id
+            const seen = new Set<string>()
+            return combined.filter(l => {
+                if (seen.has(l.id)) return false
+                seen.add(l.id)
+                return true
+            })
+        }
+        // Deduplicar lista normal también
+        const seen = new Set<string>()
+        return leads.filter(l => {
+            if (seen.has(l.id)) return false
+            seen.add(l.id)
+            return true
+        })
     }, [searchTerm, searchResults, leads])
 
     // Carga inicial (solo si NO hay búsqueda)
@@ -603,6 +642,8 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
         invalidateCache,
         searchTerm,
         setSearchTerm,
-        isSearching
+        isSearching,
+        messageSearchResults: msgSearchResults,
+        allLeads: leads
     }
 }

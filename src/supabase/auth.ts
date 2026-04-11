@@ -37,8 +37,12 @@ function mapAuthError(error: AuthError | null): string {
 /**
  * Registra un nuevo usuario con email y contraseña
  */
-export async function register(email: string, password: string): Promise<User> {
-    const { data, error } = await supabase.auth.signUp({ email, password })
+export async function register(email: string, password: string, metadata?: Record<string, string>): Promise<User> {
+    const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: metadata ? { data: metadata } : undefined
+    })
 
     if (error) {
         const friendly = mapAuthError(error)
@@ -108,4 +112,21 @@ export async function getCurrentUser(): Promise<User | null> {
 export async function getSession() {
     const { data: { session } } = await supabase.auth.getSession()
     return session
+}
+
+/**
+ * Solicita el cambio de email del usuario autenticado.
+ * Supabase enviará un correo de confirmación al nuevo email.
+ * El cambio se aplica cuando el usuario hace clic en ese link.
+ */
+export async function updateEmail(newEmail: string): Promise<void> {
+    const { error } = await supabase.auth.updateUser({ email: newEmail })
+    if (error) {
+        const friendly = mapAuthError(error)
+        const e: AuthErrorExtended = new Error(friendly || error.message)
+        e.original = error
+        e.code = error.code
+        e.status = error.status
+        throw e
+    }
 }

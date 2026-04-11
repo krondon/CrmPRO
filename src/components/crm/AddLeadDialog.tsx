@@ -12,15 +12,17 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
-import { Plus } from '@phosphor-icons/react'
-import { Lead, PipelineType, Stage, TeamMember } from '@/lib/types'
+import { Plus, MagnifyingGlass, User, X } from '@phosphor-icons/react'
+import { Lead, PipelineType, Stage, TeamMember, ContactDB } from '@/lib/types'
 import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
 import { Company } from './CompanyManagement'
 import { usePersistentState } from '@/hooks/usePersistentState'
 import { createLead, createLeadsBulk } from '@/supabase/services/leads'
+import { getContacts } from '@/supabase/services/contacts'
 import { SingleLeadForm, BulkImportView } from './leads'
 import { listWhatsappInstancias } from '@/supabase/services/instances'
+import { getNextAssignee } from '@/supabase/helpers/pipeline'
 import type { EmpresaInstanciaDB } from '@/lib/types'
 import type { SingleLeadFormData } from './leads/SingleLeadForm'
 import type { PreviewRow } from '@/hooks/useExcelImport'
@@ -44,10 +46,41 @@ interface AddLeadDialogProps {
   currentUser?: User | null
   companyName?: string
   companyId?: string
+  assignmentType?: import('@/lib/types').AssignmentType
 }
 
 // Max budget limit
 const MAX_BUDGET = 10_000_000
+const MAX_NAME_LENGTH = 30
+const MAX_LOCATION_LENGTH = 120
+const MAX_EVENT_LENGTH = 80
+const MAX_MEMBERSHIP_LENGTH = 80
+
+function normalizeText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+function clampText(value: string, maxLength: number) {
+  return value.trim().slice(0, maxLength)
+}
+
+function normalizeBudget(value: string) {
+  const cleaned = value.replace(/[^0-9.,]/g, '').replace(/\./g, '').replace(',', '.')
+  const parsed = Number(cleaned)
+  if (Number.isNaN(parsed)) return 0
+  return Math.max(0, Math.min(parsed, MAX_BUDGET))
+}
+
+function cleanCandidateText(value: string) {
+  return value
+    .replace(/^[-*\u2022\s]+/, '')
+    .replace(/[\[\]]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
 export function AddLeadDialog({
   pipelineType,
@@ -58,10 +91,10 @@ export function AddLeadDialog({
   onImport,
   trigger,
   defaultStageId,
-  companies = [],
   currentUser,
   companyName,
-  companyId
+  companyId,
+  assignmentType
 }: AddLeadDialogProps) {
   const t = useTranslation('es')
   const [open, setOpen] = useState(false)
@@ -70,9 +103,17 @@ export function AddLeadDialog({
 
   const [activeTab, setActiveTab] = useState('manual')
   const [pasteText, setPasteText] = useState('')
+  const [manualPrefill, setManualPrefill] = useState<Partial<SingleLeadFormData> | null>(null)
   const [stageId, setStageId] = useState(defaultStageId || stages[0]?.id || '')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [waInstances, setWaInstances] = useState<Pick<EmpresaInstanciaDB, 'id' | 'label'>[]>([])
+
+  // Contact search state
+  const [contactSearch, setContactSearch] = useState('')
+  const [contactResults, setContactResults] = useState<ContactDB[]>([])
+  const [selectedContact, setSelectedContact] = useState<ContactDB | null>(null)
+  const [isSearching, setIsSearching] = useState(false)
+  const [showContactPicker, setShowContactPicker] = useState(false)
 
   // Cargar instancias WA activas de la empresa
   useEffect(() => {
@@ -91,6 +132,26 @@ export function AddLeadDialog({
     load()
     return () => { mounted = false }
   }, [companyId])
+
+  // Debounced contact search
+  useEffect(() => {
+    if (!contactSearch.trim() || !companyId) {
+      setContactResults([])
+      return
+    }
+    const timer = setTimeout(async () => {
+      setIsSearching(true)
+      try {
+        const res = await getContacts({ companyId, search: contactSearch.trim(), limit: 8 })
+        setContactResults(res.data)
+      } catch (e) {
+        console.warn('[AddLeadDialog] Error buscando contactos', e)
+      } finally {
+        setIsSearching(false)
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [contactSearch, companyId])
 
   // Eligible team members for this pipeline
   const eligibleMembers = useMemo(() => {
@@ -134,11 +195,29 @@ export function AddLeadDialog({
     setIsSubmitting(true)
     try {
       // Generar email dummy si no existe (para cumplir con restricción NOT NULL de DB)
-      
 
-      const dbLead = await createLead({
+      const actorNombre = effectiveUser?.businessName || (effectiveUser as any)?.nombre || effectiveUser?.email
+
+      const NIL_UUID = '00000000-0000-0000-0000-000000000000'
+      let finalAssignedTo = data.assignedTo === 'todos' ? NIL_UUID : data.assignedTo
+      // ==== AUTO-ASIGNACIÓN (Round Robin / Random) ====
+      // Si no se asignó manualmente, verificar si el pipeline tiene auto-asignación
+      if (pipelineId && (!finalAssignedTo || finalAssignedTo === NIL_UUID)) {
+        try {
+          const assignee = await getNextAssignee(pipelineId)
+          if (assignee) {
+            // Usar userId (auth.users UUID), no personaId (persona table UUID)
+            finalAssignedTo = assignee.userId
+            console.log('[AddLeadDialog] Auto-asignado a userId:', assignee.userId, 'personaId:', assignee.personaId)
+          }
+        } catch (err: any) {
+          console.warn('[AddLeadDialog] Error en auto-asignación:', err)
+        }
+      }
+
+      const leadDTO = {
         nombre_completo: data.name,
-        correo_electronico: data.email?.trim() || undefined,
+        correo_electronico: data.email?.trim() || `lead-${Date.now()}@placeholder.crm`,
         telefono: data.phone || undefined,
         empresa: data.company || undefined,
         ubicacion: data.location || undefined,
@@ -148,12 +227,40 @@ export function AddLeadDialog({
         etapa_id: data.stageId,
         pipeline_id: pipelineId || '',
         empresa_id: companyId || '',
-        asignado_a: data.assignedTo === 'todos' ? '00000000-0000-0000-0000-000000000000' : data.assignedTo,
+        asignado_a: finalAssignedTo,
         prioridad: data.priority,
         preferred_instance_id: data.preferredInstanceId || null
-      })
+      }
+      console.log('[AddLeadDialog] DTO a insertar:', JSON.stringify(leadDTO, null, 2))
+      const dbLead = await createLead(leadDTO, effectiveUser?.id, actorNombre)
 
       if (dbLead) {
+        // Notificar asignación si corresponde
+        const assignedId = finalAssignedTo
+        if (assignedId && assignedId !== NIL_UUID) {
+          const recipient = teamMembers?.find(m => m.id === assignedId || m.userId === assignedId)
+          if (recipient?.email) {
+            try {
+              await import('@/lib/supabase').then(({ supabase }) => {
+                supabase.functions.invoke('send-lead-assigned', {
+                  body: {
+                    leadId: dbLead.id,
+                    leadName: dbLead.nombre_completo,
+                    empresaId: companyId,
+                    empresaNombre: companyName,
+                    assignedUserId: recipient.userId || assignedId,
+                    assignedUserEmail: recipient.email,
+                    assignedByEmail: effectiveUser?.email,
+                    assignedByNombre: actorNombre
+                  }
+                }).catch(e => console.error('[AddLeadDialog] Error en bg notification:', e))
+              })
+            } catch (e) {
+              console.error('[AddLeadDialog] Error enviando notificación de asignación', e)
+            }
+          }
+        }
+
         const newLead: Lead = {
           id: dbLead.id,
           name: dbLead.nombre_completo || '',
@@ -173,13 +280,19 @@ export function AddLeadDialog({
           lastContact: new Date(dbLead.created_at)
         }
         onAdd(newLead)
-        toast.success('Lead creado exitosamente')
+        toast.success('Oportunidad creada exitosamente')
         setOpen(false)
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error creating lead:', err)
-      const message = err instanceof Error ? err.message : 'Error al crear el lead'
+      let message = err?.message || (typeof err === 'string' ? err : 'Error al crear la oportunidad')
+      // Mensaje amigable para constraint de teléfono duplicado
+      if (message.includes('uq_lead_empresa_telefono')) {
+        message = 'Ya existe una oportunidad con este número de teléfono en esta empresa'
+      }
       toast.error(message)
+      if (err?.details) console.error('[AddLeadDialog] Details:', err.details)
+      if (err?.hint) console.error('[AddLeadDialog] Hint:', err.hint)
     } finally {
       setIsSubmitting(false)
     }
@@ -206,7 +319,8 @@ export function AddLeadDialog({
       prioridad: 'medium' as const
     }))
 
-    const result = await createLeadsBulk(batchLeads)
+    const actorNombre = effectiveUser?.businessName || (effectiveUser as any)?.nombre || effectiveUser?.email
+    const result = await createLeadsBulk(batchLeads, effectiveUser?.id, actorNombre)
 
     if (result && Array.isArray(result)) {
       const importedLeads: Lead[] = result.map(r => ({
@@ -233,40 +347,149 @@ export function AddLeadDialog({
     }
   }, [pipelineId, companyId, stageId, pipelineType, onAdd, onImport])
 
-  // Handle paste text processing (simplified version)
+  // Handle quick-paste processing with flexible parsing and field sanitization
   const processPasteText = useCallback(() => {
     if (!pasteText.trim()) return
 
-    // Simple parsing - extract key-value pairs
     const lines = pasteText.split('\n')
-    let name = '', email = '', phone = '', company = '', budget = ''
+    let name = '', email = '', phone = '', company = '', budget = '', location = '', evento = '', membresia = ''
+    const unlabeledCandidates: string[] = []
+
+    const collectUnlabeled = (raw: string) => {
+      const part = cleanCandidateText(raw)
+      if (!part) return
+
+      if (!email && part.includes('@')) {
+        const emailMatch = part.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)
+        if (emailMatch) email = emailMatch[0]
+      }
+
+      if (!phone) {
+        const phoneMatch = part.match(/(?:\+?\d[\d\s().-]{6,}\d)/)
+        if (phoneMatch) phone = phoneMatch[0].trim()
+      }
+
+      if (!budget && /(\$|usd|cop|eur|mxn|ars|clp|presupuesto|costo|coste|precio|monto|budget|valor)/i.test(part)) {
+        const budgetMatch = part.match(/\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?|\d+/)
+        if (budgetMatch) budget = budgetMatch[0]
+      }
+
+      if (!location && /(ubicacion|ubicación|location|ciudad|direccion|dirección|pais|país|zona)/i.test(part)) {
+        location = part.replace(/^(ubicacion|ubicación|location|ciudad|direccion|dirección|pais|país|zona)\s*[:=\-–]?\s*/i, '').trim()
+      }
+
+      if (!evento && /(evento|event)/i.test(part)) {
+        evento = part.replace(/^(evento|event)\s*[:=\-–]?\s*/i, '').trim()
+      }
+
+      if (!membresia && /(membresia|membresía|menbresia|membership|plan|paquete|gold|silver|premium|pro|basic|platinum)/i.test(part)) {
+        membresia = part.replace(/^(membresia|membresía|menbresia|membership|plan|paquete)\s*[:=\-–]?\s*/i, '').trim()
+      }
+
+      if (
+        !part.includes('@') &&
+        part.length >= 2 &&
+        part.length <= 100
+      ) {
+        unlabeledCandidates.push(part)
+      }
+    }
 
     lines.forEach(line => {
       const trimmed = line.trim()
       if (!trimmed) return
 
-      if (trimmed.includes(':')) {
-        const [key, ...rest] = trimmed.split(':')
-        const value = rest.join(':').trim()
-        const keyLower = key.toLowerCase()
+      const kvMatch = trimmed.match(/^([^:=\-–]+?)\s*[:=\-–]\s*(.+)$/)
+      if (kvMatch) {
+        const keyLower = normalizeText(kvMatch[1])
+        const value = kvMatch[2].trim()
 
-        if (['cliente', 'nombre', 'name'].some(k => keyLower.includes(k))) {
+        if (['cliente', 'nombre', 'name', 'lead', 'oportunidad'].some(k => keyLower.includes(k))) {
           name = value.replace(/[\[\]]/g, '')
-        } else if (['email', 'correo'].some(k => keyLower.includes(k))) {
+        } else if (['email', 'correo', 'mail'].some(k => keyLower.includes(k))) {
           email = value
-        } else if (['telefono', 'phone', 'cel'].some(k => keyLower.includes(k))) {
+        } else if (['telefono', 'phone', 'cel', 'movil', 'whatsapp', 'wa'].some(k => keyLower.includes(k))) {
           phone = value
-        } else if (['empresa', 'company'].some(k => keyLower.includes(k))) {
+        } else if (['empresa', 'company', 'compania', 'negocio'].some(k => keyLower.includes(k))) {
           company = value
-        } else if (['presupuesto', 'costo', 'precio'].some(k => keyLower.includes(k))) {
-          budget = value.replace(/[^0-9.]/g, '')
+        } else if (['presupuesto', 'costo', 'coste', 'precio', 'monto', 'budget', 'valor'].some(k => keyLower.includes(k))) {
+          budget = value
+        } else if (['ubicacion', 'location', 'ciudad', 'direccion', 'pais', 'zona'].some(k => keyLower.includes(k))) {
+          location = value
+        } else if (['evento', 'event'].some(k => keyLower.includes(k))) {
+          evento = value
+        } else if (['membresia', 'menbresia', 'membership', 'plan', 'paquete'].some(k => keyLower.includes(k))) {
+          membresia = value
         }
-      } else if (trimmed.includes('@')) {
-        email = trimmed
+        return
+      }
+
+      const parts = trimmed.split(/[;,|]/).map(p => p.trim()).filter(Boolean)
+      if (parts.length > 1) {
+        parts.forEach(collectUnlabeled)
+      } else {
+        collectUnlabeled(trimmed)
       }
     })
 
-    toast.info(`Detectado: ${name || 'Sin nombre'}, ${email || 'Sin email'}`)
+    const collapsedText = pasteText.replace(/\s+/g, ' ').trim()
+    if (!name) {
+      const nameMatch = collapsedText.match(/(?:cliente|nombre|lead|oportunidad)\s*[:=\-–]\s*([^,;\n]+)/i)
+      if (nameMatch) name = nameMatch[1].trim()
+    }
+    if (!location) {
+      const locationMatch = collapsedText.match(/(?:ubicacion|ubicación|location|ciudad|direccion|dirección|pais|país)\s*[:=\-–]\s*([^,;\n]+)/i)
+      if (locationMatch) location = locationMatch[1].trim()
+    }
+    if (!evento) {
+      const eventMatch = collapsedText.match(/(?:evento|event)\s*[:=\-–]\s*([^,;\n]+)/i)
+      if (eventMatch) evento = eventMatch[1].trim()
+    }
+    if (!membresia) {
+      const membershipMatch = collapsedText.match(/(?:membresia|membresía|menbresia|membership|plan|paquete)\s*[:=\-–]\s*([^,;\n]+)/i)
+      if (membershipMatch) membresia = membershipMatch[1].trim()
+    }
+
+    const uniqueCandidates = unlabeledCandidates.filter((value, index, arr) => (
+      arr.findIndex(v => normalizeText(v) === normalizeText(value)) === index
+    ))
+
+    const companyHints = /(company|compania|compañia|corp|inc|llc|ltd|sas|s\.a\.?|group|tech|studio|agency|solutions|consulting|enterprise|enterprises|digital|labs)/i
+    const membershipHints = /(gold|silver|premium|platinum|basic|pro)/i
+
+    if (!name) {
+      const likelyName = uniqueCandidates.find(c => {
+        const wordCount = c.split(/\s+/).filter(Boolean).length
+        return wordCount <= 4 && c.length <= MAX_NAME_LENGTH && !companyHints.test(c) && !membershipHints.test(c) && !/\d/.test(c)
+      })
+      if (likelyName) name = likelyName
+    }
+
+    if (!company) {
+      const likelyCompany = uniqueCandidates.find(c => c !== name && companyHints.test(c))
+        || uniqueCandidates.find(c => c !== name && c.split(/\s+/).length >= 2)
+      if (likelyCompany) company = likelyCompany
+    }
+
+    if (!location) {
+      const likelyLocation = uniqueCandidates.find(c => c !== name && c !== company && /,/.test(c) && !/\d{4,}/.test(c))
+      if (likelyLocation) location = likelyLocation
+    }
+
+    const normalizedPrefill = {
+      name: clampText(name, MAX_NAME_LENGTH),
+      email: email.trim(),
+      phone: phone.trim(),
+      company: company.trim(),
+      location: clampText(location, MAX_LOCATION_LENGTH),
+      evento: clampText(evento, MAX_EVENT_LENGTH),
+      membresia: clampText(membresia, MAX_MEMBERSHIP_LENGTH),
+      budget: normalizeBudget(budget)
+    }
+
+    setManualPrefill(normalizedPrefill)
+
+    toast.info(`Detectado: ${normalizedPrefill.name || 'Sin nombre'}, ${normalizedPrefill.email || 'Sin email'}. Datos cargados en formulario manual.`)
     setActiveTab('manual')
     setPasteText('')
   }, [pasteText])
@@ -274,6 +497,11 @@ export function AddLeadDialog({
   const resetForm = () => {
     setActiveTab('manual')
     setPasteText('')
+    setContactSearch('')
+    setContactResults([])
+    setSelectedContact(null)
+    setManualPrefill(null)
+    setShowContactPicker(false)
   }
 
   return (
@@ -285,10 +513,10 @@ export function AddLeadDialog({
         {trigger || (
           <Button
             size="sm"
-            className="bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary text-primary-foreground shadow-sm hover:shadow-md transition-all duration-200"
+            className="h-9 px-4 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm hover:shadow-md transition-all font-medium"
           >
-            <Plus size={16} className="mr-1.5" />
-            <span className="text-sm font-medium">{t.pipeline.addLead}</span>
+            <Plus size={16} className="mr-1.5" weight="bold" />
+            <span className="text-sm">{t.pipeline.addLead}</span>
           </Button>
         )}
       </DialogTrigger>
@@ -315,6 +543,19 @@ export function AddLeadDialog({
               onSubmit={handleManualSubmit}
               isSubmitting={isSubmitting}
               whatsappInstances={waInstances}
+              selectedContact={selectedContact}
+              prefillData={manualPrefill}
+              contactSearch={contactSearch}
+              contactResults={contactResults}
+              isSearching={isSearching}
+              onContactSearchChange={setContactSearch}
+              onContactSelect={(c) => {
+                setSelectedContact(c)
+                setContactSearch('')
+                setContactResults([])
+              }}
+              onClearContact={() => setSelectedContact(null)}
+              assignmentType={assignmentType}
             />
           </TabsContent>
 
@@ -330,10 +571,16 @@ export function AddLeadDialog({
             <Textarea
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
-              placeholder={`Cliente: [Nombre del Cliente]
-                            Vendedor: [Nombre Vendedor]
-                            Costo: 100
-                            Contacto: email@cliente.com
+              placeholder={` 
+Nombre: [Nombre del Cliente]
+correo: email@cliente.com
+telefono: +123456789
+Venta: 100
+empresa: Nombre de la Empresa
+ubicación: Caracas
+evento: Expo 2024
+membresia: Oro
+
                             ...`}
               className="min-h-[200px] font-mono text-sm"
             />

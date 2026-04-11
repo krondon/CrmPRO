@@ -10,8 +10,9 @@ import { ContactsList } from './ContactsList'
 import { ContactProfile } from './ContactProfile'
 import { ContactEditDialog } from './ContactEditDialog'
 import { MigrationButton } from './MigrationButton'
+import { ContactsImportExportDialog } from './ContactsImportExportDialog'
 import { Button } from '@/components/ui/button'
-import { Plus, Users } from '@phosphor-icons/react'
+import { Plus, Users, ArrowsLeftRight } from '@phosphor-icons/react'
 import { Card } from '@/components/ui/card'
 
 interface ContactsViewProps {
@@ -24,6 +25,7 @@ export function ContactsView({ companyId, currentUserId }: ContactsViewProps) {
         contacts,
         isLoading,
         createContact,
+        importContactsBulk,
         updateContact,
         deleteContact,
         archiveContact,
@@ -37,6 +39,7 @@ export function ContactsView({ companyId, currentUserId }: ContactsViewProps) {
     } = useContacts(companyId)
     const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
     const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
+    const [isImportExportOpen, setIsImportExportOpen] = useState(false)
 
     // ... (handlers remain same)
 
@@ -93,7 +96,17 @@ export function ContactsView({ companyId, currentUserId }: ContactsViewProps) {
                     </h1>
                     <div className="flex gap-1.5 md:gap-2 flex-shrink-0">
                         {/* aqui estaba el boton de migrar contactos */}
-                        {/*
+                        <Button
+                            variant="outline"
+                            onClick={() => setIsImportExportOpen(true)}
+                            className="h-8 md:h-9 text-xs md:text-sm px-2.5 md:px-4"
+                            size="sm"
+                        >
+                            <ArrowsLeftRight size={16} weight="bold" className="mr-1 md:mr-2" />
+                            <span className="hidden sm:inline">Importar/Exportar</span>
+                            <span className="sm:hidden">Excel</span>
+                        </Button>
+                       
                         <Button
                             onClick={() => setIsCreateDialogOpen(true)}
                             className="bg-primary hover:bg-primary/90 h-8 md:h-9 text-xs md:text-sm px-2.5 md:px-4"
@@ -103,7 +116,7 @@ export function ContactsView({ companyId, currentUserId }: ContactsViewProps) {
                             <span className="hidden sm:inline">Nuevo Contacto</span>
                             <span className="sm:hidden">Nuevo</span>
                         </Button>
-                        */}
+                        
                     </div>
                 </div>
 
@@ -175,6 +188,13 @@ export function ContactsView({ companyId, currentUserId }: ContactsViewProps) {
                 onOpenChange={setIsCreateDialogOpen}
                 onSave={handleCreateContact}
                 title="Nuevo Contacto"
+            />
+
+            <ContactsImportExportDialog
+                open={isImportExportOpen}
+                onOpenChange={setIsImportExportOpen}
+                contacts={contacts}
+                onImportMappedContacts={importContactsBulk}
             />
         </div>
     )

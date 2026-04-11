@@ -251,7 +251,7 @@ export function AddTaskDialog({ companyId, trigger, onTaskCreated, open: control
                     </div>
 
                     <div className="space-y-2 flex flex-col">
-                        <Label>Vincular a Lead (Opcional)</Label>
+                        <Label>Vincular a Oportunidad (Opcional)</Label>
                         <Popover open={openCombobox} onOpenChange={setOpenCombobox}>
                             <PopoverTrigger asChild>
                                 <Button
@@ -263,17 +263,17 @@ export function AddTaskDialog({ companyId, trigger, onTaskCreated, open: control
                                     {leadId && leadId !== 'none'
                                         ? (() => {
                                             const l = leads.find((lead) => lead.id === leadId)
-                                            return l ? `${l.name} ${l.company ? `- ${l.company}` : ''}` : "Seleccionar lead..."
+                                            return l ? `${l.name} ${l.company ? `- ${l.company}` : ''}` : "Seleccionar oportunidad..."
                                         })()
-                                        : "Buscar lead..."}
+                                        : "Buscar oportunidad..."}
                                     <CaretUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                 </Button>
                             </PopoverTrigger>
                             <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
                                 <Command>
-                                    <CommandInput placeholder="Buscar lead..." />
+                                    <CommandInput placeholder="Buscar oportunidad..." />
                                     <CommandList>
-                                        <CommandEmpty>No se encontraron leads.</CommandEmpty>
+                                        <CommandEmpty>No se encontraron oportunidades.</CommandEmpty>
                                         <CommandGroup>
                                             <CommandItem
                                                 value="none"

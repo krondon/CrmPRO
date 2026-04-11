@@ -73,6 +73,7 @@ export interface UsePipelineDataReturn {
     setPipelines: Dispatch<SetStateAction<Pipeline[]>>
     setUnreadLeads: Dispatch<SetStateAction<Set<string>>>
     setNotasCounts: Dispatch<SetStateAction<Record<string, number>>>
+    setMeetingsCounts: Dispatch<SetStateAction<Record<string, number>>>
 }
 
 // ============================================
@@ -101,7 +102,9 @@ function mapDbLeadToLead(l: any): Lead {
         assignedTo: l.asignado_a,
         tags: l.tags || [],
         createdAt: new Date(l.created_at),
-        lastContact: l.last_message_at ? new Date(l.last_message_at) : new Date(l.created_at)
+        lastContact: l.last_message_at ? new Date(l.last_message_at) : new Date(l.created_at),
+        stageEnteredAt: l.stage_entered_at ? new Date(l.stage_entered_at) : null,
+        slaCustomLimitMinutes: l.sla_custom_limit_minutes ?? null
     }
 }
 
@@ -156,12 +159,16 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
                         id: p.id,
                         name: p.nombre || 'Sin Nombre',
                         type: p.nombre.toLowerCase().trim().replace(/\s+/g, '-') as PipelineType,
+                        assignment_type: p.assignment_type || 'manual',
+                        order: p.orden ?? 0,
                         stages: (p.etapas || []).map((s: any) => ({
                             id: s.id,
                             name: s.nombre,
                             order: s.orden,
                             color: s.color,
-                            pipelineType: p.nombre.toLowerCase().trim().replace(/\s+/g, '-')
+                              pipelineType: p.nombre.toLowerCase().trim().replace(/\s+/g, '-'),
+                              is_sla_enabled: s.is_sla_enabled,
+                              sla_limit_minutes: s.sla_limit_minutes
                         })).sort((a: any, b: any) => a.order - b.order)
                     }))
 
@@ -175,6 +182,12 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
                         seenIds.add(p.id)
                         seenNames.add(normalizedName)
                         return true
+                    }).sort((a, b) => {
+                        if (a.order !== undefined && b.order !== undefined) {
+                            if (a.order !== b.order) return a.order - b.order
+                        }
+                        // Fallback to name sorting if no order or same order
+                        return a.name.localeCompare(b.name)
                     })
 
                     setPipelinesState(uniquePipelines)
@@ -318,7 +331,8 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
         if (!companyId) return
 
         const subscription = subscribeToAllMessages((msg) => {
-            if (msg.lead_id && msg.sender === 'lead') {
+            const leadInCurrentView = !!msg.lead_id && leadsRef.current.some(l => l.id === msg.lead_id)
+            if (leadInCurrentView && msg.sender === 'lead') {
                 setUnreadLeads(prev => new Set([...prev, msg.lead_id]))
             }
         })
@@ -461,6 +475,7 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
         setStageCounts,
         setPipelines: setPipelinesState,
         setUnreadLeads,
-        setNotasCounts
+        setNotasCounts,
+        setMeetingsCounts
     }
 }

@@ -61,15 +61,15 @@ export function MigrationButton({ empresaId }: MigrationButtonProps) {
                 title="Migrar Leads a Contactos"
             >
                 <Database size={16} />
-                <span className="hidden md:inline text-xs">Migrar Leads a Contactos</span>
+                <span className="hidden md:inline text-xs">Migrar Oportunidades a Contactos</span>
             </Button>
 
             <Dialog open={isOpen} onOpenChange={setIsOpen}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Migrar Leads a Contactos</DialogTitle>
+                        <DialogTitle>Migrar Oportunidades a Contactos</DialogTitle>
                         <DialogDescription>
-                            Esta acción creará contactos a partir de tus leads existentes y establecerá las relaciones correspondientes.
+                            Esta acción creará contactos a partir de tus oportunidades existentes y establecerá las relaciones correspondientes.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -78,7 +78,7 @@ export function MigrationButton({ empresaId }: MigrationButtonProps) {
                             <AlertDescription>
                                 <strong>¿Qué hace esta migración?</strong>
                                 <ul className="list-disc list-inside mt-2 space-y-1 text-sm">
-                                    <li>Crea contactos únicos desde tus leads</li>
+                                    <li>Crea contactos únicos desde tus oportunidades</li>
                                     <li>Conecta contactos con sus pipelines</li>
                                     <li>No duplica contactos existentes</li>
                                     <li>Es seguro ejecutarla múltiples veces</li>
@@ -102,7 +102,7 @@ export function MigrationButton({ empresaId }: MigrationButtonProps) {
                                                     <ul className="text-sm space-y-1">
                                                         <li>• {result.contactsCreated} contactos creados/actualizados</li>
                                                         <li>• {result.relationsCreated} relaciones establecidas</li>
-                                                        <li>• {result.totalLeadsProcessed} leads procesados</li>
+                                                        <li>• {result.totalLeadsProcessed} oportunidades procesadas</li>
                                                     </ul>
                                                 </>
                                             ) : (

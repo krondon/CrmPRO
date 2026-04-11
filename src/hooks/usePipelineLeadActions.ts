@@ -1,9 +1,8 @@
 import { Dispatch, SetStateAction } from 'react'
-import { Lead, Pipeline, PipelineType, Stage, TeamMember } from '@/lib/types'
-import { createLead, deleteLead } from '@/supabase/services/leads'
+import { Lead, Pipeline, PipelineType, Stage } from '@/lib/types'
+import { deleteLead } from '@/supabase/services/leads'
 import { createEtapa } from '@/supabase/helpers/etapas'
 import { toast } from 'sonner'
-import { supabase } from '@/lib/supabase'
 
 interface User {
     id: string
@@ -18,10 +17,8 @@ interface UsePipelineLeadActionsProps {
     setPipelines: Dispatch<SetStateAction<Pipeline[]>>
     setLeads: Dispatch<SetStateAction<Lead[]>>
     setStageCounts: Dispatch<SetStateAction<Record<string, number>>>
-    teamMembers: TeamMember[]
     user: User | null | undefined
     isAdminOrOwner: boolean
-    currentCompany?: { name: string }
 }
 
 export function usePipelineLeadActions({
@@ -31,10 +28,8 @@ export function usePipelineLeadActions({
     setPipelines,
     setLeads,
     setStageCounts,
-    teamMembers,
     user,
-    isAdminOrOwner,
-    currentCompany
+    isAdminOrOwner
 }: UsePipelineLeadActionsProps) {
 
     const handleAddStage = async (stage: Stage) => {
@@ -81,7 +76,9 @@ export function usePipelineLeadActions({
                 nombre: stage.name,
                 pipeline_id: pipelineId!, // Seguro que existe
                 orden: stage.order,
-                color: stage.color
+                color: stage.color,
+                is_sla_enabled: stage.is_sla_enabled,
+                sla_limit_minutes: stage.sla_limit_minutes
             })
 
             if (error) throw error
@@ -141,106 +138,6 @@ export function usePipelineLeadActions({
 
             return updatedPipelines
         })
-    }
-
-    const handleAddLead = async (lead: Lead) => {
-        try {
-            // Resolver el UUID del pipeline actual
-            const currentPipeline = pipelines.find(p => p.type === activePipeline)
-            let pipelineIdToSave = currentPipeline?.id
-
-            if (!pipelineIdToSave) {
-                toast.error('No se ha seleccionado un pipeline válido')
-                return
-            }
-
-            const payload: any = {
-                nombre_completo: lead.name,
-                correo_electronico: lead.email,
-                telefono: lead.phone,
-                empresa: lead.company,
-                ubicacion: lead.location,
-                presupuesto: lead.budget,
-                etapa_id: lead.stage,
-                pipeline_id: pipelineIdToSave,
-                prioridad: lead.priority,
-                asignado_a: null,
-                empresa_id: companyId
-            }
-
-            // 1. Si lead.assignedTo coincide con un ID directo.
-            const byId = teamMembers.find(m => m.id === lead.assignedTo)
-            if (byId) {
-                payload.asignado_a = byId.id
-            } else {
-                // 2. Intentar por nombre (legacy)
-                const byName = teamMembers.find(m => m.name === lead.assignedTo)
-                if (byName) {
-                    payload.asignado_a = byName.id
-                } else if (lead.assignedTo === 'todos') {
-                    payload.asignado_a = '00000000-0000-0000-0000-000000000000'
-                } else if (user && user.id === lead.assignedTo) {
-                    payload.asignado_a = user.id
-                }
-            }
-
-            // Si el pipeline es custom (tiene UUID), intentamos guardar
-            if (pipelineIdToSave) {
-                // Validar que la etapa sea UUID
-                const isStageUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(lead.stage)
-
-                if (!isStageUUID) {
-                    toast.warning('No se puede guardar en BD: La etapa no está sincronizada (ID inválido). Se guardará localmente.')
-                    setLeads((current) => [...(current || []), lead])
-                    setStageCounts(prev => ({
-                        ...prev,
-                        [lead.stage]: (prev[lead.stage] || 0) + 1
-                    }))
-                    return
-                }
-
-                const created = await createLead(payload)
-
-                toast.success('Lead guardado en BD')
-
-                // Notificar asignación si corresponde
-                const NIL_UUID = '00000000-0000-0000-0000-000000000000'
-                const assignedId = payload.asignado_a
-                if (isAdminOrOwner && assignedId && assignedId !== NIL_UUID) {
-                    const recipient = teamMembers.find(m => m.id === assignedId)
-                    if (recipient?.email) {
-                        try {
-                            await supabase.functions.invoke('send-lead-assigned', {
-                                body: {
-                                    leadId: created.id,
-                                    leadName: lead.name,
-                                    empresaId: companyId,
-                                    empresaNombre: currentCompany?.name,
-                                    assignedUserId: recipient?.userId || assignedId,
-                                    assignedUserEmail: recipient?.email,
-                                    assignedByEmail: user?.email,
-                                    assignedByNombre: user?.businessName || currentCompany?.name || user?.email
-                                }
-                            })
-                        } catch (e) {
-                            console.error('[PipelineView] Error enviando notificación de asignación', e)
-                        }
-                    }
-                }
-            } else {
-                // Fallback local para defaults
-                setLeads((current) => [...(current || []), lead])
-                setStageCounts(prev => ({
-                    ...prev,
-                    [lead.stage]: (prev[lead.stage] || 0) + 1
-                }))
-                toast.warning('Lead guardado localmente (Pipeline default)')
-            }
-
-        } catch (error: any) {
-            console.error('Error creating lead:', error)
-            toast.error(`Error al crear lead: ${error.message}`)
-        }
     }
 
     const handleDeleteLead = async (leadId: string, onSuccess?: () => void) => {
@@ -308,7 +205,6 @@ export function usePipelineLeadActions({
 
     return {
         handleAddStage,
-        handleAddLead,
         handleImportLeads,
         handleDeleteLead
     }

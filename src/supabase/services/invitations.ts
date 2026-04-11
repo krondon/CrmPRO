@@ -9,6 +9,7 @@ interface CreateInvitationPayload {
   invited_titulo_trabajo: string
   pipeline_ids: Set<PipelineType>
   permission_role?: string
+  role_id?: string | null
 }
 
 export async function createInvitation(payload: CreateInvitationPayload) {
@@ -20,11 +21,67 @@ export async function createInvitation(payload: CreateInvitationPayload) {
       name: payload.invited_nombre,
       role: payload.invited_titulo_trabajo,
       pipelineIds: Array.from(payload.pipeline_ids),
-      permissionRole: payload.permission_role || 'viewer'
+      permissionRole: payload.permission_role || 'viewer',
+      roleId: payload.role_id || null
     }
   })
 
-  if (error) throw error
+  if (error) {
+    // Intentar extraer mensaje descriptivo del error del Edge Function
+    let errorMessage = error.message || 'Error al enviar invitación'
+    try {
+      const context = (error as any).context
+      if (context && typeof context.json === 'function') {
+        const body = await context.json()
+        if (body?.error) errorMessage = body.error
+      }
+    } catch (_) { /* ignore parse errors */ }
+    throw new Error(errorMessage)
+  }
+
+  // Insertar notificación de invitación para el invitado
+  if (payload.empresa_id) {
+    try {
+      // Obtener nombre de empresa para la notificación
+      const { data: empresaData } = await supabase
+        .from('empresa')
+        .select('nombre_empresa')
+        .eq('id', payload.empresa_id)
+        .single()
+
+      const empresaNombre = empresaData?.nombre_empresa || 'una empresa'
+
+      // Verificar que no exista notificación duplicada pendiente
+      const { data: existing } = await supabase
+        .from('notificaciones')
+        .select('id')
+        .eq('usuario_email', payload.invited_email)
+        .eq('type', 'team_invitation')
+        .eq('read', false)
+        .limit(1)
+
+      const hasDuplicate = (existing || []).some((n: any) => {
+        return false // No bloqueamos, solo verificamos existencia general
+      })
+
+      await supabase.from('notificaciones').insert({
+        usuario_email: payload.invited_email,
+        type: 'team_invitation',
+        title: `Invitación a ${empresaNombre}`,
+        message: `Has sido invitado/a a unirte al equipo de "${empresaNombre}" como ${payload.invited_titulo_trabajo || 'miembro'}.`,
+        data: {
+          empresa_id: payload.empresa_id,
+          empresa_nombre: empresaNombre,
+          permission_role: payload.permission_role || 'viewer',
+          role_id: payload.role_id || null,
+          invited_nombre: payload.invited_nombre
+        }
+      })
+    } catch (notifErr) {
+      console.warn('[INVITATIONS] Error creando notificación de invitación:', notifErr)
+    }
+  }
+
   return data
 }
 

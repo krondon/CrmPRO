@@ -1,13 +1,13 @@
 import { usePersistentState } from '@/hooks/usePersistentState'
+import { useAuth } from '@/hooks/useAuth'
 import { Task, Lead, Meeting, Notification as NotificationType, EmpresaMiembro as CompanyMember } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ArrowRight, CalendarBlank, CaretDown, CheckCircle, Clock, Envelope, Funnel, Phone, Plus, ListChecks, Users, Vault, WarningCircle, X, PencilSimple, Microphone, Bell, DotsThree, CalendarCheck } from '@phosphor-icons/react'
+import { ArrowRight, CalendarBlank, CaretDown, CheckCircle, Clock, Envelope, Funnel, Phone, Plus, ListChecks, Users, Vault, WarningCircle, X, PencilSimple, Microphone, Bell, DotsThree, CalendarCheck, Trash, ArrowSquareOut } from '@phosphor-icons/react'
 import { format, isToday, isBefore, isAfter, startOfDay } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { useState, useEffect } from 'react'
-import { VoiceRecorder } from './VoiceRecorder'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { AddTaskDialog } from './tasks/AddTaskDialog'
@@ -17,7 +17,7 @@ import { getLeads, getLeadsCount } from '@/supabase/services/leads'
 import { getCompanyMembers, Company } from '@/supabase/services/empresa'
 import { toast } from 'sonner'
 import { getPipelines } from '@/supabase/helpers/pipeline'
-import { getCompanyMeetings } from '@/supabase/services/reuniones'
+import { getCompanyMeetings, deleteLeadMeeting } from '@/supabase/services/reuniones'
 import { getTasks, updateTask, deleteTask } from '@/supabase/services/tasks'
 
 interface DashboardProps {
@@ -28,6 +28,8 @@ interface DashboardProps {
 }
 
 export function Dashboard({ companyId, companies = [], onShowNotifications, onNavigateToLead }: DashboardProps) {
+  const { user } = useAuth()
+  const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
   const [completedTasks, setCompletedTasks] = useState<Task[]>([]) // New state for completed today
   // const [tasks] = usePersistentState<Task[]>(`tasks-${companyId}`, [])
@@ -39,7 +41,6 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [members, setMembers] = useState<CompanyMember[]>([])
   const [notifications] = usePersistentState<NotificationType[]>(`notifications-${companyId}`, [])
-  const [showVoiceRecorder, setShowVoiceRecorder] = useState(false)
   const [pipelinesCount, setPipelinesCount] = useState(0)
   const [showExpiredTasks, setShowExpiredTasks] = useState(false)
 
@@ -254,12 +255,28 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
                     </AvatarFallback>
                   )}
                 </Avatar>
-                <div className="space-y-1">
+                <div className="space-y-3">
                   <h1 className="text-3xl md:text-5xl font-black tracking-tight text-foreground transition-all">
-                    ¡Bienvenido{activeCompany ? ` a ${activeCompany.name}` : ''}!
+                    ¡Bienvenido, {user?.businessName || user?.email?.split('@')[0]}!
                   </h1>
-                  <p className="text-muted-foreground font-medium text-sm md:text-base opacity-80">
-                    {activeCompany ? `Gestionando ${activeCompany.name}` : 'Esto es lo que está sucediendo hoy en tu negocio'}
+                  <p className="text-muted-foreground font-medium text-sm md:text-base opacity-80 flex items-center gap-2">
+                    {activeCompany ? (() => {
+                      const role = activeCompany.ownerId === user?.id ? 'owner' : (activeCompany as any).role
+                      const displayRole = role === 'admin' ? 'Admin' : (role === 'owner' || role === 'Owner') ? 'Propietario' : 'Lector'
+                      const isOwner = displayRole === 'Propietario'
+                      const isAdmin = displayRole === 'Admin'
+
+                      return (
+                        <Badge className={cn(
+                          "font-black uppercase tracking-widest text-[10px] px-2 py-0.5 shadow-none border",
+                          isOwner ? "bg-violet-500/10 text-violet-600 border-violet-200 dark:bg-violet-500/20 dark:text-violet-400 dark:border-violet-800" :
+                            isAdmin ? "bg-blue-500/10 text-blue-600 border-blue-200 dark:bg-blue-500/20 dark:text-blue-400 dark:border-blue-800" :
+                              "bg-muted text-muted-foreground border-border"
+                        )}>
+                          {displayRole}
+                        </Badge>
+                      )
+                    })() : 'Esto es lo que está sucediendo hoy en tu negocio'}
                   </p>
                 </div>
               </>
@@ -267,14 +284,6 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
           })()}
         </div>
         <div className="flex items-center gap-3">
-          <Button
-            onClick={() => setShowVoiceRecorder(true)}
-            variant="outline"
-            className="h-10 px-4 gap-2 rounded-xl border-primary/20 hover:bg-primary/5 hover:border-primary/40 transition-all font-semibold"
-          >
-            <Microphone size={20} weight="duotone" className="text-primary" />
-            <span className="hidden sm:inline">Voice Task</span>
-          </Button>
           <Button
             onClick={onShowNotifications}
             className="h-10 px-4 gap-2 rounded-xl bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20 transition-all font-semibold relative"
@@ -313,14 +322,14 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
             <Users size={80} weight="fill" className="text-purple-500" />
           </div>
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-xs font-bold uppercase tracking-widest text-purple-600/80">Total Leads</CardTitle>
+            <CardTitle className="text-xs font-bold uppercase tracking-widest text-purple-600/80">Total Oportunidades</CardTitle>
             <div className="p-2 bg-purple-500/10 rounded-lg">
               <Users size={18} className="text-purple-600" weight="bold" />
             </div>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-black">{leadsCount}</div>
-            <p className="text-xs font-medium text-muted-foreground mt-1">Leads en seguimiento</p>
+            <p className="text-xs font-medium text-muted-foreground mt-1">Oportunidades en seguimiento</p>
           </CardContent>
         </Card>
 
@@ -451,7 +460,7 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
                               {task.leadCompany && <span className="text-[10px] opacity-70 ml-1">• {task.leadCompany}</span>}
                             </>
                           )}
-                          {!task.leadName && <span className="italic opacity-50 text-[10px]">Sin Lead Asignado</span>}
+                          {!task.leadName && <span className="italic opacity-50 text-[10px]">Sin Oportunidad Asignada</span>}
                         </span>
                         {/* Assignee & Description */}
                         {task.assignedTo && (
@@ -474,7 +483,7 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
                     </div>
 
                     {/* Actions Hover Layer */}
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1 transition-opacity">
                       <Button
                         variant="ghost"
                         size="icon"
@@ -551,24 +560,30 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
             ) : (
               <div className="space-y-2 overflow-y-auto max-h-full pr-1 scrollbar-thin scrollbar-thumb-muted-foreground/20 scrollbar-track-transparent">
                 {upcomingMeetings.slice(0, 5).map(meeting => (
-                  <div key={meeting.id} className="flex items-center gap-3 p-3 rounded-xl border border-transparent bg-muted/30 hover:bg-muted/50 transition-all">
+                  <div 
+                    key={meeting.id} 
+                    className="flex items-center gap-3 p-3 rounded-xl border border-transparent bg-muted/30 hover:bg-muted/50 transition-all cursor-pointer"
+                    onClick={() => setSelectedMeeting(meeting)}
+                  >
                     <div className="w-10 h-10 rounded-lg bg-background flex flex-col items-center justify-center shadow-sm border border-muted-foreground/10 shrink-0">
                       <span className="text-[9px] font-bold text-primary uppercase leading-none">{format(new Date(meeting.date), 'MMM')}</span>
                       <span className="text-sm font-black leading-none mt-0.5">{format(new Date(meeting.date), 'd')}</span>
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-bold text-sm truncate">{meeting.title}</p>
-                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                        <span className="text-[10px] text-primary font-bold flex items-center gap-1">
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap min-w-0">
+                        <span className="text-[10px] text-primary font-bold flex items-center gap-1 shrink-0">
                           <Clock size={10} weight="bold" />
                           {formatTime(meeting.date)} · {meeting.duration}min
                         </span>
                         {meeting.participants && meeting.participants.length > 0 && (
-                          <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                            <Users size={10} />
-                            {meeting.participants.slice(0, 2).map(p => p.name).join(', ')}
-                            {meeting.participants.length > 2 && ` +${meeting.participants.length - 2}`}
-                          </span>
+                          <div className="text-[10px] text-muted-foreground flex items-center gap-1 min-w-0">
+                            <Users size={10} className="shrink-0" />
+                            <span className="truncate max-w-[120px]">
+                              {meeting.participants.slice(0, 2).map(p => p.name).join(', ')}
+                            </span>
+                            {meeting.participants.length > 2 && <span className="shrink-0">+{meeting.participants.length - 2}</span>}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -577,7 +592,8 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
                         variant="ghost"
                         size="sm"
                         className="h-7 px-2 text-[10px] text-muted-foreground hover:text-primary shrink-0"
-                        onClick={async () => {
+                        onClick={async (e) => {
+                          e.stopPropagation();
                           const leadData = leads.find(l => l.id === meeting.leadId)
                           if (leadData) {
                             onNavigateToLead(leadData)
@@ -595,7 +611,7 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
                           }
                         }}
                       >
-                        Ver Lead
+                        Ver Oportunidad
                       </Button>
                     )}
                   </div>
@@ -625,15 +641,19 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
             <CardContent className="space-y-4 pt-2">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {expiredMeetings.slice(0, 6).map(meeting => (
-                  <div key={meeting.id} className="flex flex-col gap-2 p-3 rounded-xl border border-border/40 bg-background/40 opacity-70 hover:opacity-100 transition-all">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="font-bold text-sm truncate">{meeting.title}</p>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                  <div 
+                    key={meeting.id} 
+                    className="flex flex-col gap-2 p-3 rounded-xl border border-border/40 bg-background/40 opacity-70 hover:opacity-100 transition-all min-w-0 cursor-pointer"
+                    onClick={() => setSelectedMeeting(meeting)}
+                  >
+                    <div className="flex items-start justify-between gap-2 overflow-hidden">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold text-sm truncate" title={meeting.title}>{meeting.title}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
                           {format(new Date(meeting.date), 'MMM d, h:mm a')}
                         </p>
                       </div>
-                      <Badge variant="outline" className="text-[9px] uppercase tracking-wider">
+                      <Badge variant="outline" className="text-[9px] uppercase tracking-wider shrink-0 mt-0.5">
                         Finalizada
                       </Badge>
                     </div>
@@ -653,7 +673,8 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
                               variant="ghost"
                               size="sm"
                               className="h-5 px-2 text-[9px] text-muted-foreground hover:text-primary"
-                              onClick={async () => {
+                              onClick={async (e) => {
+                                e.stopPropagation();
                                 const leadData = leads.find(l => l.id === meeting.leadId)
                                 if (leadData) {
                                   onNavigateToLead(leadData)
@@ -672,7 +693,7 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
                                 }
                               }}
                             >
-                              Ir al lead
+                              Ir a la oportunidad
                             </Button>
                           </div>
                         )}
@@ -685,18 +706,6 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
           </Card>
         )}
       </div>
-
-      <Dialog open={showVoiceRecorder} onOpenChange={setShowVoiceRecorder}>
-        <DialogContent className="max-w-md rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-bold flex items-center gap-2">
-              <Microphone size={24} className="text-primary" weight="duotone" />
-              Crear tarea con voz
-            </DialogTitle>
-          </DialogHeader>
-          <VoiceRecorder onClose={() => setShowVoiceRecorder(false)} />
-        </DialogContent>
-      </Dialog>
 
       <ExpiredTasksDialog
         open={showExpiredTasks}
@@ -711,6 +720,131 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
         onDeleteTask={handleDeleteTask}
         onClearAll={handleClearExpiredTasks}
       />
+      <Dialog open={!!selectedMeeting} onOpenChange={(open) => !open && setSelectedMeeting(null)}>
+        <DialogContent className="sm:max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
+              <CalendarCheck className="text-primary" weight="duotone" />
+              Detalles de la Cita
+            </DialogTitle>
+          </DialogHeader>
+          {selectedMeeting && (
+            <div className="space-y-4 pt-2">
+              <div>
+                <div className="flex items-start justify-between gap-4 mb-2">
+                  <h3 className="font-bold text-lg leading-tight break-words flex-1 min-w-0">{selectedMeeting.title}</h3>
+                  <Badge variant="outline" className={cn("shrink-0 text-[10px] uppercase font-bold tracking-wider h-5", new Date(selectedMeeting.date) < new Date() ? "bg-muted text-muted-foreground" : "bg-primary/5 text-primary border-primary/20", "px-2 py-0 border")}>
+                    {new Date(selectedMeeting.date) < new Date() ? 'Finalizada' : 'Pendiente'}
+                  </Badge>
+                </div>
+                <div className="inline-flex items-center gap-2 bg-muted/40 text-foreground px-3 py-1.5 rounded-lg text-[13px] font-semibold border shadow-sm">
+                  <Clock size={16} className="text-primary" weight="fill" />
+                  {format(new Date(selectedMeeting.date), "EEE d 'de' MMM, yyyy", { locale: import('date-fns/locale/es').es || undefined })}
+                  <span className="opacity-30">•</span>
+                  {formatTime(selectedMeeting.date)}
+                  {selectedMeeting.duration && <span className="opacity-60 font-medium">({selectedMeeting.duration} min)</span>}
+                </div>
+              </div>
+
+              {selectedMeeting.description && (
+                <div className="bg-muted/30 p-3 rounded-xl border border-border/40 space-y-1.5">
+                  <p className="text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 text-muted-foreground">
+                    <ListChecks size={14} /> Notas Adicionales
+                  </p>
+                  <p className="text-sm overflow-y-auto max-h-40 whitespace-pre-wrap break-words scrollbar-thin text-foreground/90 leading-relaxed bg-background/50 p-2.5 rounded-lg border border-border/30">
+                    {selectedMeeting.description}
+                  </p>
+                </div>
+              )}
+
+              {selectedMeeting.participants && selectedMeeting.participants.length > 0 && (
+                <div className="pt-3 border-t">
+                  <p className="text-[11px] font-bold uppercase tracking-wider mb-2.5 flex items-center gap-1.5 text-muted-foreground">
+                    <Users size={14} /> Participantes ({selectedMeeting.participants.length})
+                  </p>
+                  <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1 scrollbar-thin">
+                    {selectedMeeting.participants.map(p => (
+                      <div key={p.id} className="flex items-center justify-between bg-background p-2 rounded-lg border shadow-sm group hover:border-primary/20 transition-colors">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <Avatar className="h-8 w-8 rounded-md ring-1 ring-border shadow-sm">
+                            {p.avatar ? (
+                              <AvatarImage src={p.avatar} alt={p.name} />
+                            ) : (
+                              <AvatarFallback className="bg-muted text-muted-foreground text-xs font-bold rounded-md">
+                                {p.name.substring(0, 2).toUpperCase()}
+                              </AvatarFallback>
+                            )}
+                          </Avatar>
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-sm font-bold truncate group-hover:text-primary transition-colors">{p.name}</span>
+                            {p.email && <span className="text-[10px] pb-0.5 text-muted-foreground truncate">{p.email}</span>}
+                          </div>
+                        </div>
+                        <Badge variant="secondary" className="text-[9px] uppercase h-5 font-black tracking-widest shrink-0 ml-2 text-muted-foreground/70 bg-muted/50 border-none">
+                          {p.type === 'internal' ? 'Equipo' : 'Lead'}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              <div className="pt-4 border-t flex flex-col sm:flex-row items-center gap-2 justify-between">
+                <Button 
+                  variant="destructive" 
+                  size="sm" 
+                  className="w-full sm:w-auto gap-2"
+                  onClick={async () => {
+                     if(window.confirm('¿Seguro que deseas eliminar esta cita?')) {
+                       try {
+                         await deleteLeadMeeting(selectedMeeting.id)
+                         setMeetings(prev => prev.filter(m => m.id !== selectedMeeting.id))
+                         setSelectedMeeting(null)
+                         toast.success('Cita eliminada')
+                       } catch (error) {
+                         console.error(error)
+                         toast.error('Error al eliminar la cita')
+                       }
+                     }
+                  }}
+                >
+                  <Trash size={16} /> Eliminar Cita
+                </Button>
+
+                {onNavigateToLead && (
+                  <Button 
+                    className="w-full sm:w-auto gap-2"
+                    onClick={async () => {
+                      const leadData = leads.find(l => l.id === selectedMeeting.leadId)
+                      if (leadData) {
+                        onNavigateToLead(leadData)
+                        setSelectedMeeting(null)
+                      } else {
+                        try {
+                          const { getLeadById } = await import('@/supabase/services/leads')
+                          const dbLead = await getLeadById(selectedMeeting.leadId)
+                          if (dbLead) {
+                            const { mapDBToLead } = await import('@/hooks/useLeadsList')
+                            onNavigateToLead(mapDBToLead(dbLead))
+                            setSelectedMeeting(null)
+                          } else {
+                            toast.error('No se pudo encontrar la oportunidad')
+                          }
+                        } catch (err) {
+                          console.error('Error loading lead:', err)
+                          toast.error('Error cargando la oportunidad')
+                        }
+                      }
+                    }}
+                  >
+                    Ver Oportunidad <ArrowSquareOut size={16} weight="bold" />
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -210,7 +210,7 @@ export function ContactProfile({
                             value="leads"
                             className="h-10 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-3 font-medium text-xs md:text-sm whitespace-nowrap"
                         >
-                            Leads
+                            Oportunidades
                         </TabsTrigger>
                         <TabsTrigger
                             value="history"

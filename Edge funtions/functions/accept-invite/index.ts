@@ -23,6 +23,7 @@ serve(async (req) => {
       .from("equipo_invitaciones")
       .select(`
         id,
+        status,
         empresa_id,
         equipo_id,
         pipeline_ids,
@@ -45,15 +46,55 @@ serve(async (req) => {
 
     if (inviteError) throw new Error("Invitación no encontrada");
 
-    // 2. Insertar en empresa_miembros (Nueva tabla de membresía)
+    // Validar que la invitación aún esté pendiente
+    if (invite.status && invite.status !== 'pending') {
+      throw new Error("Esta invitación ya fue procesada");
+    }
+
+    // Obtener el nombre real del usuario desde la tabla usuarios
+    let realUserName = invite.invited_nombre;
+    try {
+      const { data: usuarioRow } = await supabaseAdmin
+        .from('usuarios')
+        .select('nombre')
+        .eq('id', userId)
+        .maybeSingle();
+      if (usuarioRow?.nombre) {
+        realUserName = usuarioRow.nombre;
+      }
+    } catch (e) {
+      console.warn('[accept-invite] No se pudo obtener nombre real del usuario:', e);
+    }
+
+    // 2. Resolver role_id desde la tabla roles (buscar por nombre del permission_role)
+    const permRole = invite.permission_role || 'viewer';
+    let resolvedRoleId: string | null = null;
+    try {
+      const roleName = permRole === 'admin' ? 'Admin' : 'Viewer';
+      const { data: roleRow } = await supabaseAdmin
+        .from('roles')
+        .select('id')
+        .eq('empresa_id', invite.empresa_id)
+        .eq('name', roleName)
+        .eq('is_system', true)
+        .maybeSingle();
+      if (roleRow) resolvedRoleId = roleRow.id;
+    } catch (e) {
+      console.warn('[accept-invite] No se pudo resolver role_id:', e);
+    }
+
+    // 3. Insertar en empresa_miembros (Nueva tabla de membresía)
+    const memberPayload: Record<string, unknown> = {
+      empresa_id: invite.empresa_id,
+      usuario_id: userId,
+      email: invite.invited_email,
+      role: permRole
+    };
+    if (resolvedRoleId) memberPayload.role_id = resolvedRoleId;
+
     const { error: memberError } = await supabaseAdmin
       .from('empresa_miembros')
-      .insert({
-        empresa_id: invite.empresa_id,
-        usuario_id: userId,
-        email: invite.invited_email,
-        role: invite.permission_role || 'viewer'
-      });
+      .insert(memberPayload);
 
     if (memberError) {
       console.error("Error creating empresa_miembros:", memberError);
@@ -75,7 +116,7 @@ serve(async (req) => {
       const { data: newPersona, error: personaError } = await supabaseAdmin
         .from('persona')
         .insert({
-          nombre: invite.invited_nombre,
+          nombre: realUserName,
           email: invite.invited_email,
           titulo_trabajo: invite.invited_titulo_trabajo,
           equipo_id: invite.equipo_id,

@@ -10,6 +10,7 @@ import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
 
 import { getPendingInvitations, acceptInvitation, rejectInvitation } from '@/supabase/services/invitations'
+import { aprobarSolicitud, rechazarSolicitud } from '@/supabase/services/solicitudes'
 import { supabase } from '@/supabase/client'
 import { useEffect } from 'react'
 
@@ -52,6 +53,34 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
     const [leadAssignedNotifications, setLeadAssignedNotifications] = useState<ResponseNotification[]>([])
     const [loading, setLoading] = useState(true)
     const [activeTab, setActiveTab] = useState<'leads' | 'team'>('leads')
+    const [joinRequests, setJoinRequests] = useState<ResponseNotification[]>([])
+    const [processingRequest, setProcessingRequest] = useState<string | null>(null)
+
+    const loadInvitations = async () => {
+        try {
+            const { data: { user } } = await supabase.auth.getUser()
+            if (user?.email) {
+                const invitationsData = await getPendingInvitations(user.email)
+                const mappedInvitations = await Promise.all((invitationsData || []).map(async (inv: any) => {
+                    let empresa = inv.empresa
+                    let equipo = inv.equipo
+                    if (!empresa?.nombre_empresa || !equipo?.nombre_equipo) {
+                        try {
+                            const { data: details } = await supabase.functions.invoke('invite-details', {
+                                body: { empresa_id: inv.empresa_id, equipo_id: inv.equipo_id }
+                            })
+                            if (details) {
+                                if (!empresa?.nombre_empresa && details.empresa_nombre) empresa = { nombre_empresa: details.empresa_nombre }
+                                if (!equipo?.nombre_equipo && details.equipo_nombre) equipo = { nombre_equipo: details.equipo_nombre }
+                            }
+                        } catch (e) { console.warn('Could not fetch invite details', e) }
+                    }
+                    return { ...inv, empresa: empresa || { nombre_empresa: 'Empresa' }, equipo: equipo || { nombre_equipo: 'General' } }
+                }))
+                setInvitations(mappedInvitations)
+            }
+        } catch (e) { console.error('Error loading invitations:', e) }
+    }
 
     useEffect(() => {
         const loadData = async () => {
@@ -59,43 +88,7 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
                 const { data: { user } } = await supabase.auth.getUser()
                 if (user && user.email) {
                     // Cargar invitaciones pendientes
-                    // getPendingInvitations ya incluye el join con empresa y equipo
-                    const invitationsData = await getPendingInvitations(user.email)
-
-                    // Mapeamos para asegurar que la estructura sea la esperada
-                    // Si el join falla (por RLS), intentamos usar invite-details como fallback
-                    const mappedInvitations = await Promise.all((invitationsData || []).map(async (inv: any) => {
-                        let empresa = inv.empresa
-                        let equipo = inv.equipo
-
-                        // Si falta información (probablemente por RLS), intentamos recuperarla vía Edge Function
-                        if (!empresa?.nombre_empresa || !equipo?.nombre_equipo) {
-                            try {
-                                const { data: details } = await supabase.functions.invoke('invite-details', {
-                                    body: { empresa_id: inv.empresa_id, equipo_id: inv.equipo_id }
-                                })
-                                if (details) {
-                                    if (!empresa?.nombre_empresa && details.empresa_nombre) {
-                                        empresa = { nombre_empresa: details.empresa_nombre }
-                                    }
-                                    if (!equipo?.nombre_equipo && details.equipo_nombre) {
-                                        equipo = { nombre_equipo: details.equipo_nombre }
-                                    }
-                                }
-                            } catch (e) {
-                                // Si falla la función (no desplegada), nos quedamos con lo que tenemos
-                                console.warn('Could not fetch invite details', e)
-                            }
-                        }
-
-                        return {
-                            ...inv,
-                            empresa: empresa || { nombre_empresa: 'Empresa' },
-                            equipo: equipo || { nombre_equipo: 'General' }
-                        }
-                    }))
-
-                    setInvitations(mappedInvitations)
+                    await loadInvitations()
 
                     // Cargar notificaciones de respuesta
                     const { data: notifications } = await supabase
@@ -108,6 +101,19 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
 
                     if (notifications) {
                         setResponseNotifications(notifications)
+                    }
+
+                    // Cargar solicitudes de unión recibidas (el usuario es dueño de empresa)
+                    const { data: joinReqs } = await supabase
+                        .from('notificaciones')
+                        .select('*')
+                        .eq('usuario_email', user.email)
+                        .eq('type', 'join_request')
+                        .order('created_at', { ascending: false })
+                        .limit(20)
+
+                    if (joinReqs) {
+                        setJoinRequests(joinReqs as any)
                     }
 
                     // Cargar notificaciones de lead asignado
@@ -161,6 +167,9 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
                             setResponseNotifications(prev => [notif, ...prev])
                         } else if (notif?.type === 'lead_assigned') {
                             setLeadAssignedNotifications(prev => [notif, ...prev])
+                        } else if (notif?.type === 'team_invitation') {
+                            // Reload invitations when new team_invitation notification arrives
+                            loadInvitations()
                         }
                     })
 
@@ -169,7 +178,7 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
                 console.warn('Realtime notifications subscribe failed', e)
             }
         }
-        
+
         subscribeRealtime()
 
         return () => {
@@ -184,7 +193,7 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
         try {
             const { data: { user } } = await supabase.auth.getUser()
             if (!user?.email) return
-            
+
             let query = supabase
                 .from('notificaciones')
                 .update({ read: true })
@@ -198,17 +207,17 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
                     query = query.in('type', ['invitation_response'])
                 }
             } else {
-                query = query.in('type', ['lead_assigned', 'invitation_response'])
+                query = query.in('type', ['lead_assigned', 'invitation_response', 'team_invitation'])
             }
-            
+
             await query
-            
+
             // Actualizar estado local
             if (forceAll || activeTab === 'leads') {
-                 setLeadAssignedNotifications(prev => prev.map(n => ({ ...n, read: true })))
+                setLeadAssignedNotifications(prev => prev.map(n => ({ ...n, read: true })))
             }
             if (forceAll || activeTab === 'team') {
-                 setResponseNotifications(prev => prev.map(n => ({ ...n, read: true })))
+                setResponseNotifications(prev => prev.map(n => ({ ...n, read: true })))
             }
 
             if (forceAll) {
@@ -252,6 +261,36 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
         }
     }
 
+    const handleApproveJoinRequest = async (notif: ResponseNotification) => {
+        const solicitudId = (notif as any).data?.solicitud_id
+        if (!solicitudId) return toast.error('ID de solicitud no encontrado')
+        setProcessingRequest(solicitudId)
+        try {
+            await aprobarSolicitud(solicitudId)
+            setJoinRequests(prev => prev.filter(n => (n as any).data?.solicitud_id !== solicitudId))
+            toast.success('Solicitud aprobada. El usuario ya puede acceder al CRM.')
+        } catch (err: any) {
+            toast.error(err.message || 'Error al aprobar solicitud')
+        } finally {
+            setProcessingRequest(null)
+        }
+    }
+
+    const handleRejectJoinRequest = async (notif: ResponseNotification) => {
+        const solicitudId = (notif as any).data?.solicitud_id
+        if (!solicitudId) return toast.error('ID de solicitud no encontrado')
+        setProcessingRequest(solicitudId)
+        try {
+            await rechazarSolicitud(solicitudId)
+            setJoinRequests(prev => prev.filter(n => (n as any).data?.solicitud_id !== solicitudId))
+            toast.info('Solicitud rechazada.')
+        } catch (err: any) {
+            toast.error(err.message || 'Error al rechazar solicitud')
+        } finally {
+            setProcessingRequest(null)
+        }
+    }
+
     const pendingInvitations = invitations.filter(i => i.status === 'pending')
 
     return (
@@ -277,13 +316,62 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
 
                 {/* Controles de pestañas simples */}
                 <div className="flex items-center gap-2 mt-4">
-                    <Button variant={activeTab === 'leads' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('leads')}>Leads Asignados</Button>
+                    <Button variant={activeTab === 'leads' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('leads')}>Todas</Button>
                     <Button variant={activeTab === 'team' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('team')}>Equipo</Button>
                 </div>
 
                 {/* Contenido de Leads */}
                 {activeTab === 'leads' && (
                     <div className="space-y-6 mt-4">
+
+                        {/* Solicitudes de Acceso al CRM (vista del dueño) */}
+                        {joinRequests.length > 0 && (
+                            <div className="space-y-4">
+                                <h2 className="text-xl font-semibold flex items-center gap-2">
+                                    Solicitudes de Acceso
+                                    <Badge variant="secondary" className="ml-2">{joinRequests.length}</Badge>
+                                </h2>
+                                <div className="grid gap-4">
+                                    {joinRequests.map((notif) => {
+                                        const solicitudId = (notif as any).data?.solicitud_id
+                                        const isProcessing = processingRequest === solicitudId
+                                        return (
+                                            <Card key={notif.id} className="overflow-hidden transition-all hover:shadow-md border-l-4 border-l-blue-500 bg-blue-50/30 dark:bg-blue-950/20">
+                                                <div className="flex flex-col md:flex-row md:items-center justify-between p-6 gap-4">
+                                                    <div className="flex items-start gap-4">
+                                                        <Avatar className="h-12 w-12 border-2 border-background shadow-sm">
+                                                            <AvatarFallback className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 font-bold">
+                                                                {(notif as any).data?.solicitante_email?.substring(0, 2).toUpperCase() || 'US'}
+                                                            </AvatarFallback>
+                                                        </Avatar>
+                                                        <div className="space-y-1">
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <h3 className="font-semibold text-lg">{notif.message?.split('(')[0]?.trim() || 'Usuario'}</h3>
+                                                                <Badge variant="outline" className="text-xs font-normal border-blue-300 text-blue-700 dark:text-blue-300">Solicitud de acceso</Badge>
+                                                            </div>
+                                                            <p className="text-sm text-muted-foreground">{notif.message}</p>
+                                                            <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
+                                                                <Clock size={14} />
+                                                                <span>{format(new Date(notif.created_at), "d 'de' MMMM, HH:mm", { locale: es })}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-3 pt-2 md:pt-0 pl-16 md:pl-0">
+                                                        <Button variant="outline" className="text-muted-foreground hover:text-destructive hover:bg-destructive/10" onClick={() => handleRejectJoinRequest(notif)} disabled={isProcessing}>
+                                                            <X className="mr-2" size={16} />Rechazar
+                                                        </Button>
+                                                        <Button onClick={() => handleApproveJoinRequest(notif)} disabled={isProcessing} className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
+                                                            <Check className="mr-2" size={16} />{isProcessing ? 'Procesando...' : 'Aprobar'}
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            </Card>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
                         <h2 className="text-xl font-semibold flex items-center gap-2">
                             Leads Asignados
                             {leadAssignedNotifications.length > 0 && (
@@ -321,7 +409,7 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
                                                 <div className="space-y-1">
                                                     <div className="flex items-center gap-2 flex-wrap">
                                                         <h3 className="font-semibold text-lg">
-                                                            {notification.title || 'Te asignaron un lead'}
+                                                            {notification.title || 'Te asignaron una oportunidad'}
                                                         </h3>
                                                         <Badge variant="secondary" className="text-xs font-normal">Asignación</Badge>
                                                     </div>
@@ -360,90 +448,91 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
 
                 {/* Contenido de Equipo */}
                 {activeTab === 'team' && (
-                <div className="space-y-6 mt-4">
-                    <h2 className="text-xl font-semibold flex items-center gap-2">
-                        Invitaciones de Equipo
-                        {pendingInvitations.length > 0 && (
-                            <Badge variant="secondary" className="ml-2">
-                                {pendingInvitations.length} pendientes
-                            </Badge>
-                        )}
-                    </h2>
+                    <div className="space-y-6 mt-4">
+                        <h2 className="text-xl font-semibold flex items-center gap-2">
+                            Invitaciones de Equipo
+                            {pendingInvitations.length > 0 && (
+                                <Badge variant="secondary" className="ml-2">
+                                    {pendingInvitations.length} pendientes
+                                </Badge>
+                            )}
+                        </h2>
 
-                    {pendingInvitations.length === 0 ? (
-                        <Card className="bg-muted/30 border-dashed">
-                            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-                                <div className="p-4 bg-muted rounded-full mb-4">
-                                    <Buildings size={32} className="text-muted-foreground" />
-                                </div>
-                                <h3 className="text-lg font-medium">No tienes invitaciones pendientes</h3>
-                                <p className="text-sm text-muted-foreground max-w-sm mt-2">
-                                    Cuando alguien te invite a unirse a su equipo o empresa, aparecerá aquí.
-                                </p>
-                            </CardContent>
-                        </Card>
-                    ) : (
-                        <div className="grid gap-4">
-                            {pendingInvitations.map((invitation) => (
-                                <Card key={invitation.id} className="overflow-hidden transition-all hover:shadow-md border-l-4 border-l-primary">
-                                    <div className="flex flex-col md:flex-row md:items-center justify-between p-6 gap-4">
-                                        <div className="flex items-start gap-4">
-                                            <Avatar className="h-12 w-12 border-2 border-background shadow-sm">
-                                                <AvatarFallback className="bg-primary/10 text-primary font-bold">
-                                                    {invitation.empresa?.nombre_empresa?.substring(0, 2).toUpperCase() || 'EM'}
-                                                </AvatarFallback>
-                                            </Avatar>
+                        {pendingInvitations.length === 0 ? (
+                            <Card className="bg-muted/30 border-dashed">
+                                <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                                    <div className="p-4 bg-muted rounded-full mb-4">
+                                        <Buildings size={32} className="text-muted-foreground" />
+                                    </div>
+                                    <h3 className="text-lg font-medium">No tienes invitaciones pendientes</h3>
+                                    <p className="text-sm text-muted-foreground max-w-sm mt-2">
+                                        Cuando alguien te invite a unirse a su equipo o empresa, aparecerá aquí.
+                                    </p>
+                                </CardContent>
+                            </Card>
+                        ) : (
+                            <div className="grid gap-4">
+                                {pendingInvitations.map((invitation) => (
+                                    <Card key={invitation.id} className="overflow-hidden transition-all hover:shadow-md border-l-4 border-l-primary">
+                                        <div className="flex flex-col md:flex-row md:items-center justify-between p-6 gap-4">
+                                            <div className="flex items-start gap-4">
+                                                <Avatar className="h-12 w-12 border-2 border-background shadow-sm">
+                                                    <AvatarFallback className="bg-primary/10 text-primary font-bold">
+                                                        {invitation.empresa?.nombre_empresa?.substring(0, 2).toUpperCase() || 'EM'}
+                                                    </AvatarFallback>
+                                                </Avatar>
 
-                                            <div className="space-y-1">
-                                                <div className="flex items-center gap-2">
-                                                    <h3 className="font-semibold text-lg">{invitation.empresa?.nombre_empresa || 'Empresa'}</h3>
-                                                    <Badge variant="outline" className="text-xs font-normal">
-                                                        {invitation.invited_titulo_trabajo || 'Miembro'}
-                                                    </Badge>
-                                                </div>
-
-                                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 text-sm text-muted-foreground">
-                                                    <div className="flex items-center gap-1">
-                                                        <User size={14} />
-                                                        <span>Equipo: <span className="font-medium text-foreground">{invitation.equipo?.nombre_equipo || 'General'}</span></span>
+                                                <div className="space-y-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <h3 className="font-semibold text-lg">{invitation.empresa?.nombre_empresa || 'Empresa'}</h3>
+                                                        <Badge variant="outline" className="text-xs font-normal">
+                                                            {invitation.invited_titulo_trabajo || 'Miembro'}
+                                                        </Badge>
                                                     </div>
-                                                    <span className="hidden sm:inline">•</span>
-                                                    <div className="flex items-center gap-1">
-                                                        <Clock size={14} />
-                                                        <span>{format(new Date(invitation.created_at), "d 'de' MMMM, HH:mm", { locale: es })}</span>
+
+                                                    <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 text-sm text-muted-foreground">
+                                                        <div className="flex items-center gap-1">
+                                                            <User size={14} />
+                                                            <span>Equipo: <span className="font-medium text-foreground">{invitation.equipo?.nombre_equipo || 'General'}</span></span>
+                                                        </div>
+                                                        <span className="hidden sm:inline">•</span>
+                                                        <div className="flex items-center gap-1">
+                                                            <Clock size={14} />
+                                                            <span>{format(new Date(invitation.created_at), "d 'de' MMMM, HH:mm", { locale: es })}</span>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
-                                        </div>
 
-                                        <div className="flex items-center gap-3 pt-2 md:pt-0 pl-16 md:pl-0">
-                                            <Button
-                                                variant="outline"
-                                                className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                                                onClick={() => handleReject(invitation.id)}
-                                            >
-                                                <X className="mr-2" size={16} />
-                                                Rechazar
-                                            </Button>
-                                            <Button
-                                                onClick={() => handleAccept(invitation.id, (invitation as any).token)}
-                                                className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
-                                            >
-                                                <Check className="mr-2" size={16} />
-                                                Aceptar Invitación
-                                            </Button>
+                                            <div className="flex items-center gap-3 pt-2 md:pt-0 pl-16 md:pl-0">
+                                                <Button
+                                                    variant="outline"
+                                                    className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                                    onClick={() => handleReject(invitation.id)}
+                                                >
+                                                    <X className="mr-2" size={16} />
+                                                    Rechazar
+                                                </Button>
+                                                <Button
+                                                    onClick={() => handleAccept(invitation.id, (invitation as any).token)}
+                                                    className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+                                                >
+                                                    <Check className="mr-2" size={16} />
+                                                    Aceptar Invitación
+                                                </Button>
+                                            </div>
                                         </div>
-                                    </div>
-                                </Card>
-                            ))}
-                        </div>
-                    )}
-                </div>
+                                    </Card>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 )}
 
                 {/* Respuestas a tus Invitaciones */}
                 {activeTab === 'team' && responseNotifications.length > 0 && (
                     <div className="space-y-6 mt-12">
+
                         <h2 className="text-xl font-semibold flex items-center gap-2">
                             Respuestas a tus Invitaciones
                             <Badge variant="secondary" className="ml-2">

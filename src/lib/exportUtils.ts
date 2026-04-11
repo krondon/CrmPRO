@@ -75,7 +75,7 @@ export function generateFileName(format: ExportFormat, companyName?: string, sta
     const stage = stageName ? `${stageName}_` : ''
     const extension = format === 'excel' ? 'xlsx' : 'pdf'
 
-    return `${company}${stage}Leads_${timestamp}.${extension}`
+    return `${company}${stage}Oportunidades_${timestamp}.${extension}`
 }
 
 /**
@@ -86,9 +86,8 @@ export function downloadFile(blob: Blob, fileName: string): void {
     const link = document.createElement('a')
     link.href = url
     link.download = fileName
-    document.body.appendChild(link)
+    link.style.display = 'none'
     link.click()
-    document.body.removeChild(link)
     URL.revokeObjectURL(url)
 }
 

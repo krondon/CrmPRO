@@ -3,7 +3,7 @@ import { Task } from '@/lib/types'
 
 export const getTasks = async (companyId: string): Promise<Task[]> => {
     const { data, error } = await supabase
-        .from('crm_tasks')
+        .from('tasks')
         .select(`
       *,
       lead:lead_id ( nombre_completo, empresa )
@@ -31,7 +31,7 @@ export const getTasks = async (companyId: string): Promise<Task[]> => {
 export const getTaskHistory = async (companyId: string): Promise<Task[]> => {
     const { data, error } = await supabase
         //aqui cambiar a task si cambiamos de base de datos, por que choca con la vieja
-        .from('crm_tasks')
+        .from('tasks')
         .select(`
       *,
       lead:lead_id ( nombre_completo, empresa )
@@ -60,7 +60,7 @@ export const getTaskHistory = async (companyId: string): Promise<Task[]> => {
 export const createTask = async (task: Partial<Task>) => {
     const { data, error } = await supabase
         //aqui cambiar a task si cambiamos de base de datos, por que choca con la vieja
-        .from('crm_tasks')
+        .from('tasks')
         .insert([
             {
                 title: task.title,
@@ -109,7 +109,7 @@ export const updateTask = async (id: string, updates: Partial<Task>) => {
 
     const { data, error } = await supabase
         //aqui cambiar a task si cambiamos de base de datos, por que choca con la vieja
-        .from('crm_tasks')
+        .from('tasks')
         .update(dbUpdates)
         .eq('id', id)
         .select()
@@ -121,7 +121,7 @@ export const updateTask = async (id: string, updates: Partial<Task>) => {
 export const deleteTask = async (id: string) => {
     const { error } = await supabase
         //aqui cambiar a task si cambiamos de base de datos, por que choca con la vieja
-        .from('crm_tasks')
+        .from('tasks')
         .delete()
         .eq('id', id)
 
@@ -131,7 +131,7 @@ export const deleteTask = async (id: string) => {
 export const deleteCompletedTasks = async (companyId: string) => {
     const { error } = await supabase
         //aqui cambiar a task si cambiamos de base de datos, por que choca con la vieja
-        .from('crm_tasks')
+        .from('tasks')
         .delete()
         .eq('empresa_id', companyId)
         .eq('status', 'completed')

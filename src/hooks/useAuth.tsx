@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { supabase } from '@/supabase/client'
-import { login as authLogin, logout as authLogout, register as authRegister } from '@/supabase/auth'
+import { login as authLogin, logout as authLogout, register as authRegister, updateEmail as authUpdateEmail } from '@/supabase/auth'
 import { createUsuario, getUsuarioById } from '@/supabase/services/usuarios'
 import { createEmpresa, getEmpresasByUsuario, leaveCompany } from '@/supabase/services/empresa'
 import { toast } from 'sonner'
@@ -9,6 +9,8 @@ export interface User {
     id: string
     email: string
     businessName: string
+    recoveryEmail?: string | null
+    accountType: 'owner' | 'employee'
 }
 
 export interface Company {
@@ -29,11 +31,15 @@ interface AuthContextType {
     setCurrentCompanyId: (id: string) => void
     setCompanies: React.Dispatch<React.SetStateAction<Company[]>>
     login: (email: string, password: string) => Promise<void>
-    register: (email: string, password: string, businessName: string) => Promise<void>
+    register: (email: string, password: string, businessName: string, accountType?: 'owner' | 'employee', userName?: string) => Promise<void>
     logout: () => Promise<void>
     fetchCompanies: () => Promise<Company[]>
     leaveCompanyHandler: (companyId: string) => Promise<void>
     resetPassword: (email: string) => Promise<void>
+    resetPasswordByRecoveryEmail: (recoveryEmail: string) => Promise<void>
+    updateEmail: (newEmail: string) => Promise<void>
+    updateRecoveryEmail: (recoveryEmail: string) => Promise<void>
+    upgradeToOwner: (businessName: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
@@ -132,6 +138,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 toast.info('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.', { duration: 5000 })
             }
 
+            // Cuando el usuario confirma el cambio de email desde el link recibido
+            if (event === 'EMAIL_CHANGE' && session?.user?.email) {
+                console.log('[AUTH] Email confirmado y actualizado:', session.user.email)
+                setUser(prev => prev ? { ...prev, email: session.user!.email! } : prev)
+                toast.success('¡Correo actualizado correctamente!')
+            }
+
+            // Actualizar usuario si cambia el objeto de sesión (por meta_data etc)
+            if (event === 'USER_UPDATED' && session?.user) {
+                setUser(prev => prev ? { ...prev, email: session.user!.email! } : prev)
+            }
+
             setIsLoading(false)
         })
 
@@ -148,7 +166,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 ownerId: e.usuario_id,
                 createdAt: new Date(e.created_at),
                 role: e.role,
-                logo: e.logo_url || undefined
+                logo: e.logo_url || undefined,
+                codigoEmpresa: e.codigo_empresa || undefined
             }))
             setCompanies(uiCompanies)
 
@@ -176,10 +195,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 console.log('[LOGIN] usuario no encontrado en tabla usuarios, intentando crear...')
 
                 try {
+                    // Leer metadata guardada durante el registro
+                    const meta = authUser.user_metadata || {}
                     row = await createUsuario({
                         id: authUser.id,
                         email: authUser.email || email,
-                        nombre: authUser.email?.split('@')[0] || 'Usuario'
+                        nombre: meta.user_name || meta.business_name || authUser.email?.split('@')[0] || 'Usuario',
+                        account_type: meta.account_type || 'owner'
                     })
                 } catch (createErr: any) {
                     console.error('[LOGIN] Error creando usuario:', createErr)
@@ -225,9 +247,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
 
             console.log('[LOGIN] fila usuarios', row)
-            const newUser: User = { id: row.id, email: row.email, businessName: row.nombre }
-            setUser(newUser)
+            const newUser: User = {
+                id: row.id,
+                email: row.email,
+                businessName: row.nombre,
+                recoveryEmail: row.recovery_email,
+                accountType: row.account_type || 'owner'
+            }
 
+            // Cargar empresas ANTES de setUser para que ambos estados se actualicen juntos
+            // y React no renderice un estado intermedio con user set pero companies vacío
             const empresas = await getEmpresasByUsuario(authUser.id)
             const uiCompanies = empresas.map((e: any) => ({
                 id: e.id,
@@ -235,14 +264,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 ownerId: e.usuario_id,
                 createdAt: new Date(e.created_at),
                 role: e.role,
-                logo: e.logo_url || undefined
+                logo: e.logo_url || undefined,
+                codigoEmpresa: e.codigo_empresa || undefined
             }))
-            setCompanies(uiCompanies)
-            if (uiCompanies.length > 0) {
-                setCurrentCompanyIdState(uiCompanies[0].id)
-            }
 
-            if (uiCompanies.length === 0) {
+            if (uiCompanies.length === 0 && (!row.account_type || row.account_type === 'owner')) {
+                // Crear empresa automática si es owner sin empresa
                 console.log('[LOGIN] No se encontraron empresas; creando empresa inicial')
                 try {
                     const empresaCreada = await createEmpresa({ nombre_empresa: row.nombre, usuario_id: authUser.id })
@@ -254,10 +281,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                         createdAt: new Date(empresaCreada.created_at),
                         role: 'owner'
                     }
+                    // Setear user + companies juntos para evitar render intermedio
+                    setUser(newUser)
                     setCompanies([nuevaCompany])
                     setCurrentCompanyIdState(nuevaCompany.id)
                 } catch (err: any) {
                     console.error('[LOGIN] Error creando empresa inicial en login', err)
+                    // Setear user igualmente para que llegue a /create-empresa
+                    setUser(newUser)
+                    setCompanies([])
+                    toast.error('No se pudo crear tu empresa automáticamente. Crea una desde la pantalla de configuración.', { duration: 7000 })
+                }
+            } else {
+                // Setear user + companies juntos en el mismo batch de React
+                setUser(newUser)
+                setCompanies(uiCompanies)
+                if (uiCompanies.length > 0) {
+                    setCurrentCompanyIdState(uiCompanies[0].id)
+                } else {
+                    console.log('[LOGIN] Usuario employee sin empresas — redirigir a /join-crm')
                 }
             }
 
@@ -275,10 +317,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }
 
-    const register = async (email: string, password: string, businessName: string) => {
+    const register = async (email: string, password: string, businessName: string, accountType: 'owner' | 'employee' = 'owner', userName?: string) => {
         try {
-            console.log('[REGISTER] iniciando registro para', email)
-            const authUser = await authRegister(email, password)
+            console.log('[REGISTER] iniciando registro para', email, 'tipo:', accountType)
+            const authUser = await authRegister(email, password, {
+                account_type: accountType,
+                business_name: businessName,
+                user_name: userName || businessName
+            })
             console.log('[REGISTER] authUser recibido', authUser)
 
             const { data: sessionData } = await supabase.auth.getSession()
@@ -291,23 +337,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 return
             }
 
-            const row = await createUsuario({ id: authUser.id, email, nombre: businessName })
+            // Para owner: userName es el nombre personal, businessName es el nombre de la empresa
+            // Para employee: businessName ya es el nombre personal
+            const nombreUsuario = accountType === 'owner' ? (userName || businessName) : businessName
+            const row = await createUsuario({ id: authUser.id, email, nombre: nombreUsuario, account_type: accountType })
             console.log('[REGISTER] fila insertada usuarios', row)
 
-            const empresa = await createEmpresa({ nombre_empresa: businessName, usuario_id: authUser.id })
-            console.log('[REGISTER] empresa creada', empresa)
+            if (accountType === 'owner') {
+                const empresa = await createEmpresa({ nombre_empresa: businessName, usuario_id: authUser.id })
+                console.log('[REGISTER] empresa creada', empresa)
 
-            const newUser: User = { id: row.id, email: row.email, businessName: row.nombre }
-            setUser(newUser)
+                const newUser: User = {
+                    id: row.id,
+                    email: row.email,
+                    businessName: row.nombre ?? '',
+                    recoveryEmail: row.recovery_email,
+                    accountType: 'owner'
+                }
+                setUser(newUser)
 
-            const uiCompany = {
-                id: empresa.id,
-                name: empresa.nombre_empresa,
-                ownerId: empresa.usuario_id,
-                createdAt: new Date(empresa.created_at)
+                const uiCompany = {
+                    id: empresa.id,
+                    name: empresa.nombre_empresa,
+                    ownerId: empresa.usuario_id,
+                    createdAt: new Date(empresa.created_at)
+                }
+                setCompanies([uiCompany])
+                setCurrentCompanyIdState(uiCompany.id)
+            } else {
+                // Employee: no crear empresa
+                const newUser: User = {
+                    id: row.id,
+                    email: row.email,
+                    businessName: row.nombre ?? '',
+                    recoveryEmail: row.recovery_email,
+                    accountType: 'employee'
+                }
+                setUser(newUser)
+                // Sin empresa — la UI redirigirá a /join-crm
             }
-            setCompanies([uiCompany])
-            setCurrentCompanyIdState(uiCompany.id)
+
             toast.success('¡Cuenta creada exitosamente!')
         } catch (e: any) {
             console.error('[REGISTER] error', e)
@@ -343,6 +412,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             localStorage.removeItem('supabase.auth.token')
             localStorage.removeItem('current-user')
 
+            // Limpiar cache de pipelines para que al re-logear se lea de la BD
+            const keysToRemove: string[] = []
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i)
+                if (key && key.startsWith('pipelines-')) {
+                    keysToRemove.push(key)
+                }
+            }
+            keysToRemove.forEach(key => localStorage.removeItem(key))
+
             toast.success('¡Sesión cerrada!')
         }
     }
@@ -368,6 +447,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }
 
+    const updateEmail = async (newEmail: string) => {
+        try {
+            await authUpdateEmail(newEmail)
+            // Actualizar también en la tabla usuarios
+            if (user?.id) {
+                await supabase
+                    .from('usuarios')
+                    .update({ email: newEmail })
+                    .eq('id', user.id)
+            }
+            toast.info(
+                'Se envió un link de confirmación al nuevo correo. Haz clic en él para completar el cambio.',
+                { duration: 8000 }
+            )
+        } catch (e: any) {
+            console.error('[AUTH] Error actualizando email:', e)
+            toast.error(e.message || 'Error al cambiar el correo')
+            throw e
+        }
+    }
+
+    const updateRecoveryEmail = async (newRecoveryEmail: string) => {
+        if (!user?.id) return
+        try {
+            const trimmedEmail = newRecoveryEmail.toLowerCase().trim()
+            if (trimmedEmail === user.email.toLowerCase()) {
+                throw new Error('El correo alternativo no puede ser el mismo que el principal.')
+            }
+
+            const { data, error } = await supabase
+                .from('usuarios')
+                .update({ recovery_email: trimmedEmail || null })
+                .eq('id', user.id)
+                .select()
+                .single()
+
+            if (error) throw error
+
+            setUser(prev => prev ? { ...prev, recoveryEmail: data.recovery_email } : prev)
+            toast.success('Correo alternativo actualizado correctamente.')
+        } catch (e: any) {
+            console.error('[AUTH] Error actualizando recovery email:', e)
+            toast.error(e.message || 'Error al actualizar el correo alternativo')
+            throw e
+        }
+    }
+
     const resetPassword = async (email: string) => {
         // No activamos isLoading global
         // Obtenemos la URL actual para asegurar que la redirección vuelva a este mismo entorno (local o prod)
@@ -387,6 +513,86 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }
 
+    const resetPasswordByRecoveryEmail = async (recoveryEmail: string) => {
+        try {
+            console.log('[AUTH] Solicitando recuperación por correo alternativo:', recoveryEmail)
+            const redirectUrl = `${window.location.origin}/update-password`
+
+            // Usamos fetch directo para evadir errores internos del wrapper de Supabase (invoke)
+            // que a veces fallan con errores de Logflare/BigQuery
+            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+            const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+
+            const response = await fetch(`${supabaseUrl}/functions/v1/send-recovery-email`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${supabaseAnonKey}`,
+                    'apikey': supabaseAnonKey
+                },
+                body: JSON.stringify({
+                    recovery_email: recoveryEmail,
+                    redirect_to: redirectUrl
+                })
+            })
+
+            const data = await response.json()
+
+            if (!response.ok) {
+                throw new Error(data.error || data.message || `Error del servidor: ${response.status}`)
+            }
+
+            if (data.success) {
+                toast.success(data.message || 'Enlace de recuperación enviado.')
+            } else {
+                throw new Error(data.error || 'Error al procesar la solicitud')
+            }
+        } catch (error: any) {
+            console.error('Error in resetPasswordByRecoveryEmail:', error)
+            toast.error(error.message || 'Error enviando recuperación al correo alternativo')
+            throw error
+        }
+    }
+
+    const upgradeToOwner = async (businessName: string) => {
+        if (!user) throw new Error('No autenticado')
+
+        try {
+            // 1. Crear empresa para el usuario
+            const empresa = await createEmpresa({
+                nombre_empresa: businessName,
+                usuario_id: user.id
+            })
+
+            // 2. Actualizar account_type en tabla usuarios
+            const { error: updateErr } = await supabase
+                .from('usuarios')
+                .update({ account_type: 'owner' })
+                .eq('id', user.id)
+
+            if (updateErr) throw updateErr
+
+            // 3. Actualizar estado local
+            setUser(prev => prev ? { ...prev, accountType: 'owner' } : prev)
+
+            const newCompany: Company = {
+                id: empresa.id,
+                name: empresa.nombre_empresa,
+                ownerId: empresa.usuario_id,
+                createdAt: new Date(empresa.created_at),
+                role: 'owner'
+            }
+            setCompanies(prev => [newCompany, ...prev])
+            setCurrentCompanyIdState(newCompany.id)
+
+            toast.success('¡Empresa creada! Ahora eres propietario.')
+        } catch (e: any) {
+            console.error('[AUTH] Error upgrading to owner:', e)
+            toast.error(e.message || 'Error al crear empresa')
+            throw e
+        }
+    }
+
     const value: AuthContextType = {
         user,
         companies,
@@ -400,7 +606,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
         fetchCompanies,
         leaveCompanyHandler,
-        resetPassword
+        resetPassword,
+        resetPasswordByRecoveryEmail,
+        updateEmail,
+        updateRecoveryEmail,
+        upgradeToOwner
     }
 
     return (

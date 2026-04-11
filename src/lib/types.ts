@@ -2,6 +2,7 @@ export type Priority = 'low' | 'medium' | 'high'
 export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'proposal' | 'negotiation' | 'won' | 'lost'
 export type Channel = 'whatsapp' | 'instagram' | 'facebook' | 'email' | 'phone'
 export type PipelineType = 'sales' | 'support' | 'administrative' | string
+export type AssignmentType = 'manual' | 'round_robin' | 'random'
 
 export interface Tag {
   id: string
@@ -108,6 +109,8 @@ export interface Lead {
   archived?: boolean
   archivedAt?: Date
   customFields?: Record<string, any>
+  stageEnteredAt?: Date | null
+  slaCustomLimitMinutes?: number | null
 }
 
 export interface Stage {
@@ -116,6 +119,8 @@ export interface Stage {
   order: number
   color: string
   pipelineType: PipelineType
+  is_sla_enabled?: boolean
+  sla_limit_minutes?: number | null
 }
 
 export interface Pipeline {
@@ -123,6 +128,8 @@ export interface Pipeline {
   name: string
   type: PipelineType
   stages: Stage[]
+  assignment_type?: AssignmentType
+  order?: number
 }
 
 export type RolePermission =
@@ -142,6 +149,7 @@ export interface Role {
   name: string
   permissions: RolePermission[]
   color: string
+  isSystem?: boolean
 }
 
 export interface TeamMember {
@@ -173,7 +181,7 @@ export interface Appointment {
 
 export interface Notification {
   id: string
-  type: 'task' | 'message' | 'appointment' | 'stage_change'
+  type: 'task' | 'message' | 'appointment' | 'stage_change' | 'team_invitation'
   title: string
   message: string
   timestamp: Date
@@ -182,16 +190,68 @@ export interface Notification {
   actionUrl?: string
 }
 
+// Trigger type defines what event activates the rule
+export type AutomationTriggerType = 'message_received' | 'tag_added' | 'stage_change' | 'time_in_stage'
+
+// Trigger config shapes (JSONB from DB)
+export interface TriggerConfigMessageReceived {
+  from_stage_id?: string | null // null = any stage
+}
+export interface TriggerConfigTagAdded {
+  tag_name: string
+  from_stage_id?: string | null
+}
+export interface TriggerConfigStageChange {
+  from_stage_id: string // entering this stage triggers the rule
+}
+export interface TriggerConfigTimeInStage {
+  stage_id: string
+  days: number
+}
+
+// Action config (currently only move_stage)
+export interface ActionConfigMoveStage {
+  target_stage_id: string
+  target_pipeline_id?: string | null
+}
+
 export interface AutomationRule {
   id: string
-  name: string
-  trigger: 'tag_added' | 'stage_change' | 'time_based'
-  condition: any
-  actions: Array<{
-    type: 'send_email' | 'send_sms' | 'create_task' | 'move_stage'
-    config: any
-  }>
+  empresa_id: string
+  pipeline_id?: string | null
+  nombre: string
   enabled: boolean
+  trigger_type: AutomationTriggerType
+  trigger_config: TriggerConfigMessageReceived | TriggerConfigTagAdded | TriggerConfigStageChange | TriggerConfigTimeInStage
+  action_type: 'move_stage'
+  action_config: ActionConfigMoveStage
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateAutomationRuleDTO {
+  empresa_id: string
+  pipeline_id?: string | null
+  nombre: string
+  enabled?: boolean
+  trigger_type: AutomationTriggerType
+  trigger_config: Record<string, any>
+  action_type?: 'move_stage'
+  action_config: Record<string, any>
+}
+
+export interface AutomationLog {
+  id: string
+  rule_id: string
+  lead_id: string
+  empresa_id: string
+  trigger_type: AutomationTriggerType
+  action_taken: {
+    from_stage_id?: string
+    to_stage_id: string
+    rule_name: string
+  }
+  created_at: string
 }
 
 export interface Note {
@@ -239,6 +299,8 @@ export interface UpdateLeadDTO {
   empresa?: string
   archived?: boolean
   archived_at?: string | null
+  stage_entered_at?: string | null
+  sla_custom_limit_minutes?: number | null
 }
 
 // Lead como viene de la BD (snake_case)
@@ -265,6 +327,8 @@ export interface LeadDB {
   last_message_sender?: string
   last_message_content?: string
   preferred_instance_id?: string | null
+  stage_entered_at?: string | null
+  sla_custom_limit_minutes?: number | null
 }
 
 // ============================================================
@@ -333,6 +397,11 @@ export interface EmpresaInstanciaDB {
   api_url?: string | null
   label?: string | null
   active: boolean
+  auto_create_lead?: boolean
+  default_pipeline_id?: string | null
+  default_stage_id?: string | null
+  default_lead_name?: string | null
+  include_first_message?: boolean
   created_at?: string
   updated_at?: string
 }
@@ -352,9 +421,11 @@ export interface UpdateEmpresaDTO {
 export interface EmpresaDB {
   id: string
   nombre_empresa: string
+  usuario_id: string
   logo_url?: string
+  codigo_empresa?: string
   created_at: string
-  created_by: string
+  created_by?: string
 }
 
 // ----- Empresa Miembros -----
@@ -366,13 +437,23 @@ export interface EmpresaMiembro {
   usuario_id: string | null
   email: string
   role: MemberRole
+  role_id?: string | null
   created_at: string
+  // Joined fields (from roles table)
+  roles?: {
+    id: string
+    name: string
+    permissions: RolePermission[]
+    color: string
+    is_system: boolean
+  } | null
 }
 
 export interface UpdateMemberRoleDTO {
   usuario_id?: string
   email: string
   role: MemberRole
+  role_id?: string | null
 }
 
 // ----- Pipeline DTOs -----
@@ -387,6 +468,8 @@ export interface PipelineDB {
   nombre: string
   empresa_id: string
   tipo?: string
+  assignment_type?: AssignmentType
+  last_assigned_persona_id?: string | null
   created_at: string
 }
 
@@ -396,6 +479,8 @@ export interface CreateEtapaDTO {
   pipeline_id: string
   orden: number
   color?: string
+  is_sla_enabled?: boolean
+  sla_limit_minutes?: number | null
 }
 
 export interface EtapaDB {
@@ -405,6 +490,8 @@ export interface EtapaDB {
   orden: number
   color?: string
   created_at: string
+  is_sla_enabled?: boolean
+  sla_limit_minutes?: number | null
 }
 
 // ----- Equipo DTOs -----
@@ -421,12 +508,33 @@ export interface CreateEquipoDTO {
 }
 
 // ----- Usuario/Persona DTOs -----
+export type AccountType = 'owner' | 'employee'
+
 export interface UsuarioDB {
   id: string
   email: string
   nombre?: string
   avatar_url?: string
+  recovery_email?: string | null
+  account_type: AccountType
   created_at: string
+}
+
+export type SolicitudStatus = 'pending' | 'approved' | 'rejected'
+
+export interface SolicitudUnionDB {
+  id: string
+  solicitante_id: string
+  solicitante_email: string
+  solicitante_nombre: string | null
+  mensaje: string | null
+  empresa_id: string
+  status: SolicitudStatus
+  role_asignado: string
+  created_at: string
+  responded_at: string | null
+  responded_by: string | null
+  empresa?: { nombre_empresa: string; logo_url?: string }
 }
 
 export interface PersonaDB {
@@ -469,3 +577,39 @@ export interface SearchLeadsOptions {
 }
 
 
+// ----- Lead History -----
+export interface LeadHistory {
+  id: string
+  lead_id: string
+  usuario_id: string
+  usuario_nombre?: string // Join helper
+  accion: 'creacion' | 'asignacion' | 'reasignacion' | 'etapa_cambio' | 'prioridad_cambio' | string
+  detalle: string
+  metadata?: any
+  created_at: string
+}
+
+export interface CreateLeadHistoryDTO {
+  lead_id: string
+  usuario_id: string
+  accion: string
+  detalle: string
+  metadata?: any
+}
+
+// ----- Landing Tokens -----
+export interface LandingTokenDB {
+  id: string
+  empresa_id: string
+  pipeline_id: string
+  etapa_id: string
+  token: string
+  nombre: string
+  active: boolean
+  prioridad_default: string
+  asignado_a: string
+  empresa_label: string
+  metadata?: Record<string, unknown>
+  created_at?: string
+  updated_at?: string
+}

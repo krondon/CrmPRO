@@ -1,11 +1,10 @@
 import { useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { House, Kanban, ChartBar, CalendarBlank, Users, Gear, Bell, SignOut, Microphone, Buildings, ChatCircleDots, AddressBook } from '@phosphor-icons/react'
+import { House, Kanban, ChartBar, CalendarBlank, Users, Gear, Bell, SignOut, Microphone, Buildings, ChatCircleDots, AddressBook, ClockCounterClockwise } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
-import { VoiceRecorder } from './VoiceRecorder'
 import { useTranslation } from '@/lib/i18n'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Company } from './CompanyManagement'
@@ -31,7 +30,6 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
   const t = useTranslation('es')
   const location = useLocation()
   const navigate = useNavigate()
-  const [showVoiceRecorder, setShowVoiceRecorder] = useState(false)
   const [showCompanySelector, setShowCompanySelector] = useState(false)
 
   const unreadCount = notificationCount || 0
@@ -57,6 +55,7 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
     { id: 'pipeline', icon: Kanban, label: t.nav.pipeline },
     { id: 'chats', icon: ChatCircleDots, label: 'Chats' },
     { id: 'contacts', icon: AddressBook, label: 'Contactos' },
+    { id: 'historial', icon: ClockCounterClockwise, label: 'Historial' },
     { id: 'analytics', icon: ChartBar, label: t.nav.analytics },
     { id: 'calendar', icon: CalendarBlank, label: t.nav.calendar },
     { id: 'team', icon: Users, label: t.nav.team },
@@ -80,11 +79,11 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
                     </AvatarFallback>
                   )}
                 </Avatar>
-                <div className="flex flex-col min-w-0">
-                  <h1 className="text-xl font-black text-foreground truncate leading-tight">
+                <div className="flex flex-col min-w-0 flex-1">
+                  <h1 className="text-lg font-bold text-foreground truncate leading-tight tracking-tight">
                     {activeCompany?.name || t.app.title}
                   </h1>
-                  <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground/60 leading-tight">
+                  <p className="text-[9px] uppercase tracking-[0.2em] font-bold text-muted-foreground/50 leading-tight mt-0.5">
                     {activeCompany ? 'Panel de Control' : t.app.subtitle}
                   </p>
                 </div>
@@ -135,7 +134,7 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
                           <span className="font-medium">{c.name}</span>
                           {c.ownerId !== user?.id && (
                             <Badge variant="secondary" className="text-[9px] h-4 bg-primary/10 text-primary border-none uppercase font-extrabold px-1.5 leading-none tracking-tighter">
-                              Invitado
+                              {c.role === 'admin' ? 'Admin' : c.role === 'owner' ? 'Owner' : 'Colaborador'}
                             </Badge>
                           )}
                         </div>
@@ -182,13 +181,6 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
         </nav>
 
         <div className="p-4 border-t border-border/50 space-y-1.5 flex-none bg-muted/10">
-          <button
-            onClick={() => setShowVoiceRecorder(true)}
-            className="w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-semibold text-foreground/70 hover:bg-primary/5 hover:text-primary transition-all group"
-          >
-            <Microphone size={20} weight="bold" className="text-muted-foreground group-hover:text-primary" />
-            <span>{t.nav.voice}</span>
-          </button>
 
           <NavLink
             to={getPath('notifications')}
@@ -274,25 +266,8 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
               </NavLink>
             )
           })}
-
-          <button
-            onClick={() => setShowVoiceRecorder(true)}
-            className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg text-xs font-medium text-primary bg-primary/10 min-w-fit"
-          >
-            <Microphone size={20} weight="fill" />
-            <span className="text-[9px]">{t.nav.voice}</span>
-          </button>
         </nav>
       </div>
-
-      <Dialog open={showVoiceRecorder} onOpenChange={setShowVoiceRecorder}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t.nav.voice}</DialogTitle>
-          </DialogHeader>
-          <VoiceRecorder onClose={() => setShowVoiceRecorder(false)} />
-        </DialogContent>
-      </Dialog>
 
       {/* Dialog para selector de empresa en móvil */}
       <Dialog open={showCompanySelector} onOpenChange={setShowCompanySelector}>
@@ -336,7 +311,7 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
                     'text-[9px] border-none uppercase font-extrabold px-1.5 h-4 tracking-tighter shrink-0',
                     currentCompanyId === c.id ? 'bg-white/20 text-white' : 'bg-primary/10 text-primary'
                   )}>
-                    Invitado
+                    {c.role === 'admin' ? 'Admin' : c.role === 'owner' ? 'Owner' : 'Colaborador'}
                   </Badge>
                 )}
               </button>

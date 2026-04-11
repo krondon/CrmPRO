@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Plus, Upload, Trash, Building, Check, Eye, Pencil, X } from '@phosphor-icons/react'
+import { Plus, Upload, Trash, Building, Check, Eye, Pencil, X, Copy } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { createEmpresa, deleteEmpresa, updateEmpresaLogo, updateEmpresa } from '@/supabase/services/empresa'
@@ -20,6 +20,7 @@ export interface Company {
   ownerId: string
   createdAt: Date
   role?: string // 'owner' | 'admin' | 'viewer'
+  codigoEmpresa?: string
 }
 
 interface CompanyManagementProps {
@@ -195,9 +196,9 @@ export function CompanyManagement({ currentUserId, currentCompanyId, onCompanyCh
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <Eye size={20} className="text-primary" />
-            <h2 className="text-xl font-semibold">Empresa Actual (Modo Invitado)</h2>
+            <h2 className="text-xl font-bold tracking-tight">Empresa Actual (Colaborador)</h2>
           </div>
-          <Card className="ring-2 ring-primary bg-primary/5">
+          <Card className="ring-2 ring-primary/60 bg-gradient-to-r from-primary/5 to-transparent rounded-xl border-0 shadow-sm">
             <CardContent className="p-4">
               <div className="flex items-center gap-4">
                 <div className="relative">
@@ -223,7 +224,7 @@ export function CompanyManagement({ currentUserId, currentCompanyId, onCompanyCh
                     <div className="flex items-center gap-2 flex-wrap">
                       <Badge variant="secondary" className="h-5 whitespace-nowrap">
                         <Eye size={12} className="mr-1" />
-                        Invitado
+                        Colaborador
                       </Badge>
                       <Badge variant="outline" className="h-5 capitalize whitespace-nowrap">
                         {currentCompany?.role || 'viewer'}
@@ -243,9 +244,12 @@ export function CompanyManagement({ currentUserId, currentCompanyId, onCompanyCh
       {/* Sección de mis empresas */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">
-            {isViewingInvitedCompany ? 'Mis Empresas' : 'Gestión de Empresas'}
-          </h2>
+          <div className="flex items-center gap-3">
+            <div className="h-7 w-1.5 rounded-full bg-gradient-to-b from-primary via-primary/60 to-primary/20" />
+            <h2 className="text-xl font-bold tracking-tight">
+              {isViewingInvitedCompany ? 'Mis Empresas' : 'Gestión de Empresas'}
+            </h2>
+          </div>
           <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
             <DialogTrigger asChild>
               <Button>
@@ -317,12 +321,12 @@ export function CompanyManagement({ currentUserId, currentCompanyId, onCompanyCh
 
         <div className="grid gap-4">
           {ownedCompanies.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center border rounded-lg bg-muted/10 border-dashed">
-              <div className="bg-background p-4 rounded-full mb-4 shadow-sm">
-                <Building size={40} className="text-muted-foreground" />
+            <div className="flex flex-col items-center justify-center py-14 text-center border rounded-xl bg-muted/5 border-dashed border-border/30">
+              <div className="bg-gradient-to-br from-primary/10 to-primary/5 p-4 rounded-full mb-4 shadow-sm">
+                <Building size={36} className="text-primary/40" />
               </div>
-              <h3 className="text-lg font-semibold mb-2">No tienes empresas propias aún</h3>
-              <p className="text-muted-foreground max-w-sm mb-6">
+              <h3 className="text-lg font-bold mb-2 tracking-tight">No tienes empresas propias aún</h3>
+              <p className="text-muted-foreground/70 max-w-sm mb-6 text-sm font-medium">
                 Comienza creando tu primera empresa para gestionar tus proyectos y equipo.
               </p>
               <Button onClick={() => setShowCreateDialog(true)}>
@@ -332,7 +336,7 @@ export function CompanyManagement({ currentUserId, currentCompanyId, onCompanyCh
             </div>
           ) : (
             ownedCompanies.map((company) => (
-              <Card key={company.id} className={`group ${company.id === currentCompanyId ? 'ring-2 ring-primary' : ''}`}>
+              <Card key={company.id} className={`group overflow-hidden rounded-xl border shadow-sm hover:shadow-md transition-all duration-200 ${company.id === currentCompanyId ? 'ring-2 ring-primary/60 bg-gradient-to-r from-primary/5 to-transparent border-primary/20' : 'border-border/30'}`}>
                 <CardContent className="p-4">
                   <div className="flex items-center gap-4">
                     <div className="relative">
@@ -431,6 +435,25 @@ export function CompanyManagement({ currentUserId, currentCompanyId, onCompanyCh
                       <p className="text-xs text-muted-foreground mt-1">
                         Creada el {new Date(company.createdAt).toLocaleDateString('es-ES')}
                       </p>
+                      {company.role === 'owner' && company.codigoEmpresa && (
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <span className="text-xs text-muted-foreground">Código:</span>
+                          <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded select-all">
+                            {company.codigoEmpresa}
+                          </code>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5"
+                            onClick={() => {
+                              navigator.clipboard.writeText(company.codigoEmpresa!)
+                              toast.success('Código copiado')
+                            }}
+                          >
+                            <Copy size={12} />
+                          </Button>
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex gap-2">
@@ -467,10 +490,10 @@ export function CompanyManagement({ currentUserId, currentCompanyId, onCompanyCh
       {/* Sección de otras empresas invitadas (si hay más de una) */}
       {invitedCompanies.length > 0 && !isViewingInvitedCompany && (
         <div className="space-y-4">
-          <h2 className="text-xl font-semibold text-muted-foreground">Empresas Invitadas</h2>
+          <h2 className="text-xl font-bold text-muted-foreground tracking-tight">Empresas como Colaborador</h2>
           <div className="grid gap-4">
             {invitedCompanies.map((company) => (
-              <Card key={company.id} className="opacity-80 hover:opacity-100 transition-opacity">
+              <Card key={company.id} className="opacity-80 hover:opacity-100 transition-all duration-200 rounded-xl border border-border/30 shadow-sm hover:shadow-md">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-4">
                     <Avatar className="h-12 w-12">
@@ -497,7 +520,7 @@ export function CompanyManagement({ currentUserId, currentCompanyId, onCompanyCh
                       size="sm"
                       onClick={() => {
                         onCompanyChange(company.id)
-                        toast.success(`Entrando a ${company.name} como invitado`)
+                        toast.success(`Entrando a ${company.name} como colaborador`)
                       }}
                     >
                       <Eye size={14} className="mr-1" />

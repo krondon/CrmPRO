@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -6,8 +6,51 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
-import { CircleNotch, CheckCircle } from '@phosphor-icons/react'
+import { CircleNotch, CheckCircle, CaretDown, CaretUp, ShieldCheck } from '@phosphor-icons/react'
 import { LoadingScreen } from '@/components/ui/LoadingScreen'
+import { useAuth } from '@/hooks/useAuth'
+
+// --- Rate Limiting Config ---
+// Intentos permitidos por ronda: ronda 0 = 3, ronda 1 = 2, ronda 2 = 1, ronda 3+ = bloqueado permanente
+const ATTEMPTS_PER_ROUND = [3, 2, 1]
+const LOCKOUT_DURATION_MS = 5 * 60 * 1000 // 5 minutos
+const MAX_ROUNDS = ATTEMPTS_PER_ROUND.length // después de 3 rondas → bloqueo permanente
+
+interface LoginAttemptData {
+  count: number
+  round: number // 0, 1, 2, 3 (3 = permanente)
+  lockedUntil: number | null
+}
+
+function getLoginAttempts(email: string): LoginAttemptData {
+  try {
+    const raw = localStorage.getItem(`login-attempts-${email.toLowerCase().trim()}`)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      // Migrar datos antiguos que no tienen round
+      if (parsed.round === undefined) parsed.round = 0
+      return parsed
+    }
+  } catch { /* ignore */ }
+  return { count: 0, round: 0, lockedUntil: null }
+}
+
+function setLoginAttempts(email: string, data: LoginAttemptData): void {
+  try {
+    localStorage.setItem(`login-attempts-${email.toLowerCase().trim()}`, JSON.stringify(data))
+  } catch { /* ignore */ }
+}
+
+function clearLoginAttempts(email: string): void {
+  try {
+    localStorage.removeItem(`login-attempts-${email.toLowerCase().trim()}`)
+  } catch { /* ignore */ }
+}
+
+function getMaxAttemptsForRound(round: number): number {
+  if (round >= MAX_ROUNDS) return 0
+  return ATTEMPTS_PER_ROUND[round]
+}
 
 interface LoginViewProps {
   onLogin: (email: string, password: string) => Promise<void>
@@ -23,7 +66,109 @@ function LoginView({ onLogin, onSwitchToRegister, onForgotPassword }: LoginViewP
   const [isLoading, setIsLoading] = useState(false)
   const [isResetting, setIsResetting] = useState(false) // Toggle mode
   const [isSuccess, setIsSuccess] = useState(false) // Success mode
+  const [showMoreOptions, setShowMoreOptions] = useState(false)
+  const [recoveryEmail, setRecoveryEmail] = useState('')
+  const [isRecoveryLoading, setIsRecoveryLoading] = useState(false)
+  const [recoverySuccessMsg, setRecoverySuccessMsg] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  // --- Rate Limiting State ---
+  const [isLocked, setIsLocked] = useState(false)
+  const [isPermanentlyLocked, setIsPermanentlyLocked] = useState(false)
+  const [lockoutRemaining, setLockoutRemaining] = useState(0) // ms restantes
+  const lockoutTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Limpia el intervalo al desmontar
+  useEffect(() => {
+    return () => {
+      if (lockoutTimerRef.current) clearInterval(lockoutTimerRef.current)
+    }
+  }, [])
+
+  // Inicia un countdown visual
+  const startLockoutCountdown = useCallback((lockedUntil: number, currentEmail?: string) => {
+    if (lockoutTimerRef.current) clearInterval(lockoutTimerRef.current)
+
+    const updateRemaining = () => {
+      const remaining = lockedUntil - Date.now()
+      if (remaining <= 0) {
+        setIsLocked(false)
+        setLockoutRemaining(0)
+        setErrorMessage(null)
+        if (lockoutTimerRef.current) clearInterval(lockoutTimerRef.current)
+
+        // Avanzar la ronda en localStorage al expirar
+        if (currentEmail) {
+          const data = getLoginAttempts(currentEmail)
+          if (data.lockedUntil && data.lockedUntil <= Date.now()) {
+            const nextRound = data.round + 1
+            if (nextRound >= MAX_ROUNDS) {
+              setLoginAttempts(currentEmail, { count: 0, round: nextRound, lockedUntil: null })
+              setIsPermanentlyLocked(true)
+              setIsLocked(true)
+            } else {
+              setLoginAttempts(currentEmail, { count: 0, round: nextRound, lockedUntil: null })
+            }
+          }
+        }
+      } else {
+        setIsLocked(true)
+        setLockoutRemaining(remaining)
+      }
+    }
+
+    updateRemaining()
+    lockoutTimerRef.current = setInterval(updateRemaining, 1000)
+  }, [])
+
+  // Verificar bloqueo cuando cambia el email
+  useEffect(() => {
+    if (!email || isResetting) {
+      setIsLocked(false)
+      setIsPermanentlyLocked(false)
+      setLockoutRemaining(0)
+      if (lockoutTimerRef.current) clearInterval(lockoutTimerRef.current)
+      return
+    }
+
+    const data = getLoginAttempts(email)
+
+    // Bloqueo permanente (ya pasó todas las rondas)
+    if (data.round >= MAX_ROUNDS) {
+      setIsPermanentlyLocked(true)
+      setIsLocked(true)
+      return
+    }
+
+    if (data.lockedUntil && data.lockedUntil > Date.now()) {
+      startLockoutCountdown(data.lockedUntil, email)
+    } else {
+      setIsLocked(false)
+      setIsPermanentlyLocked(false)
+      // Si expiró el bloqueo temporal, avanzar a la siguiente ronda
+      if (data.lockedUntil && data.lockedUntil <= Date.now()) {
+        const nextRound = data.round + 1
+        if (nextRound >= MAX_ROUNDS) {
+          // Ya no tiene más rondas → bloqueo permanente
+          setLoginAttempts(email, { count: 0, round: nextRound, lockedUntil: null })
+          setIsPermanentlyLocked(true)
+          setIsLocked(true)
+        } else {
+          // Avanzar a siguiente ronda con menos intentos
+          setLoginAttempts(email, { count: 0, round: nextRound, lockedUntil: null })
+        }
+      }
+    }
+  }, [email, isResetting, startLockoutCountdown])
+  const { resetPasswordByRecoveryEmail } = useAuth()
+
+  // Formatea milisegundos restantes a "M:SS"
+  const formatLockoutTime = (ms: number): string => {
+    const totalSeconds = Math.ceil(ms / 1000)
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -31,6 +176,41 @@ function LoginView({ onLogin, onSwitchToRegister, onForgotPassword }: LoginViewP
     if (!email || (!isResetting && !password)) {
       toast.error(t.messages.fillRequired)
       return
+    }
+
+    // Verificar bloqueo antes de intentar login
+    if (!isResetting) {
+      let data = getLoginAttempts(email)
+
+      // Si hay un lockout expirado, avanzar ronda ahora
+      if (data.lockedUntil && data.lockedUntil <= Date.now()) {
+        const nextRound = data.round + 1
+        if (nextRound >= MAX_ROUNDS) {
+          setLoginAttempts(email, { count: 0, round: nextRound, lockedUntil: null })
+          toast.error('Cuenta bloqueada. Usa "Olvidé mi contraseña" para recuperar el acceso.')
+          setIsPermanentlyLocked(true)
+          setIsLocked(true)
+          return
+        } else {
+          setLoginAttempts(email, { count: 0, round: nextRound, lockedUntil: null })
+          data = getLoginAttempts(email) // releer datos actualizados
+        }
+      }
+
+      // Bloqueo permanente
+      if (data.round >= MAX_ROUNDS) {
+        toast.error('Cuenta bloqueada. Usa "Olvidé mi contraseña" para recuperar el acceso.')
+        setIsPermanentlyLocked(true)
+        setIsLocked(true)
+        return
+      }
+      // Bloqueo temporal
+      if (data.lockedUntil && data.lockedUntil > Date.now()) {
+        const remaining = formatLockoutTime(data.lockedUntil - Date.now())
+        toast.error(`Cuenta bloqueada temporalmente. Intenta de nuevo en ${remaining}.`)
+        startLockoutCountdown(data.lockedUntil, email)
+        return
+      }
     }
 
     setIsLoading(true)
@@ -44,13 +224,48 @@ function LoginView({ onLogin, onSwitchToRegister, onForgotPassword }: LoginViewP
         }
       } else {
         await onLogin(email, password)
+        // Login exitoso: limpiar intentos
+        clearLoginAttempts(email)
         navigate('/dashboard')
       }
     } catch (error: any) {
       console.error('Login/Reset error:', error)
       const msg = error.message || 'Ha ocurrido un error. Inténtalo de nuevo.'
-      setErrorMessage(msg)
-      toast.error(msg)
+
+      // Solo contar intentos fallidos en modo login (no en reset password)
+      if (!isResetting) {
+        const data = getLoginAttempts(email)
+        const newCount = data.count + 1
+        const maxForRound = getMaxAttemptsForRound(data.round)
+
+        if (newCount >= maxForRound) {
+          const nextRound = data.round + 1
+          if (nextRound >= MAX_ROUNDS) {
+            // Bloqueo permanente
+            setLoginAttempts(email, { count: newCount, round: nextRound, lockedUntil: null })
+            setIsPermanentlyLocked(true)
+            setIsLocked(true)
+            setErrorMessage('Demasiados intentos fallidos. Debes usar "Olvidé mi contraseña" para recuperar el acceso.')
+            toast.error('Cuenta bloqueada. Usa la opción de recuperar contraseña.')
+          } else {
+            // Bloqueo temporal → avanzar ronda
+            const lockedUntil = Date.now() + LOCKOUT_DURATION_MS
+            setLoginAttempts(email, { count: newCount, round: data.round, lockedUntil })
+            startLockoutCountdown(lockedUntil, email)
+            const nextAttempts = getMaxAttemptsForRound(nextRound)
+            setErrorMessage(`Demasiados intentos. Bloqueado por 5 minutos. En el próximo intento tendrás ${nextAttempts} oportunidad${nextAttempts === 1 ? '' : 'es'}.`)
+            toast.error('Cuenta bloqueada temporalmente por múltiples intentos fallidos.')
+          }
+        } else {
+          setLoginAttempts(email, { count: newCount, round: data.round, lockedUntil: null })
+          const remaining = maxForRound - newCount
+          setErrorMessage(`${msg} (${remaining} intento${remaining === 1 ? '' : 's'} restante${remaining === 1 ? '' : 's'})`)
+          toast.error(msg)
+        }
+      } else {
+        setErrorMessage(msg)
+        toast.error(msg)
+      }
     } finally {
       setIsLoading(false)
     }
@@ -80,8 +295,12 @@ function LoginView({ onLogin, onSwitchToRegister, onForgotPassword }: LoginViewP
           </CardHeader>
           <CardContent className="text-center space-y-6">
             <p className="text-muted-foreground text-lg">
-              Hemos enviado un enlace de recuperación a <br />
-              <strong className="text-foreground">{email}</strong>
+              {recoverySuccessMsg ? recoverySuccessMsg : (
+                <>
+                  Hemos enviado un enlace de recuperación a <br />
+                  <strong className="text-foreground">{email}</strong>
+                </>
+              )}
             </p>
             <p className="text-sm text-muted-foreground">
               Revisa tu bandeja de entrada (y la carpeta de spam) para continuar con el proceso.
@@ -93,6 +312,8 @@ function LoginView({ onLogin, onSwitchToRegister, onForgotPassword }: LoginViewP
                 setIsSuccess(false)
                 setIsResetting(false)
                 setPassword('')
+                setRecoveryEmail('')
+                setRecoverySuccessMsg(null)
               }}
             >
               Volver a Iniciar Sesión
@@ -101,6 +322,29 @@ function LoginView({ onLogin, onSwitchToRegister, onForgotPassword }: LoginViewP
         </Card>
       </div>
     )
+  }
+
+  const handleRecoverySubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!recoveryEmail) {
+      toast.error('Ingresa tu correo alternativo')
+      return
+    }
+
+    setIsRecoveryLoading(true)
+    setErrorMessage(null)
+
+    try {
+      await resetPasswordByRecoveryEmail(recoveryEmail)
+      setRecoverySuccessMsg(`Enviamos el enlace de recuperación a tu correo alternativo: ${recoveryEmail}`)
+      setIsSuccess(true)
+      setIsResetting(true)
+    } catch (error: any) {
+      console.error('Recovery error:', error)
+      setErrorMessage(error.message || 'Error al enviar recuperación')
+    } finally {
+      setIsRecoveryLoading(false)
+    }
   }
 
   return (
@@ -152,16 +396,90 @@ function LoginView({ onLogin, onSwitchToRegister, onForgotPassword }: LoginViewP
                 </div>
               )}
 
-              <Button type="submit" className="w-full transition-all duration-300 hover:scale-[1.02]" size="lg" disabled={isLoading}>
+              {/* Mensaje de bloqueo con countdown */}
+              {isLocked && !isResetting && !isPermanentlyLocked && (
+                <div className="p-4 bg-red-600 dark:bg-red-700 border border-red-700 dark:border-red-600 text-white text-sm rounded-lg text-center font-semibold shadow-md animate-in fade-in duration-300">
+                  🔒 Cuenta bloqueada temporalmente.
+                  <br />
+                  Podrás intentar de nuevo en <strong className="text-base">{formatLockoutTime(lockoutRemaining)}</strong>
+                </div>
+              )}
+
+              {/* Mensaje de bloqueo permanente */}
+              {isPermanentlyLocked && !isResetting && (
+                <div className="p-4 bg-red-800 dark:bg-red-900 border border-red-900 dark:border-red-700 text-white text-sm rounded-lg text-center font-semibold shadow-md animate-in fade-in duration-300 space-y-2">
+                  <div>🚫 Cuenta bloqueada por demasiados intentos fallidos.</div>
+                  <div className="text-red-200 text-xs">Debes recuperar tu contraseña para continuar.</div>
+                  <button
+                    type="button"
+                    onClick={() => setIsResetting(true)}
+                    className="mt-2 px-4 py-1.5 bg-white text-red-800 rounded-md text-xs font-bold hover:bg-red-50 transition-colors"
+                  >
+                    Olvidé mi contraseña
+                  </button>
+                </div>
+              )}
+
+              <Button type="submit" className="w-full transition-all duration-300 hover:scale-[1.02]" size="lg" disabled={isLoading || (isLocked && !isResetting)}>
                 {isLoading ? (
                   <>
                     <CircleNotch size={20} className="animate-spin mr-2" />
                     {isResetting ? 'Enviando enlace...' : 'Iniciando sesión...'}
                   </>
+                ) : isPermanentlyLocked && !isResetting ? (
+                  '🚫 Bloqueado — Recupera tu contraseña'
+                ) : isLocked && !isResetting ? (
+                  `Bloqueado (${formatLockoutTime(lockoutRemaining)})`
                 ) : (
                   isResetting ? 'Enviar enlace de recuperación' : t.auth.login
                 )}
               </Button>
+
+              {isResetting && (
+                <div className="pt-4 border-t border-border mt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowMoreOptions(!showMoreOptions)}
+                    className="flex items-center justify-center gap-1 w-full text-sm text-muted-foreground hover:text-primary transition-colors py-1"
+                  >
+                    {showMoreOptions ? <CaretUp size={14} /> : <CaretDown size={14} />}
+                    {showMoreOptions ? 'Menos opciones' : 'Ver más opciones (Correo alternativo)'}
+                  </button>
+
+                  {showMoreOptions && (
+                    <div className="mt-4 space-y-4 p-4 bg-muted/50 rounded-lg border border-border animate-in slide-in-from-top-2 duration-200">
+                      <div className="flex items-center gap-2 text-sm font-medium text-foreground mb-1">
+                        <ShieldCheck size={18} className="text-primary" />
+                        ¿No tienes acceso al correo principal?
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Ingresa tu correo alternativo de recuperación configurado en tu cuenta.
+                      </p>
+                      <div className="space-y-2">
+                        <Input
+                          type="email"
+                          placeholder="correo@alternativo.com"
+                          value={recoveryEmail}
+                          onChange={(e) => setRecoveryEmail(e.target.value)}
+                          disabled={isRecoveryLoading}
+                        />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="w-full"
+                          onClick={handleRecoverySubmit}
+                          disabled={isRecoveryLoading || !recoveryEmail}
+                        >
+                          {isRecoveryLoading ? (
+                            <CircleNotch size={16} className="animate-spin mr-2" />
+                          ) : null}
+                          Enviar al correo alternativo
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {errorMessage && (
                 <div className="p-3 bg-destructive/10 border border-destructive/20 text-destructive text-sm rounded-md text-center font-medium">

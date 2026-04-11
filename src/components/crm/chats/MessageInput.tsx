@@ -18,12 +18,14 @@ import {
     Smiley,
     Stop,
     Spinner,
-    X
+    X,
+    DeviceMobile
 } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { useAudioRecorder } from '@/hooks/useAudioRecorder'
 import { sendMessage, uploadChatAttachment } from '@/supabase/services/mensajes'
+import type { Message } from '@/supabase/services/mensajes'
 
 import { Channel } from '@/lib/types'
 
@@ -31,13 +33,15 @@ interface MessageInputProps {
     leadId: string
     channel: 'whatsapp' | 'instagram' | 'facebook'
     disabled?: boolean
-    onMessageSent?: () => void
+    instanceLabel?: string | null
+    onMessageSent?: (msg?: Message) => void
 }
 
 export function MessageInput({
     leadId,
     channel,
     disabled = false,
+    instanceLabel,
     onMessageSent
 }: MessageInputProps) {
     const [messageInput, setMessageInput] = useState('')
@@ -50,9 +54,11 @@ export function MessageInput({
         setIsUploading(true)
         try {
             const mediaData = await uploadChatAttachment(audioFile, leadId)
-            await sendMessage(leadId, '', 'team', channel, mediaData)
+            mediaData.ptt = true
+            mediaData.mimetype = audioFile.type || 'audio/ogg; codecs=opus'
+            const msg = await sendMessage(leadId, '', 'team', channel, mediaData)
             toast.success('Nota de voz enviada')
-            onMessageSent?.()
+            onMessageSent?.(msg)
         } catch (err) {
             console.error('[Audio] Error sending:', err)
             toast.error('Error enviando nota de voz')
@@ -105,20 +111,21 @@ export function MessageInput({
         if (!messageInput.trim() && pendingImages.length === 0) return
         setIsUploading(true)
         try {
+            let sentMsg: Message | undefined
             if (pendingImages.length > 0) {
                 for (let i = 0; i < pendingImages.length; i++) {
                     const { file } = pendingImages[i]
                     const mediaData = await uploadChatAttachment(file, leadId)
                     const content = i === 0 ? messageInput : ''
-                    await sendMessage(leadId, content, 'team', channel, mediaData)
+                    sentMsg = await sendMessage(leadId, content, 'team', channel, mediaData)
                 }
             } else {
-                await sendMessage(leadId, messageInput, 'team', channel)
+                sentMsg = await sendMessage(leadId, messageInput, 'team', channel)
             }
 
             setMessageInput('')
             clearPendingImages()
-            onMessageSent?.()
+            onMessageSent?.(sentMsg)
         } catch (e) {
             console.error('Error sending message:', e)
             toast.error('Error al enviar mensaje')
@@ -156,7 +163,16 @@ export function MessageInput({
     }
 
     return (
-        <div className="shrink-0 border-t bg-background px-4 py-4">
+        <div className="shrink-0 border-t bg-background px-4 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+            {/* Indicador de instancia activa */}
+            {instanceLabel && (
+                <div className="flex items-center gap-1.5 mb-2 px-1">
+                    <DeviceMobile size={12} className="text-emerald-600 shrink-0" weight="fill" />
+                    <span className="text-[11px] text-muted-foreground">
+                        Responderás desde: <strong className="text-emerald-600 font-semibold">{instanceLabel}</strong>
+                    </span>
+                </div>
+            )}
             {/* Preview de imágenes pendientes */}
             {pendingImages.length > 0 && (
                 <div className="flex gap-2 mb-3 overflow-x-auto pb-2 scrollbar-thin">
@@ -189,20 +205,20 @@ export function MessageInput({
                 />
                 <button
                     type="button"
-                    className="text-muted-foreground hover:text-primary transition-colors p-2 rounded-full hover:bg-muted"
+                    className="text-muted-foreground hover:text-primary transition-colors p-2 rounded-full hover:bg-muted min-h-11 min-w-11"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={disabled || isUploading}
                 >
                     <Paperclip className="w-5 h-5" />
                 </button>
 
-                <div className="flex-1 flex items-center gap-2 bg-muted/50 border border-border/50 rounded-full px-4 py-2 focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
+                <div className="flex-1 flex items-center gap-2 bg-muted/50 border border-border/50 rounded-full px-4 py-2.5 focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all min-h-11">
                     <Input
                         placeholder={isRecording ? "Grabando audio..." : "Escribe un mensaje..."}
                         value={messageInput}
                         onChange={(e) => setMessageInput(e.target.value)}
                         onPaste={handlePasteClipboard}
-                        className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none p-0 text-sm placeholder:text-muted-foreground/60 font-medium"
+                        className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none p-0 text-sm placeholder:text-muted-foreground/60 font-medium min-h-0"
                         disabled={disabled || isUploading || isRecording}
                     />
                     {!isRecording && !messageInput.trim() && (
@@ -217,7 +233,7 @@ export function MessageInput({
                     <Button
                         type="submit"
                         size="icon"
-                        className="rounded-full h-11 w-11 bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20 active:scale-90 transition-all"
+                        className="rounded-full h-11 w-11 bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20 active:scale-90 transition-all shrink-0"
                         disabled={disabled || isUploading || isRecording}
                     >
                         {isUploading ? (
@@ -232,7 +248,7 @@ export function MessageInput({
                         size="icon"
                         variant={isRecording ? "destructive" : "ghost"}
                         className={cn(
-                            "rounded-full h-11 w-11 transition-all active:scale-90",
+                            "rounded-full h-11 w-11 transition-all active:scale-90 shrink-0",
                             isRecording ? "bg-destructive text-white hover:bg-destructive/90 animate-pulse" : "text-muted-foreground hover:bg-muted"
                         )}
                         disabled={disabled || isUploading}

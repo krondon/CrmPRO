@@ -226,7 +226,8 @@ serve(async (req) => {
         token: token,
         invited_nombre: name,
         invited_titulo_trabajo: role,
-        pipeline_ids: Array.isArray(pipelineIds) ? pipelineIds : []
+        pipeline_ids: Array.isArray(pipelineIds) ? pipelineIds : [],
+        permission_role: permissionRole || 'viewer'
       });
 
     if (dbError) throw dbError;

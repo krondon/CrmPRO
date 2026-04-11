@@ -5,15 +5,16 @@ interface CreateUsuarioDTO {
     id: string
     email: string
     nombre: string
+    account_type?: 'owner' | 'employee'
 }
 
 /**
  * Crea un nuevo usuario en la tabla usuarios
  */
-export async function createUsuario({ id, email, nombre }: CreateUsuarioDTO): Promise<UsuarioDB> {
+export async function createUsuario({ id, email, nombre, account_type = 'owner' }: CreateUsuarioDTO): Promise<UsuarioDB> {
     const { data, error } = await supabase
         .from('usuarios')
-        .insert({ id, email, nombre })
+        .insert({ id, email, nombre, account_type })
         .select()
         .single()
 
@@ -42,6 +43,21 @@ export async function updateUsuario(id: string, updates: Partial<Omit<UsuarioDB,
     const { data, error } = await supabase
         .from('usuarios')
         .update(updates)
+        .eq('id', id)
+        .select()
+        .single()
+
+    if (error) throw error
+    return data
+}
+
+/**
+ * Actualiza el correo alternativo de un usuario
+ */
+export async function updateRecoveryEmail(id: string, recoveryEmail: string | null): Promise<UsuarioDB> {
+    const { data, error } = await supabase
+        .from('usuarios')
+        .update({ recovery_email: recoveryEmail ? recoveryEmail.toLowerCase().trim() : null })
         .eq('id', id)
         .select()
         .single()

@@ -5,7 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { AddTeamMemberDialog } from './AddTeamMemberDialog'
 import { Button } from '@/components/ui/button'
-import { Trash, Building, Info, Funnel, Users, XCircle, CaretDown, CaretUp, MagnifyingGlass } from '@phosphor-icons/react'
+import { Trash, Building, Info, Funnel, Users, XCircle, CaretDown, CheckCircle, Clock, UserPlus, PencilSimple } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useEffect, useState } from 'react'
@@ -14,7 +14,11 @@ import { getPersonas, createPersona, deletePersona } from '@/supabase/services/p
 import { getPipelines } from '@/supabase/helpers/pipeline'
 import { addPersonaToPipeline, getPipelinesForPersona } from '@/supabase/helpers/personaPipeline'
 import { getLeads } from '@/supabase/services/leads'
+import { getSolicitudesPendientes, aprobarSolicitud, rechazarSolicitud } from '@/supabase/services/solicitudes'
+import type { SolicitudUnionDB } from '@/lib/types'
+import { supabase } from '@/supabase/client'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AllLeadsDialog } from './AllLeadsDialog'
 import { MemberSearchDialog } from './MemberSearchDialog'
 import { TeamManagerDialog } from './TeamManagerDialog'
@@ -56,6 +60,13 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
   const [teamSearch, setTeamSearch] = useState('')
   const [memberSearch, setMemberSearch] = useState('')
   const [showAllTeams, setShowAllTeams] = useState(false)
+  const [solicitudesPendientes, setSolicitudesPendientes] = useState<SolicitudUnionDB[]>([])
+  const [approvedMembers, setApprovedMembers] = useState<{ id: string; email: string; nombre: string | null; role: string; usuario_id: string | null; created_at: string }[]>([])
+  const [solicitudRoles, setSolicitudRoles] = useState<Record<string, string>>({})
+  const [solicitudEquipos, setSolicitudEquipos] = useState<Record<string, string>>({})
+  const [solicitudPipelines, setSolicitudPipelines] = useState<Record<string, Set<string>>>({})
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null)
+  const [editingMemberRole, setEditingMemberRole] = useState<string>('viewer')
 
   useEffect(() => {
     if (!companyId) return
@@ -67,6 +78,64 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
 
     return () => { cancelled = true }
   }, [companyId])
+
+  // Cargar miembros de empresa_miembros con nombre real del usuario
+  useEffect(() => {
+    if (!companyId) return
+    let cancelled = false
+
+    const loadMembers = async () => {
+      try {
+        const { data: membersData } = await supabase
+          .from('empresa_miembros')
+          .select('id, email, role, created_at, usuario_id')
+          .eq('empresa_id', companyId)
+
+        if (!membersData || cancelled) return
+
+        // Obtener nombres reales de la tabla usuarios
+        const userIds = membersData.filter(m => m.usuario_id).map(m => m.usuario_id)
+        let usersMap: Record<string, string> = {}
+        if (userIds.length > 0) {
+          const { data: usersData } = await supabase
+            .from('usuarios')
+            .select('id, nombre')
+            .in('id', userIds)
+          if (usersData) {
+            usersMap = Object.fromEntries(usersData.map((u: any) => [u.id, u.nombre]))
+          }
+        }
+
+        if (!cancelled) {
+          setApprovedMembers(membersData.map((m: any) => ({
+            id: m.id,
+            email: m.email,
+            nombre: usersMap[m.usuario_id] || null,
+            role: m.role || 'viewer',
+            usuario_id: m.usuario_id || null,
+            created_at: m.created_at
+          })))
+        }
+      } catch (e: any) {
+        console.error('[TeamView] error cargando miembros:', e)
+      }
+    }
+
+    loadMembers()
+    return () => { cancelled = true }
+  }, [companyId])
+
+  // Cargar solicitudes pendientes (solo owner/admin)
+  useEffect(() => {
+    if (!companyId || !isAdminOrOwner) return
+    let cancelled = false
+    getSolicitudesPendientes(companyId).then(data => {
+      if (!cancelled) setSolicitudesPendientes(data)
+    }).catch(() => { })
+
+    return () => { cancelled = true }
+  }, [companyId, isAdminOrOwner])
+
 
   useEffect(() => {
     if (!companyId) return
@@ -104,7 +173,9 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
           assignedTo: l.asignado_a,
           tags: [],
           createdAt: new Date(l.created_at),
-          lastContact: new Date(l.created_at)
+          lastContact: new Date(l.created_at),
+          stageEnteredAt: l.stage_entered_at ? new Date(l.stage_entered_at) : null,
+          slaCustomLimitMinutes: l.sla_custom_limit_minutes ?? null
         }))
         setLeads(mappedLeads)
       })
@@ -140,9 +211,23 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
 
           if (cancelled) return
 
-          // Obtener roles de miembros activos
-          const { getCompanyMembers } = await import('@/supabase/services/empresa')
-          const companyMembers = await getCompanyMembers(companyId)
+          // Obtener roles de miembros activos (con fallback si falla el join con roles)
+          let companyMembers: any[] = []
+          try {
+            const { getCompanyMembers } = await import('@/supabase/services/empresa')
+            companyMembers = await getCompanyMembers(companyId)
+          } catch (memberErr: any) {
+            console.warn('[TeamView] getCompanyMembers falló, usando consulta directa:', memberErr.message)
+            try {
+              const { data } = await supabase
+                .from('empresa_miembros')
+                .select('id, email, role, usuario_id')
+                .eq('empresa_id', companyId)
+              companyMembers = data || []
+            } catch {
+              companyMembers = []
+            }
+          }
 
           if (cancelled) return
 
@@ -160,7 +245,8 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
               pipelines: resolvedPipelines,
               avatar: '',
               status: 'pending',
-              permissionRole: inv.permission_role || 'viewer'
+              permissionRole: inv.permission_role || 'viewer',
+              teamId: inv.equipo_id || null
             }
           })
 
@@ -365,6 +451,41 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
     }
   }
 
+  const handleUpdateApprovedMemberRole = async (member: typeof approvedMembers[0]) => {
+    try {
+      const { updateCompanyMemberRole } = await import('@/supabase/services/empresa')
+      await updateCompanyMemberRole(companyId!, { email: member.email, role: editingMemberRole })
+      setApprovedMembers(prev => prev.map(m => m.id === member.id ? { ...m, role: editingMemberRole } : m))
+      setEditingMemberId(null)
+      toast.success('Rol actualizado')
+    } catch (e: any) {
+      toast.error(e.message || 'Error al actualizar rol')
+    }
+  }
+
+  const handleDeleteApprovedMember = async (member: typeof approvedMembers[0]) => {
+    if (!confirm(`¿Eliminar a ${member.nombre || member.email} de la empresa? Esta acción revocará su acceso.`)) return
+    try {
+      const { removeMemberFromCompany } = await import('@/supabase/services/empresa')
+      await removeMemberFromCompany(companyId!, member.email)
+      setApprovedMembers(prev => prev.filter(m => m.id !== member.id))
+      toast.success('Miembro eliminado')
+    } catch (e: any) {
+      toast.error(e.message || 'Error al eliminar miembro')
+    }
+  }
+
+  // Miembros en empresa_miembros que NO tienen persona activa (no aparecen en teamMembers)
+  const activeEmails = new Set((teamMembers || []).map(m => m.email?.toLowerCase()))
+  const onlyApprovedMembers = approvedMembers.filter(
+    m => !activeEmails.has(m.email?.toLowerCase())
+  )
+
+  const getApprovedLeadsCount = (usuarioId: string | null) => {
+    if (!usuarioId) return 0
+    return leads.filter(l => l.assignedTo === usuarioId).length
+  }
+
   const filteredTeams = (equipos || []).filter(eq =>
     eq.nombre_equipo.toLowerCase().includes(teamSearch.toLowerCase())
   )
@@ -396,9 +517,12 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
     <div className="flex-1 overflow-y-auto p-6 pb-24 md:pb-6 space-y-6">
       {/* Barra de herramientas superior */}
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <div className="space-y-1">
-          <h1 className="text-3xl font-bold">Equipo</h1>
-          <p className="text-muted-foreground text-sm">Gestión de equipos y asignaciones</p>
+        <div className="flex items-center gap-3">
+          <div className="h-8 w-1.5 rounded-full bg-gradient-to-b from-primary via-primary/60 to-primary/20" />
+          <div>
+            <h1 className="text-2xl md:text-3xl font-black tracking-tighter">Equipo</h1>
+            <p className="text-muted-foreground/70 text-sm font-medium">Gestión de equipos y asignaciones</p>
+          </div>
         </div>
 
         {/* Botones principales */}
@@ -439,15 +563,15 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
       {/* Indicador de filtro activo */}
       {selectedTeamFilter && (
         <div className="flex items-center gap-2">
-          <Badge variant="secondary" className="gap-2">
-            <Funnel size={14} />
+          <Badge variant="secondary" className="gap-2 rounded-full px-3 bg-primary/10 text-primary border border-primary/20">
+            <Funnel size={13} />
             Filtrando por: {selectedTeamFilter === 'no-team' ? 'Sin Equipo' : equipos.find(e => e.id === selectedTeamFilter)?.nombre_equipo || 'Equipo'}
           </Badge>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setSelectedTeamFilter(null)}
-            className="h-7"
+            className="h-7 text-muted-foreground hover:text-foreground"
           >
             <XCircle size={14} className="mr-1" />
             Limpiar filtro
@@ -455,10 +579,163 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
         </div>
       )}
 
+      {/* Panel de solicitudes pendientes (solo owner/admin) */}
+      {isAdminOrOwner && solicitudesPendientes.length > 0 && (
+        <Card className="border-yellow-500/30 bg-yellow-50/50 dark:bg-yellow-950/10 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <UserPlus size={18} className="text-yellow-600" />
+              Solicitudes de unión ({solicitudesPendientes.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {solicitudesPendientes.map(sol => {
+              const selectedPipelines = solicitudPipelines[sol.id] || new Set<string>()
+              return (
+                <div key={sol.id} className="p-4 rounded-xl border bg-background space-y-3">
+                  {/* Info del solicitante */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-sm truncate">{sol.solicitante_nombre || sol.solicitante_email}</p>
+                      <p className="text-xs text-muted-foreground truncate">{sol.solicitante_email}</p>
+                      {sol.mensaje && (
+                        <p className="text-xs text-muted-foreground mt-1 italic">"{sol.mensaje}"</p>
+                      )}
+                      <p className="text-xs text-muted-foreground mt-1">
+                        <Clock size={12} className="inline mr-1" />
+                        {new Date(sol.created_at).toLocaleDateString('es-ES')}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Configuración: Rol, Equipo, Pipelines */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-border/30">
+                    {/* Rol */}
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Rol</label>
+                      <Select
+                        value={solicitudRoles[sol.id] || 'viewer'}
+                        onValueChange={(val) => setSolicitudRoles(prev => ({ ...prev, [sol.id]: val }))}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="viewer">Lector</SelectItem>
+                          <SelectItem value="admin">Administrador</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Equipo */}
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Equipo</label>
+                      <Select
+                        value={solicitudEquipos[sol.id] || ''}
+                        onValueChange={(val) => setSolicitudEquipos(prev => ({ ...prev, [sol.id]: val }))}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="Seleccionar equipo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {equipos.map(eq => (
+                            <SelectItem key={eq.id} value={eq.id}>{eq.nombre_equipo}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Pipelines */}
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Pipelines</label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="w-full h-8 text-xs justify-start font-normal">
+                            {selectedPipelines.size > 0
+                              ? `${selectedPipelines.size} seleccionado${selectedPipelines.size > 1 ? 's' : ''}`
+                              : 'Seleccionar'}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-56 p-2">
+                          <div className="space-y-1">
+                            {dbPipelines.map((p: any) => {
+                              const isChecked = selectedPipelines.has(p.id)
+                              return (
+                                <label key={p.id} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/50 cursor-pointer text-sm">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => {
+                                      setSolicitudPipelines(prev => {
+                                        const current = new Set(prev[sol.id] || [])
+                                        if (current.has(p.id)) current.delete(p.id)
+                                        else current.add(p.id)
+                                        return { ...prev, [sol.id]: current }
+                                      })
+                                    }}
+                                    className="rounded"
+                                  />
+                                  {p.nombre}
+                                </label>
+                              )
+                            })}
+                            {dbPipelines.length === 0 && (
+                              <p className="text-xs text-muted-foreground text-center py-2">No hay pipelines</p>
+                            )}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                  </div>
+
+                  {/* Acciones */}
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/30">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 h-8"
+                      onClick={async () => {
+                        try {
+                          await rechazarSolicitud(sol.id)
+                          setSolicitudesPendientes(prev => prev.filter(s => s.id !== sol.id))
+                          toast.success('Solicitud rechazada')
+                        } catch { toast.error('Error al rechazar') }
+                      }}
+                    >
+                      <XCircle size={14} className="mr-1" />
+                      Rechazar
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="h-8"
+                      disabled={!solicitudEquipos[sol.id]}
+                      onClick={async () => {
+                        try {
+                          await aprobarSolicitud(sol.id, solicitudRoles[sol.id] || 'viewer', null, {
+                            equipo_id: solicitudEquipos[sol.id],
+                            pipeline_ids: Array.from(selectedPipelines)
+                          })
+                          setSolicitudesPendientes(prev => prev.filter(s => s.id !== sol.id))
+                          toast.success('Solicitud aprobada — miembro añadido al equipo y CRM')
+                          setRefreshTrigger(prev => prev + 1)
+                        } catch (e: any) { toast.error(e.message || 'Error al aprobar') }
+                      }}
+                    >
+                      <CheckCircle size={14} className="mr-1" />
+                      Aprobar
+                    </Button>
+                  </div>
+                </div>
+              )
+            })}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Vista de equipos mejorada */}
-      <div className="rounded-lg border p-4 space-y-3">
+      <div className="rounded-xl border border-border/30 p-4 space-y-3 bg-muted/5 shadow-sm">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Equipos</h2>
+          <h2 className="text-lg font-bold tracking-tight">Equipos</h2>
           <div className="flex gap-2">
             <Button
               variant={selectedTeamFilter === null ? "default" : "outline"}
@@ -488,9 +765,9 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
           {equipos.slice(0, 4).map(eq => (
             <div
               key={eq.id}
-              className={`flex items-center justify-between border rounded-lg p-3 transition-colors ${selectedTeamFilter === eq.id
-                ? 'bg-muted/50 border-primary'
-                : 'hover:bg-muted/30'
+              className={`flex items-center justify-between rounded-xl p-3 transition-all duration-200 border-l-[3px] ${selectedTeamFilter === eq.id
+                ? 'bg-primary/5 border-l-primary shadow-sm'
+                : 'hover:bg-muted/30 border-l-border hover:border-l-muted-foreground/40'
                 }`}
             >
               <div className="flex-1 min-w-0">
@@ -533,98 +810,96 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
         {filteredMembers.map(member => {
           const roleInfo = getRoleInfo(member.roleId)
           return (
-            <Card key={member.id} className="overflow-hidden">
-              <CardHeader>
-                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-start max-w-full">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <Avatar className="h-12 w-12 shrink-0">
+            <Card key={member.id} className="overflow-hidden border border-border/30 shadow-sm hover:shadow-md transition-all duration-200 rounded-2xl group flex flex-col bg-card/40">
+              <CardHeader className="bg-muted/10 pb-4 border-b border-border/20">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <Avatar className="h-14 w-14 shrink-0 shadow-sm border border-primary/10">
                       <AvatarImage src={member.avatar} />
-                      <AvatarFallback>{member.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                      <AvatarFallback className="bg-gradient-to-br from-primary/10 to-primary/5 text-primary font-black text-xl">
+                        {member.name.split(' ').map((n: string) => n[0]).join('').substring(0, 2)}
+                      </AvatarFallback>
                     </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <CardTitle className="text-base truncate">{member.name}</CardTitle>
-                        {(member as any).status === 'pending' && (
-                          <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-300 shrink-0">
-                            Pendiente
-                          </Badge>
-                        )}
+                    <div className="min-w-0 flex-1 overflow-hidden flex flex-col justify-center">
+                      <div className="flex items-center gap-2 mb-1">
+                        <CardTitle className="text-lg font-bold truncate text-foreground/90 font-sans tracking-tight" title={member.name}>
+                          {member.name}
+                        </CardTitle>
                         {member.permissionRole && (
-                          <Badge variant="secondary" className="text-xs shrink-0">
+                          <Badge variant="secondary" className="text-[10px] shrink-0 rounded-md px-1.5 py-0 font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-colors uppercase tracking-widest leading-4">
                             {member.permissionRole === 'admin' ? 'Admin' : 'Viewer'}
                           </Badge>
                         )}
-                      </div>
-                      <div className="flex items-center gap-2 mt-1 min-w-0">
-                        <p className="text-sm text-muted-foreground truncate">{member.role}</p>
-                        {roleInfo && (
-                          <Badge
-                            variant="outline"
-                            className="text-xs shrink-0"
-                            style={{ borderColor: roleInfo.color, color: roleInfo.color }}
-                          >
-                            {roleInfo.name}
+                        {(member as any).status === 'pending' && (
+                          <Badge variant="outline" className="text-[10px] rounded-md px-1.5 py-0 font-bold bg-yellow-50 text-yellow-700 border-yellow-300 shrink-0 uppercase tracking-widest leading-4">
+                            Pend.
                           </Badge>
                         )}
                       </div>
+                      <p className="text-sm font-medium text-muted-foreground truncate">{member.role}</p>
                     </div>
                   </div>
                   {isAdminOrOwner && (
-                    (member as any).status === 'pending' ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-destructive hover:bg-destructive/10 sm:self-auto self-start sm:ml-auto"
-                        onClick={() => handleDeleteMember(member.id)}
-                        title="Cancelar invitación"
-                      >
-                        <XCircle size={16} />
-                      </Button>
-                    ) : (
-                      // Hide delete button for self
-                      // We check if the member being rendered is the current user (by ID or Email)
-                      // Note: currentUserId is passed as prop. We also check against the user's email if available.
-                      (member.userId !== currentUserId && member.email !== currentUserEmail) && (
-                        <div className="flex items-center gap-2 sm:self-auto self-start sm:ml-auto">
-                          <EditTeamMemberDialog
-                            member={member}
-                            companyId={companyId!}
-                            onUpdated={() => setRefreshTrigger(prev => prev + 1)}
-                            canEditRole={isAdminOrOwner}
-                          />
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-destructive hover:bg-destructive/10"
-                            onClick={() => handleDeleteMember(member.id)}
-                            title="Eliminar miembro"
-                          >
-                            <Trash size={16} />
-                          </Button>
-                        </div>
-                      )
-                    )
+                    <div className="flex items-center gap-1.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                      {(member as any).status === 'pending' ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-destructive hover:bg-destructive hover:text-white transition-colors rounded-lg shadow-sm"
+                          onClick={() => handleDeleteMember(member.id)}
+                          title="Cancelar invitación"
+                        >
+                          <XCircle size={16} weight="bold" />
+                        </Button>
+                      ) : (
+                        (member.userId !== currentUserId && member.email !== currentUserEmail) && (
+                          <>
+                            {isOwnerById && (
+                              <EditTeamMemberDialog
+                                member={member}
+                                companyId={companyId!}
+                                onUpdated={() => setRefreshTrigger(prev => prev + 1)}
+                                canEditRole={true}
+                              />
+                            )}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-destructive hover:bg-destructive hover:text-white transition-colors rounded-lg shadow-sm"
+                              onClick={() => handleDeleteMember(member.id)}
+                              title="Eliminar miembro"
+                            >
+                              <Trash size={16} weight="bold" />
+                            </Button>
+                          </>
+                        )
+                      )}
+                    </div>
                   )}
                 </div>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Email</span>
-                    <span className="font-medium truncate ml-2">{member.email}</span>
+              <CardContent className="pt-4 flex-1 flex flex-col">
+                <div className="space-y-3 flex-1">
+                  <div className="flex flex-col gap-1 text-sm bg-muted/30 px-3 py-2 rounded-lg border border-border/40">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60">Email</span>
+                    <span className="font-semibold text-foreground/80 truncate text-xs" title={member.email}>{member.email}</span>
                   </div>
-                  {member.teamId && (
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Equipo</span>
-                      <span className="font-medium truncate ml-2">
-                        {equipos.find(e => e.id === member.teamId)?.nombre_equipo || 'Desconocido'}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground font-medium">Tareas Activas</span>
+                  
+                  <div className="flex items-center justify-between text-sm py-1">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1.5">
+                      <Users size={12} weight="bold" /> Equipo
+                    </span>
+                    <span className="font-bold text-xs text-foreground/80 truncate text-right">
+                      {member.teamId ? (equipos.find(e => e.id === member.teamId)?.nombre_equipo || 'Desconocido') : 'No asignado'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-sm py-1 border-t border-border/20 pt-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1.5">
+                      <CheckCircle size={12} weight="bold" /> Tareas Activas
+                    </span>
                     <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-sm font-semibold px-2 py-0.5">
+                      <Badge variant="secondary" className="text-xs font-bold px-2 py-0 border border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/50 dark:bg-blue-900/20 dark:text-blue-400">
                         {getAssignedLeadsCount(member.id, (member as any).status)}
                       </Badge>
                       {getAssignedLeadsCount(member.id, (member as any).status) > 0 && (
@@ -637,33 +912,33 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
                           })}
                           onLeadClick={(leadId) => {
                             // Navegar al detalle del lead
-                            console.log('Navegando al lead:', leadId)
-                            // Aquí puedes agregar lógica de navegación
+                            console.log('Navegando a la oportunidad:', leadId)
                           }}
                           trigger={
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:bg-muted rounded-full cursor-pointer">
-                              <Info size={16} className="text-muted-foreground" />
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-muted/50 rounded-full cursor-pointer text-muted-foreground">
+                              <Info size={14} weight="bold" />
                             </Button>
                           }
                         />
                       )}
                     </div>
                   </div>
-                  <div className="text-sm">
-                    <span className="text-muted-foreground">Pipelines</span>
-                    <div className="flex flex-wrap gap-1 mt-1">
+
+                  <div className="text-sm pt-2 border-t border-border/20">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60 block mb-2">Pipelines Asignados</span>
+                    <div className="flex flex-wrap gap-1.5">
                       {(() => {
                         const allPipelines = member.pipelines || []
-                        const visiblePipelines = allPipelines.slice(0, 4)
-                        const hiddenPipelines = allPipelines.slice(4)
+                        const visiblePipelines = allPipelines.slice(0, 3)
+                        const hiddenPipelines = allPipelines.slice(3)
 
                         const renderBadge = (tp: string) => {
                           let label = tp
                           if (tp === 'sales') label = 'Ventas'
                           else if (tp === 'support') label = 'Soporte'
-                          else if (tp === 'administrative') label = 'Administrativo'
+                          else if (tp === 'administrative') label = 'Admin'
                           return (
-                            <Badge key={tp} variant="outline" className="text-xs capitalize">
+                            <Badge key={tp} variant="outline" className="text-[10px] font-bold uppercase tracking-wider text-foreground/70 border-border/60 bg-background shadow-xs px-2 py-0.5 rounded-md">
                               {label}
                             </Badge>
                           )
@@ -675,14 +950,14 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
                             {hiddenPipelines.length > 0 && (
                               <Popover>
                                 <PopoverTrigger asChild>
-                                  <Badge variant="secondary" className="text-xs cursor-pointer hover:bg-secondary/80">
-                                    +{hiddenPipelines.length} más
+                                  <Badge variant="secondary" className="text-[10px] font-bold uppercase tracking-wider cursor-pointer hover:bg-secondary/80 px-2 py-0.5 rounded-md transition-colors border shadow-xs">
+                                    +{hiddenPipelines.length}
                                   </Badge>
                                 </PopoverTrigger>
-                                <PopoverContent className="w-64 p-3">
-                                  <div className="space-y-2">
-                                    <h4 className="font-medium text-sm">Pipelines adicionales</h4>
-                                    <div className="flex flex-wrap gap-1">
+                                <PopoverContent className="w-56 p-3 rounded-xl shadow-xl">
+                                  <div className="space-y-3">
+                                    <h4 className="font-bold text-[10px] uppercase tracking-wider text-muted-foreground">Más Pipelines</h4>
+                                    <div className="flex flex-wrap gap-1.5">
                                       {hiddenPipelines.map(renderBadge)}
                                     </div>
                                   </div>
@@ -690,33 +965,134 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
                               </Popover>
                             )}
                             {allPipelines.length === 0 && (
-                              <span className="text-xs text-muted-foreground">Sin asignar</span>
+                              <span className="text-xs text-muted-foreground/50 italic font-medium">No tiene pipelines</span>
                             )}
                           </>
                         )
                       })()}
                     </div>
                   </div>
-                  {roleInfo && roleInfo.permissions.length > 0 && (
-                    <div className="pt-2 border-t border-border">
-                      <span className="text-xs text-muted-foreground">
-                        {roleInfo.permissions.length} permisos
-                      </span>
-                    </div>
-                  )}
                 </div>
               </CardContent>
             </Card>
           )
         })}
 
-        {filteredMembers.length === 0 && (
-          <div className="col-span-full text-center py-12 text-muted-foreground">
-            {selectedTeamFilter
-              ? "No hay miembros en este equipo"
-              : "No team members added yet"}
+        {filteredMembers.length === 0 && onlyApprovedMembers.length === 0 && (
+          <div className="col-span-full flex flex-col items-center justify-center py-16 text-center">
+            <div className="p-4 rounded-full bg-muted/30 mb-4">
+              <Users size={32} className="text-muted-foreground/40" />
+            </div>
+            <p className="text-muted-foreground/70 font-medium">
+              {selectedTeamFilter
+                ? "No hay miembros en este equipo"
+                : "Aún no se han agregado miembros al equipo"}
+            </p>
           </div>
         )}
+
+        {/* Miembros sin equipo asignado (solo en empresa_miembros) */}
+        {onlyApprovedMembers.map(member => (
+          <Card key={member.id} className="overflow-hidden border border-border/30 shadow-sm hover:shadow-md transition-all duration-200 rounded-2xl group flex flex-col bg-card/40">
+            <CardHeader className="bg-muted/10 pb-4 border-b border-border/20">
+              <div className="flex items-start justify-between gap-3 min-w-0">
+                <Avatar className="h-14 w-14 shrink-0 shadow-sm border border-primary/10">
+                  <AvatarFallback className="bg-gradient-to-br from-primary/10 to-primary/5 text-primary font-black text-xl">
+                    {(member.nombre || member.email).substring(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1 overflow-hidden flex flex-col justify-center">
+                  <div className="flex items-center gap-2 mb-1 min-w-0 flex-wrap">
+                    <CardTitle className="text-lg font-bold truncate text-foreground/90 font-sans tracking-tight" title={member.nombre || member.email}>
+                      {member.nombre || member.email}
+                    </CardTitle>
+                    <Badge variant="secondary" className="text-[10px] shrink-0 rounded-md px-1.5 py-0 font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-colors uppercase tracking-widest leading-4">
+                      {member.role === 'admin' ? 'Admin' : member.role === 'owner' ? 'Propietario' : 'Viewer'}
+                    </Badge>
+                  </div>
+                  <p className="text-sm font-medium text-muted-foreground truncate">Colaborador</p>
+                </div>
+                {isAdminOrOwner &&
+                  member.email?.toLowerCase() !== currentUserEmail?.toLowerCase() &&
+                  member.usuario_id !== currentUserId && (
+                  <div className="flex items-center gap-1.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                    {isOwnerById && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 p-0 rounded-lg shadow-sm hover:border-primary hover:text-primary transition-colors"
+                        onClick={() => { setEditingMemberId(member.id); setEditingMemberRole(member.role) }}
+                        title="Editar rol"
+                      >
+                        <PencilSimple size={14} weight="bold" />
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 w-8 p-0 text-destructive hover:bg-destructive hover:text-white transition-colors rounded-lg shadow-sm"
+                      onClick={() => handleDeleteApprovedMember(member)}
+                      title="Eliminar miembro"
+                    >
+                      <Trash size={14} weight="bold" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="pt-4 flex-1 flex flex-col">
+              <div className="space-y-3 flex-1 flex flex-col justify-center">
+                {editingMemberId === member.id ? (
+                  <div className="flex flex-col gap-3 bg-muted/20 p-3 rounded-xl border border-border/40 mb-2">
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70">Rol del usuario</span>
+                      <Select value={editingMemberRole} onValueChange={setEditingMemberRole}>
+                        <SelectTrigger className="h-9 w-full bg-background font-bold focus:ring-primary/20">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-xl">
+                          <SelectItem value="viewer" className="font-medium text-sm">Lector</SelectItem>
+                          <SelectItem value="admin" className="font-medium text-sm">Administrador</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center justify-end gap-2 mt-1">
+                      <Button size="sm" variant="ghost" className="h-8 rounded-lg text-xs font-bold" onClick={() => setEditingMemberId(null)}>
+                        Cancelar
+                      </Button>
+                      <Button size="sm" className="h-8 rounded-lg text-xs font-bold shadow-sm" onClick={() => handleUpdateApprovedMemberRole(member)}>
+                        Guardar
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex flex-col gap-1 text-sm bg-muted/30 px-3 py-2 rounded-lg border border-border/40">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60">Email</span>
+                      <span className="font-semibold text-foreground/80 truncate text-xs" title={member.email}>{member.email}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-sm py-1 border-b border-border/20 pt-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1.5">
+                        <CheckCircle size={12} weight="bold" /> Tareas Activas
+                      </span>
+                      <Badge variant="secondary" className="text-xs font-bold px-2 py-0 border border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/50 dark:bg-blue-900/20 dark:text-blue-400">
+                        {getApprovedLeadsCount(member.usuario_id)}
+                      </Badge>
+                    </div>
+
+                    <div className="flex items-center justify-between text-sm py-1">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1.5">
+                        <Clock size={12} weight="bold" /> Registro
+                      </span>
+                      <span className="font-bold text-xs text-foreground/80">{new Date(member.created_at).toLocaleDateString('es-ES')}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
     </div>
   )

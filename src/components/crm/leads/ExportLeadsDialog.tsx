@@ -101,10 +101,10 @@ export function ExportLeadsDialog({
                     </div>
                     <div className="flex flex-col">
                         <DialogTitle className="text-xl font-bold text-slate-800">
-                            Exportar Leads
+                            Exportar Oportunidades
                         </DialogTitle>
                         <p className="text-sm text-muted-foreground mt-0.5">
-                            Configura las opciones de exportación para tus leads
+                            Configura las opciones de exportación para tus oportunidades
                         </p>
                     </div>
                 </DialogHeader>
@@ -118,7 +118,7 @@ export function ExportLeadsDialog({
                             </div>
                             <div>
                                 <p className="font-bold text-slate-800">Formato: Excel (.xlsx)</p>
-                                <p className="text-sm text-slate-600">Los leads se exportarán en formato Excel</p>
+                                <p className="text-sm text-slate-600">Las oportunidades se exportarán en formato Excel</p>
                             </div>
                         </div>
 
@@ -140,7 +140,7 @@ export function ExportLeadsDialog({
                             </Select>
                             <div className="flex items-center gap-2">
                                 <Badge variant="secondary" className="bg-blue-100 text-blue-700 hover:bg-blue-100 border-none px-3 py-1 rounded-full text-xs font-bold">
-                                    {leadsCount} leads
+                                    {leadsCount} oportunidades
                                 </Badge>
                                 <span className="text-sm text-slate-500">serán exportados</span>
                             </div>

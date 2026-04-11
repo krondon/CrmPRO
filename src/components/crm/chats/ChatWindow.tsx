@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import type { Lead } from '@/lib/types'
 import { Button } from '@/components/ui/button'
@@ -8,17 +8,19 @@ import {
     ArrowLeft, X, VideoCamera, Check, WarningCircle,
     File as FileIcon, Microphone, WhatsappLogo, InstagramLogo, FacebookLogo,
     Archive, Trash, PencilSimple, ArrowSquareOut, CaretRight,
-    ChatCircleDots, Spinner, Info
+    ChatCircleDots, Spinner, Info, Broom, MagnifyingGlass, CaretUp, CaretDown
 } from '@phosphor-icons/react'
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
 import { safeFormatDate } from '@/hooks/useDateFormat'
 import { detectChannel } from '@/hooks/useLeadsList'
-import { getMessages, subscribeToMessages, markMessagesAsRead } from '@/supabase/services/mensajes'
+import { getMessages, subscribeToMessages, markMessagesAsRead, deleteMessage, deleteConversation } from '@/supabase/services/mensajes'
 import type { Message as DbMessage } from '@/supabase/services/mensajes'
 import { MessageInput } from './MessageInput'
 import { LeadTags } from './LeadTags'
 import { LeadDetailSheet } from '../LeadDetailSheet'
+import { listWhatsappInstancias } from '@/supabase/services/instances'
+import type { EmpresaInstanciaDB } from '@/lib/types'
 
 interface ChatWindowProps {
     lead: Lead | null
@@ -32,6 +34,9 @@ interface ChatWindowProps {
     updateLeadListOrder: (leadId: string, msg: any) => void
     updateUnreadCount: (leadId: string, count: number) => void
     onLeadUpdate?: (lead: Lead) => void
+    deletedLeadInfo?: { name: string; phone?: string } | null
+    onDismissDeleted?: () => void
+    incomingMessage?: { msg: DbMessage; ts: number } | null
 }
 
 export function ChatWindow({
@@ -44,7 +49,10 @@ export function ChatWindow({
     onNavigateToPipeline,
     updateLeadListOrder,
     updateUnreadCount,
-    onLeadUpdate
+    onLeadUpdate,
+    deletedLeadInfo,
+    onDismissDeleted,
+    incomingMessage
 }: ChatWindowProps) {
     // Estados locales
     const [messages, setMessages] = useState<DbMessage[]>([])
@@ -53,8 +61,38 @@ export function ChatWindow({
     const [detailSheetOpen, setDetailSheetOpen] = useState(false)
     const [archivingLeadId, setArchivingLeadId] = useState<string | null>(null)
     const [lightboxImage, setLightboxImage] = useState<string | null>(null)
+    const [activeInstance, setActiveInstance] = useState<EmpresaInstanciaDB | null>(null)
+    const [activeDeleteMsgId, setActiveDeleteMsgId] = useState<string | null>(null)
+    const [showChatSearch, setShowChatSearch] = useState(false)
+    const [chatSearchTerm, setChatSearchTerm] = useState('')
+    const [chatSearchIndex, setChatSearchIndex] = useState(0)
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const chatSearchInputRef = useRef<HTMLInputElement>(null)
+
+    // Dismiss delete button when tapping outside
+    useEffect(() => {
+        if (!activeDeleteMsgId) return
+        const dismiss = () => setActiveDeleteMsgId(null)
+        document.addEventListener('click', dismiss)
+        return () => document.removeEventListener('click', dismiss)
+    }, [activeDeleteMsgId])
+
+    const handleDeleteMessage = useCallback(async (messageId: string) => {
+        try {
+            await deleteMessage(messageId)
+            setMessages(prev => prev.filter(m => m.id !== messageId))
+            setActiveDeleteMsgId(null)
+        } catch (e) {
+            console.error('Error deleting message:', e)
+        }
+    }, [])
+
+    // Refs para callbacks estables (evitar re-suscripción del socket)
+    const updateLeadListOrderRef = useRef(updateLeadListOrder)
+    updateLeadListOrderRef.current = updateLeadListOrder
+    const updateUnreadCountRef = useRef(updateUnreadCount)
+    updateUnreadCountRef.current = updateUnreadCount
 
     // Cargar mensajes cuando cambia el lead
     useEffect(() => {
@@ -80,15 +118,47 @@ export function ChatWindow({
         const markRead = async () => {
             try {
                 await markMessagesAsRead(lead.id)
-                updateUnreadCount(lead.id, 0)
+                updateUnreadCountRef.current(lead.id, 0)
             } catch { }
         }
         markRead()
 
-        // Suscribirse a nuevos mensajes del lead
+        // Detectar instancia activa desde el último mensaje del lead
+        const detectInstance = async () => {
+            try {
+                const allMsgs = await getMessages(lead.id)
+                // Buscar el último mensaje ENTRANTE del lead que tenga instanceId en metadata
+                const lastLeadMsg = [...allMsgs].reverse().find(
+                    m => m.sender === 'lead' && (m.metadata?.instanceId || m.metadata?.instance_id)
+                )
+                const instanceId = lastLeadMsg?.metadata?.instanceId || lastLeadMsg?.metadata?.instance_id
+                if (instanceId) {
+                    const instances = await listWhatsappInstancias(companyId)
+                    const found = instances.find(i => i.id === instanceId) || null
+                    setActiveInstance(found)
+                } else {
+                    const lastTeamMsg = [...allMsgs].reverse().find(
+                        m => m.sender === 'team' && (m.metadata?.instanceId || m.metadata?.instance_id)
+                    )
+                    const teamInstanceId = lastTeamMsg?.metadata?.instanceId || lastTeamMsg?.metadata?.instance_id
+                    if (teamInstanceId) {
+                        const instances = await listWhatsappInstancias(companyId)
+                        const found = instances.find(i => i.id === teamInstanceId) || null
+                        setActiveInstance(found)
+                    } else {
+                        setActiveInstance(null)
+                    }
+                }
+            } catch (e) {
+                console.error('[ChatWindow] Error detectando instancia:', e)
+            }
+        }
+        void detectInstance()
+
+        // Suscribirse a nuevos mensajes del lead (canal único para evitar colisiones)
         const sub = subscribeToMessages(lead.id, (newMsg) => {
-            setMessages(prev => [...prev, newMsg])
-            updateLeadListOrder(lead.id, newMsg)
+            setMessages(prev => prev.some(m => m.id === newMsg.id) ? prev : [...prev, newMsg])
+            updateLeadListOrderRef.current(lead.id, newMsg)
 
             if (newMsg.sender === 'lead') {
                 markRead() // Marcar como leído si entra mientras vemos el chat
@@ -98,7 +168,15 @@ export function ChatWindow({
         return () => {
             try { sub.unsubscribe() } catch { }
         }
-    }, [lead?.id, updateLeadListOrder, updateUnreadCount])
+    }, [lead?.id, companyId])
+
+    // Fallback: si subscribeToMessages falla, recibir mensajes desde subscribeToAllMessages vía prop
+    useEffect(() => {
+        if (!incomingMessage || !lead) return
+        const msg = incomingMessage.msg
+        if (msg.lead_id !== lead.id) return
+        setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg])
+    }, [incomingMessage, lead?.id])
 
     // Scroll automático y al cambiar de mensajes
     useEffect(() => {
@@ -141,6 +219,50 @@ export function ChatWindow({
         }).filter(m => m.url).reverse();
     }, [messages]);
 
+    // Buscar mensajes que coinciden con el término de búsqueda
+    const chatSearchMatches = useMemo(() => {
+        if (!chatSearchTerm.trim()) return [] as string[]
+        const term = chatSearchTerm.toLowerCase()
+        return messages
+            .filter(m => m.content && m.content.toLowerCase().includes(term))
+            .map(m => m.id)
+    }, [messages, chatSearchTerm])
+
+    // Scroll al match actual cuando cambia el índice o los matches
+    useEffect(() => {
+        if (chatSearchMatches.length === 0) return
+        const targetId = chatSearchMatches[chatSearchIndex]
+        if (!targetId) return
+        const el = document.getElementById(`msg-${targetId}`)
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+    }, [chatSearchIndex, chatSearchMatches])
+
+    // Reset search index when term changes
+    useEffect(() => {
+        setChatSearchIndex(0)
+    }, [chatSearchTerm])
+
+    // Reset search when changing lead
+    useEffect(() => {
+        setShowChatSearch(false)
+        setChatSearchTerm('')
+    }, [lead?.id])
+
+    // Helper para resaltar texto de búsqueda en mensajes
+    const highlightText = useCallback((text: string) => {
+        if (!chatSearchTerm.trim()) return text
+        const escaped = chatSearchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const parts = text.split(new RegExp(`(${escaped})`, 'gi'))
+        if (parts.length === 1) return text
+        return parts.map((part, i) =>
+            part.toLowerCase() === chatSearchTerm.toLowerCase()
+                ? <mark key={i} className="bg-yellow-300 dark:bg-yellow-500/60 text-inherit rounded-sm px-0.5">{part}</mark>
+                : part
+        )
+    }, [chatSearchTerm])
+
     // Handlers locales
     const handleArchive = async () => {
         if (!lead) return
@@ -159,10 +281,41 @@ export function ChatWindow({
         }
     }
 
+    // Render de "Chat eliminado" cuando el lead fue borrado/archivado
+    if (!lead && deletedLeadInfo) {
+        return (
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-8 bg-gradient-to-br from-background via-background to-destructive/5 min-h-0">
+                <div className="relative mb-8">
+                    <div className="absolute inset-0 bg-destructive/15 rounded-full blur-3xl scale-150 opacity-30" />
+                    <div className="w-36 h-36 bg-card border border-border/50 rounded-[2.5rem] flex items-center justify-center shadow-2xl relative z-10 animate-in zoom-in duration-500">
+                        <div className="w-18 h-18 bg-destructive/10 rounded-full flex items-center justify-center p-4">
+                            <Trash className="w-10 h-10 text-destructive/70" weight="duotone" />
+                        </div>
+                    </div>
+                </div>
+                <h3 className="text-2xl font-black mb-2 tracking-tight">Chat eliminado</h3>
+                <p className="text-muted-foreground font-medium mb-1">
+                    La conversación con <span className="font-bold text-foreground">{deletedLeadInfo.name}</span> fue eliminada.
+                </p>
+                {deletedLeadInfo.phone && (
+                    <p className="text-sm text-muted-foreground/70 mb-6">{deletedLeadInfo.phone}</p>
+                )}
+                <Button
+                    variant="outline"
+                    className="mt-4 rounded-xl font-bold px-6"
+                    onClick={onDismissDeleted}
+                >
+                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    Volver a conversaciones
+                </Button>
+            </div>
+        )
+    }
+
     // Render vacío si no hay lead
     if (!lead) {
         return (
-            <div className="flex-1 flex flex-col items-center justify-center text-center p-8 bg-gradient-to-br from-background via-background to-primary/5 h-full">
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-8 bg-gradient-to-br from-background via-background to-primary/5 min-h-0">
                 <div className="relative mb-8">
                     <div className="absolute inset-0 bg-primary/20 rounded-full blur-3xl scale-150 opacity-30" />
                     <div className="w-40 h-40 bg-card border border-border/50 rounded-[2.5rem] flex items-center justify-center shadow-2xl relative z-10 animate-in zoom-in duration-700">
@@ -195,58 +348,152 @@ export function ChatWindow({
     }
 
     return (
-        <div className="flex-1 flex flex-row relative h-full overflow-hidden bg-[#efeae2] dark:bg-background/95">
-            <div className="flex-1 flex flex-col h-full min-w-0 relative transition-all duration-300">
+        <div className="flex-1 flex flex-row relative min-h-0 overflow-hidden bg-[#efeae2] dark:bg-background/95">
+            <div className="flex-1 flex flex-col min-h-0 relative transition-all duration-300">
                 {/* Header */}
                 <div
-                    className="h-16 px-4 border-b bg-background flex items-center justify-between shrink-0 cursor-pointer hover:bg-muted/30 transition-colors group"
+                    className="h-14 sm:h-16 px-2 sm:px-4 border-b bg-background flex items-center justify-between shrink-0 cursor-pointer hover:bg-muted/30 transition-colors group"
                     onClick={() => setShowContactInfo(!showContactInfo)}
                 >
-                    <div className="flex items-center gap-3 min-w-0 overflow-hidden">
+                    <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
                         <Button
                             variant="ghost"
                             size="icon"
-                            className="md:hidden shrink-0 -ml-2 mr-1 h-10 w-10 text-muted-foreground hover:text-foreground"
+                            className="md:hidden shrink-0 -ml-1 h-8 w-8 sm:h-10 sm:w-10 text-muted-foreground hover:text-foreground"
                             onClick={(e) => { e.stopPropagation(); onBack() }}
                         >
-                            <ArrowLeft className="w-6 h-6" />
+                            <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
                         </Button>
-                        <Avatar className="h-10 w-10 shadow-sm border border-border/50 shrink-0">
+                        <Avatar className="h-8 w-8 sm:h-10 sm:w-10 shadow-sm border border-border/50 shrink-0">
                             <AvatarImage src={lead.avatar} />
-                            <AvatarFallback className="bg-muted text-muted-foreground font-bold">
+                            <AvatarFallback className="bg-muted text-muted-foreground font-bold text-xs sm:text-sm">
                                 {(lead.name || 'Unknown').substring(0, 2).toUpperCase()}
                             </AvatarFallback>
                         </Avatar>
-                        <div className="flex flex-col min-w-0">
-                            <h3 className="font-bold truncate text-sm sm:text-base leading-tight tracking-tight">
+                        <div className="flex flex-col min-w-0 flex-1">
+                            <h3 className="font-bold truncate text-[13px] sm:text-base leading-tight tracking-tight">
                                 {lead.name}
                             </h3>
-                            <div className="flex items-center text-[11px] font-medium text-muted-foreground min-w-0">
-                                <span className="whitespace-nowrap flex-shrink-0">{lead.phone}</span>
-                                {lead.company && (
-                                    <>
-                                        <span className="mx-1.5 flex-shrink-0 opacity-50">•</span>
-                                        <span className="truncate min-w-0">{lead.company}</span>
-                                    </>
-                                )}
-                            </div>
+                            <p className="truncate text-[10px] sm:text-[11px] font-medium text-muted-foreground">
+                                {lead.phone}
+                                {lead.company && <span className="hidden sm:inline"> • {lead.company}</span>}
+                            </p>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 text-muted-foreground shrink-0">
-                        <div className="h-4 w-px bg-border/60 mx-1 hidden sm:block" />
+                    <div className="flex items-center shrink-0 ml-1">
+                        {activeInstance && (
+                            <span className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 mr-2 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold">
+                                <WhatsappLogo size={10} weight="fill" />
+                                {activeInstance.label || activeInstance.client_id || 'WhatsApp'}
+                            </span>
+                        )}
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                setShowChatSearch(v => !v)
+                                if (!showChatSearch) setTimeout(() => chatSearchInputRef.current?.focus(), 100)
+                                else setChatSearchTerm('')
+                            }}
+                            className={cn(
+                                "p-1.5 sm:p-2 rounded-full transition-all active:scale-95",
+                                showChatSearch ? "bg-primary/10 text-primary" : "hover:bg-muted"
+                            )}
+                            title="Buscar en chat"
+                        >
+                            <MagnifyingGlass className="w-[18px] h-[18px] sm:w-5 sm:h-5" />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={async (e) => {
+                                e.stopPropagation()
+                                if (!lead) return
+                                if (window.confirm(`¿Eliminar toda la conversación con "${lead.name || lead.phone}"? Se borrarán todos los mensajes. Esta acción no se puede deshacer.`)) {
+                                    try {
+                                        await deleteConversation(lead.id)
+                                        setMessages([])
+                                    } catch (err) {
+                                        console.error('Error eliminando conversación:', err)
+                                    }
+                                }
+                            }}
+                            className="p-1.5 sm:p-2 rounded-full hover:bg-orange-500/10 hover:text-orange-500 transition-all active:scale-95"
+                            title="Limpiar chat (borrar mensajes)"
+                        >
+                            <Broom className="w-[18px] h-[18px] sm:w-5 sm:h-5" />
+                        </button>
                         <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); setShowContactInfo(!showContactInfo); }}
                             className={cn(
-                                "p-2 rounded-full hover:bg-muted transition-all active:scale-95",
+                                "p-1.5 sm:p-2 rounded-full hover:bg-muted transition-all active:scale-95",
                                 showContactInfo ? "bg-primary/10 text-primary" : ""
                             )}
                         >
-                            <Info className="w-5 h-5" weight={showContactInfo ? "fill" : "regular"} />
+                            <Info className="w-[18px] h-[18px] sm:w-5 sm:h-5" weight={showContactInfo ? "fill" : "regular"} />
                         </button>
                     </div>
                 </div>
+
+                {/* Search in chat bar */}
+                {showChatSearch && (
+                    <div className="flex items-center gap-2 px-3 py-2 border-b bg-background shrink-0 animate-in slide-in-from-top-2 duration-200">
+                        <MagnifyingGlass className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <input
+                            ref={chatSearchInputRef}
+                            type="text"
+                            placeholder="Buscar en esta conversación..."
+                            value={chatSearchTerm}
+                            onChange={(e) => setChatSearchTerm(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    if (chatSearchMatches.length > 0) {
+                                        setChatSearchIndex(prev => (prev + 1) % chatSearchMatches.length)
+                                    }
+                                }
+                                if (e.key === 'Escape') {
+                                    setShowChatSearch(false)
+                                    setChatSearchTerm('')
+                                }
+                            }}
+                            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
+                        />
+                        {chatSearchTerm && (
+                            <span className="text-[11px] font-semibold text-muted-foreground whitespace-nowrap">
+                                {chatSearchMatches.length > 0
+                                    ? `${chatSearchIndex + 1} de ${chatSearchMatches.length}`
+                                    : 'Sin resultados'}
+                            </span>
+                        )}
+                        <div className="flex items-center gap-0.5">
+                            <button
+                                type="button"
+                                onClick={() => setChatSearchIndex(prev => prev > 0 ? prev - 1 : chatSearchMatches.length - 1)}
+                                disabled={chatSearchMatches.length === 0}
+                                className="p-1 rounded hover:bg-muted disabled:opacity-30 transition-colors"
+                            >
+                                <CaretUp className="w-4 h-4" weight="bold" />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setChatSearchIndex(prev => (prev + 1) % chatSearchMatches.length)}
+                                disabled={chatSearchMatches.length === 0}
+                                className="p-1 rounded hover:bg-muted disabled:opacity-30 transition-colors"
+                            >
+                                <CaretDown className="w-4 h-4" weight="bold" />
+                            </button>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => { setShowChatSearch(false); setChatSearchTerm('') }}
+                            className="p-1 rounded hover:bg-muted transition-colors"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                )}
 
                 {/* Messages Area */}
                 <div className="flex-1 overflow-y-auto p-4 sm:p-6 scrollbar-thin scrollbar-thumb-muted-foreground/10" id="chat-scroll-area">
@@ -282,13 +529,54 @@ export function ChatWindow({
                                             </span>
                                         </div>
                                     )}
-                                    <div className={cn("flex w-full group/msg", isTeam ? "justify-end" : "justify-start")}>
-                                        <div className={cn(
-                                            "max-w-[85%] sm:max-w-[70%] px-3.5 py-2.5 rounded-2xl shadow-sm text-[15px] relative animate-in fade-in slide-in-from-bottom-2 duration-300",
-                                            isTeam
-                                                ? "bg-primary text-primary-foreground rounded-tr-none shadow-primary/10"
-                                                : "bg-white text-black rounded-tl-none border border-border/10 shadow-black/5"
-                                        )}>
+                                    <div
+                                        id={`msg-${msg.id}`}
+                                        className={cn(
+                                            "flex w-full group/msg relative transition-colors duration-300",
+                                            isTeam ? "justify-end" : "justify-start",
+                                            chatSearchMatches[chatSearchIndex] === msg.id && "bg-yellow-200/40 dark:bg-yellow-500/20 rounded-xl"
+                                        )}
+                                    >
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                handleDeleteMessage(msg.id)
+                                            }}
+                                            className={cn(
+                                                "absolute top-1/2 -translate-y-1/2 p-2 rounded-full bg-destructive text-white transition-all shadow-lg z-20",
+                                                "opacity-0 scale-75 group-hover/msg:opacity-100 group-hover/msg:scale-100",
+                                                activeDeleteMsgId === msg.id && "!opacity-100 !scale-100",
+                                                isTeam ? "-left-1 sm:-left-5" : "-right-1 sm:-right-5"
+                                            )}
+                                            title="Eliminar mensaje"
+                                        >
+                                            <Trash size={16} weight="bold" />
+                                        </button>
+                                        {/* Hint "Toca de nuevo para eliminar" en móvil */}
+                                        {activeDeleteMsgId === msg.id && (
+                                            <div className={cn(
+                                                "absolute -top-8 z-30 px-2.5 py-1 rounded-lg bg-destructive text-white text-[11px] font-semibold shadow-lg animate-in fade-in zoom-in-95 duration-200 whitespace-nowrap sm:hidden",
+                                                isTeam ? "right-0" : "left-0"
+                                            )}>
+                                                Toca de nuevo para eliminar
+                                            </div>
+                                        )}
+                                        <div
+                                            className={cn(
+                                                "max-w-[85%] sm:max-w-[70%] min-w-0 px-3.5 py-2.5 rounded-2xl shadow-sm text-[15px] relative animate-in fade-in slide-in-from-bottom-2 duration-300 break-words overflow-hidden cursor-pointer sm:cursor-default",
+                                                isTeam
+                                                    ? "bg-primary text-primary-foreground rounded-tr-none shadow-primary/10"
+                                                    : "bg-white text-black rounded-tl-none border border-border/10 shadow-black/5",
+                                                activeDeleteMsgId === msg.id && "ring-2 ring-destructive/50 scale-[0.97] transition-transform"
+                                            )}
+                                            onClick={() => {
+                                                if (activeDeleteMsgId === msg.id) {
+                                                    handleDeleteMessage(msg.id)
+                                                } else {
+                                                    setActiveDeleteMsgId(msg.id)
+                                                }
+                                            }}
+                                        >
                                             {(() => {
                                                 if (!msg.content) return null;
                                                 if (msg.content.startsWith('http')) return null;
@@ -297,44 +585,45 @@ export function ChatWindow({
                                                     const urlRegex = /https?:\/\/[^\s]+/gi;
                                                     const cleanedContent = msg.content.replace(urlRegex, '').trim();
                                                     if (cleanedContent && cleanedContent.length > 0) {
-                                                        return <div className="whitespace-pre-wrap leading-relaxed mb-2 font-medium">{cleanedContent}</div>;
+                                                        return <div className="whitespace-pre-wrap break-words leading-relaxed mb-2 font-medium">{highlightText(cleanedContent)}</div>;
                                                     }
                                                     return null;
                                                 }
-                                                return <div className="whitespace-pre-wrap leading-relaxed font-medium">{msg.content}</div>;
+                                                return <div className="whitespace-pre-wrap break-words leading-relaxed font-medium">{highlightText(msg.content)}</div>;
                                             })()}
 
                                             {(() => {
                                                 if (!mediaUrl) return null;
-                                                const lowerUrl = mediaUrl.toLowerCase();
-                                                // ... (Tipos de media simplificados para brevedad, se pueden refinar)
-                                                const mimeType = data.media?.mimeType || data.media?.type || data.media?.contentType || data.type
+                                                // Preferir URL almacenada en bucket (más confiable que URLs temporales de SuperAPI)
+                                                const resolvedUrl = data.storedMediaUrl || mediaUrl;
+                                                const lowerUrl = resolvedUrl.toLowerCase();
+                                                const mimeType = data.file?.mimeType || data.media?.mimeType || data.media?.type || data.media?.contentType || data.type
+                                                const lowerMime = (mimeType || '').toLowerCase();
+
+                                                // Audio se evalúa ANTES que video para evitar conflicto con .ogg
+                                                const isAudio = ['.mp3', '.wav', '.oga', '.m4a', '.aac', '.opus'].some(ext => lowerUrl.includes(ext))
+                                                    || lowerMime.startsWith('audio/')
+                                                    || data.type === 'audio'
+                                                    || data.type === 'ptt'
+                                                    || (lowerUrl.includes('.ogg') && !lowerMime.startsWith('video/'));
                                                 const isImage = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].some(ext => lowerUrl.includes(ext))
-                                                    || (mimeType && mimeType.toLowerCase().startsWith('image/'))
+                                                    || (lowerMime.startsWith('image/'))
                                                     || (data.type === 'image')
-                                                const isVideo = ['.mp4', '.webm', '.ogg', '.mov'].some(ext => lowerUrl.includes(ext))
-                                                    || (mimeType && mimeType.toLowerCase().startsWith('video/'))
+                                                const isVideo = !isAudio && (
+                                                    ['.mp4', '.webm', '.mov'].some(ext => lowerUrl.includes(ext))
+                                                    || lowerMime.startsWith('video/')
                                                     || (data.type === 'video')
-                                                const isAudio = ['.mp3', '.wav', '.ogg', '.oga', '.m4a', '.aac', '.opus'].some(ext => lowerUrl.includes(ext))
-                                                    || (mimeType && mimeType.toLowerCase().startsWith('audio/'))
-                                                    || (data.type === 'audio')
-                                                    || (data.type === 'ptt');
+                                                );
 
                                                 if (isImage) {
                                                     return (
                                                         <button
                                                             type="button"
                                                             className="mt-1 rounded-xl overflow-hidden shadow-inner bg-black/5 ring-1 ring-black/5 dark:ring-white/5 cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-primary/40"
-                                                            onClick={() => mediaUrl && setLightboxImage(mediaUrl)}
+                                                            onClick={() => resolvedUrl && setLightboxImage(resolvedUrl)}
                                                         >
-                                                            <img src={mediaUrl} alt="Imagen" className="max-w-full h-auto object-cover max-h-[500px]" loading="lazy" />
+                                                            <img src={resolvedUrl} alt="Imagen" className="max-w-full h-auto object-cover max-h-[500px]" loading="lazy" />
                                                         </button>
-                                                    )
-                                                } else if (isVideo) {
-                                                    return (
-                                                        <div className="mt-1 rounded-xl overflow-hidden shadow-inner bg-black/5 ring-1 ring-black/5 dark:ring-white/5">
-                                                            <video src={mediaUrl} controls className="max-w-full h-auto max-h-[500px]" />
-                                                        </div>
                                                     )
                                                 } else if (isAudio) {
                                                     return (
@@ -343,12 +632,18 @@ export function ChatWindow({
                                                                 <Microphone size={16} weight="fill" />
                                                             </div>
                                                             <div className="flex-1 min-w-[150px]">
-                                                                <audio src={mediaUrl} controls className={cn("w-full h-8 opacity-90", isTeam ? "invert grayscale" : "")} />
+                                                                <audio src={resolvedUrl} controls className={cn("w-full h-8 opacity-90", isTeam ? "invert grayscale" : "")} />
                                                             </div>
                                                         </div>
                                                     )
+                                                } else if (isVideo) {
+                                                    return (
+                                                        <div className="mt-1 rounded-xl overflow-hidden shadow-inner bg-black/5 ring-1 ring-black/5 dark:ring-white/5">
+                                                            <video src={resolvedUrl} controls className="max-w-full h-auto max-h-[500px]" />
+                                                        </div>
+                                                    )
                                                 } else {
-                                                    const fileName = mediaUrl.split('/').pop()?.split('?')[0] || 'Archivo adjunto';
+                                                    const fileName = resolvedUrl.split('/').pop()?.split('?')[0] || 'Archivo adjunto';
                                                     return (
                                                         <div className={cn("mt-1 flex items-center gap-3 p-3 rounded-xl border max-w-full transition-all cursor-pointer", isTeam ? "bg-white/10 border-white/10 hover:bg-white/20" : "bg-muted/30 border-border/30 hover:bg-muted")}>
                                                             <div className={cn("p-2.5 rounded-lg shadow-sm shrink-0", isTeam ? "bg-white/10 text-white" : "bg-background text-primary")}>
@@ -356,7 +651,7 @@ export function ChatWindow({
                                                             </div>
                                                             <div className="flex-1 min-w-0">
                                                                 <p className="text-sm font-bold truncate" title={fileName}>{fileName}</p>
-                                                                <a href={mediaUrl} target="_blank" rel="noopener noreferrer" className={cn("text-[10px] font-black uppercase tracking-tight hover:underline flex items-center gap-1 mt-1 opacity-80", isTeam ? "text-white" : "text-primary")}>Abrir enlace</a>
+                                                                <a href={resolvedUrl} target="_blank" rel="noopener noreferrer" className={cn("text-[10px] font-black uppercase tracking-tight hover:underline flex items-center gap-1 mt-1 opacity-80", isTeam ? "text-white" : "text-primary")}>Abrir enlace</a>
                                                             </div>
                                                         </div>
                                                     )
@@ -388,13 +683,12 @@ export function ChatWindow({
                     leadId={lead.id}
                     channel={detectChannel(lead)}
                     disabled={isLoadingMessages}
-                    onMessageSent={() => {
-                        const newMsg = {
-                            created_at: new Date().toISOString(),
-                            sender: 'team' as const,
-                            content: ''
+                    instanceLabel={activeInstance ? (activeInstance.label || activeInstance.client_id || 'WhatsApp') : null}
+                    onMessageSent={(msg) => {
+                        if (msg) {
+                            setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg])
                         }
-                        updateLeadListOrder(lead.id, newMsg as any)
+                        updateLeadListOrder(lead.id, msg as any)
                     }}
                 />
             </div>
@@ -402,8 +696,8 @@ export function ChatWindow({
             {/* Contact Info Panel */}
             {showContactInfo && (
                 <div className={cn(
-                    "h-full flex flex-col shrink-0 animate-in slide-in-from-right duration-300 shadow-2xl overflow-hidden z-20 bg-background border-l border-border",
-                    "absolute inset-0 w-full md:static md:w-[360px]"
+                    "flex flex-col shrink-0 animate-in slide-in-from-right duration-300 shadow-2xl overflow-hidden z-20 bg-background border-l border-border",
+                    "absolute inset-0 w-full md:static md:w-[360px] min-h-0"
                 )}>
                     {/* ... Contenido del panel de info ... */}
                     <div className="h-16 px-4 bg-muted/10 border-b flex items-center justify-between shrink-0">
@@ -543,7 +837,7 @@ export function ChatWindow({
                         </button>
                     </div>
                 </div>,
-                document.body
+                document.getElementById('root')!
             )}
 
         </div>

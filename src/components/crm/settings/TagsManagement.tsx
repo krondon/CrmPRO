@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Tag } from '@/lib/types'
-import { getAllUniqueTags, bulkUpdateTag, bulkDeleteTag } from '@/supabase/services/tags'
+import { getAllUniqueTags, bulkUpdateTag, bulkDeleteTag, deleteSavedTag } from '@/supabase/services/tags'
+import { supabase } from '@/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
-import { Trash, Pencil, Plus, Check, X, Tag as TagIcon } from '@phosphor-icons/react'
+import { Trash, Pencil, Plus, Check, X, Tag as TagIcon, ArrowsClockwise } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
@@ -39,15 +40,10 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
     const [newName, setNewName] = useState('')
     const [newColor, setNewColor] = useState('')
 
-    // Creating State
-    // NOTA: En este sistema "No-DB Table", crear un tag aquí es simbólico
-    // porque hasta que no se asigne a un lead, no persistirá.
-    // Sin embargo, para UX, podríamos permitir "crear" y guardarlo localmente
-    // o simplemente explicar al usuario que las etiquetas se crean al usarlas.
-    // OJO: Para hacerlo persistente necesitaríamos crear un "Dummy Lead" o
-    // simplemente aceptar que aquí solo se EDITAN las existentes.
-    // DECISIÓN: Permitiremos "Limpiar" etiquetas (renombrar/borrar). 
-    // La creación se hará principalmente desde el Chat.
+    // Syncing State (removed)
+    const [showCreateForm, setShowCreateForm] = useState(false)
+    const [createName, setCreateName] = useState('')
+    const [createColor, setCreateColor] = useState(PRESET_COLORS[5])
 
     useEffect(() => {
         loadTags()
@@ -104,6 +100,7 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
         setIsUpdating(true)
         try {
             await bulkDeleteTag(empresaId, tag.id)
+            await deleteSavedTag(tag.id).catch(() => {})
             toast.success('Etiqueta eliminada de todos los chats')
             loadTags()
         } catch (error) {
@@ -114,17 +111,139 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
         }
     }
 
+    const handleCreate = async () => {
+        const trimmed = createName.trim().slice(0, 20)
+        if (!trimmed) {
+            toast.error('El nombre no puede estar vacío')
+            return
+        }
+
+        // Check duplicates locally
+        if (tags.some(t => t.name.toLowerCase() === trimmed.toLowerCase())) {
+            toast.error('Ya existe una etiqueta con ese nombre')
+            return
+        }
+
+        setIsUpdating(true)
+        try {
+            const newTag = {
+                id: crypto.randomUUID(),
+                empresa_id: empresaId,
+                name: trimmed,
+                color: createColor
+            }
+            console.log('[handleCreate] Intentando guardar etiqueta:', newTag)
+            const { data, error } = await supabase
+                .from('saved_tags')
+                .insert(newTag)
+                .select('id, name, color')
+                .single()
+            if (error) {
+                console.error('[handleCreate] Error completo de Supabase:', JSON.stringify(error, null, 2))
+                throw error
+            }
+            console.log('[handleCreate] ✅ Etiqueta guardada:', data)
+            toast.success(`Etiqueta "${trimmed}" creada y guardada`)
+            setCreateName('')
+            setCreateColor(PRESET_COLORS[5])
+            setShowCreateForm(false)
+            loadTags()
+        } catch (error: any) {
+            console.error('[handleCreate] Error creando etiqueta:', error)
+            const code = error?.code
+            const msg = error?.message || ''
+            if (code === '23505') {
+                toast.error('Ya existe una etiqueta con ese nombre')
+            } else if (code === '42501' || msg.includes('policy') || msg.includes('RLS')) {
+                toast.error('Sin permisos para guardar etiquetas. Revisa las políticas RLS de saved_tags en Supabase.')
+            } else {
+                toast.error(`Error creando etiqueta: ${msg || 'Revisa la consola'}`)
+            }
+        } finally {
+            setIsUpdating(false)
+        }
+    }
+
     return (
         <div className="space-y-6">
-            <div>
-                <h2 className="text-xl font-semibold flex items-center gap-2">
-                    <TagIcon /> Gestión de Etiquetas
-                </h2>
-                <p className="text-muted-foreground text-sm">
-                    Estas son las etiquetas detectadas en tus chats activos.
-                    Al editar una etiqueta aquí, cambiará automáticamente en todas las conversaciones donde se use.
-                </p>
+            <div className="flex items-start justify-between gap-4">
+                <div>
+                    <h2 className="text-xl font-semibold flex items-center gap-2">
+                        <TagIcon /> Gestión de Etiquetas
+                    </h2>
+                    <p className="text-muted-foreground text-sm">
+                        Crea, edita o elimina etiquetas. Las etiquetas creadas aquí estarán disponibles para reutilizar en cualquier oportunidad.
+                    </p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <Button
+                        onClick={() => setShowCreateForm(prev => !prev)}
+                        size="sm"
+                        variant={showCreateForm ? 'secondary' : 'default'}
+                        className="shrink-0 gap-1.5"
+                    >
+                        {showCreateForm ? <X size={14} /> : <Plus size={14} weight="bold" />}
+                        {showCreateForm ? 'Cancelar' : 'Crear etiqueta'}
+                    </Button>
+                </div>
             </div>
+
+            {/* Formulario de crear etiqueta */}
+            {showCreateForm && (
+                <Card className="border-primary/30 bg-primary/5 animate-in slide-in-from-top-2 duration-200">
+                    <CardContent className="p-4 space-y-3">
+                        <div className="flex items-center gap-3">
+                            <div className="flex-1">
+                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Nombre</Label>
+                                <Input
+                                    value={createName}
+                                    onChange={e => setCreateName(e.target.value)}
+                                    placeholder="Nombre de la etiqueta (máx. 20 car.)"
+                                    maxLength={20}
+                                    className="mt-1 h-9"
+                                    autoFocus
+                                    onKeyDown={e => e.key === 'Enter' && handleCreate()}
+                                />
+                            </div>
+                            <div>
+                                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Color</Label>
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <div
+                                            className="mt-1 w-9 h-9 rounded-lg cursor-pointer border shadow-sm hover:scale-105 transition-transform"
+                                            style={{ backgroundColor: createColor }}
+                                        />
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-64 p-3">
+                                        <div className="grid grid-cols-6 gap-2">
+                                            {PRESET_COLORS.map(c => (
+                                                <div
+                                                    key={c}
+                                                    className={`w-8 h-8 rounded-full cursor-pointer hover:scale-110 transition-transform ${createColor === c ? 'ring-2 ring-primary ring-offset-2' : ''}`}
+                                                    style={{ backgroundColor: c }}
+                                                    onClick={() => setCreateColor(c)}
+                                                />
+                                            ))}
+                                        </div>
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+                        </div>
+                        {createName.trim() && (
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground">Vista previa:</span>
+                                <Badge className="text-sm font-medium text-white shadow-sm" style={{ backgroundColor: createColor }}>
+                                    {createName.trim().slice(0, 20)}
+                                </Badge>
+                            </div>
+                        )}
+                        <Button onClick={handleCreate} disabled={isUpdating || !createName.trim()} className="w-full gap-1.5">
+                            <Check size={14} />
+                            {isUpdating ? 'Guardando...' : 'Crear y guardar etiqueta'}
+                        </Button>
+                    </CardContent>
+                </Card>
+            )}
 
             {isLoading ? (
                 <div className="flex items-center justify-center p-8">
@@ -136,8 +255,7 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
                         <TagIcon className="h-12 w-12 text-muted-foreground/50 mb-4" />
                         <h3 className="font-medium text-lg">No hay etiquetas aún</h3>
                         <p className="text-muted-foreground text-sm max-w-sm mt-2">
-                            Las etiquetas aparecerán aquí a medida que las crees y asignes dentro de los chats.
-                            Abre un chat y busca el botón "Etiquetas" para empezar.
+                            Usa el botón "Crear etiqueta" de arriba para empezar, o crea etiquetas directamente desde una oportunidad.
                         </p>
                     </CardContent>
                 </Card>
@@ -188,14 +306,25 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
                                     </div>
                                 ) : (
                                     <>
-                                        <Badge
-                                            className="px-3 py-1 text-sm font-medium text-white shadow-sm"
-                                            style={{ backgroundColor: tag.color }}
-                                        >
-                                            {tag.name}
-                                        </Badge>
+                                        <div className="flex flex-col gap-2 min-w-0">
+                                            <div className="flex items-center">
+                                                <Badge
+                                                    className="px-3 py-1 text-sm font-medium text-white shadow-sm"
+                                                    style={{ backgroundColor: tag.color }}
+                                                >
+                                                    {tag.name}
+                                                </Badge>
+                                            </div>
+                                            <div 
+                                                className="text-[10px] text-muted-foreground font-mono bg-muted/40 px-2 py-1 rounded truncate select-all cursor-text" 
+                                                title="ID para usar en integraciones y webhooks"
+                                            >
+                                                <span className="font-bold opacity-60 mr-1">ID:</span>
+                                                {tag.id}
+                                            </div>
+                                        </div>
 
-                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                                             <Button
                                                 size="icon"
                                                 variant="ghost"

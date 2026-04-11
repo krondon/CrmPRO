@@ -1,11 +1,9 @@
-import { usePersistentState } from '@/hooks/usePersistentState'
-import { Task } from '@/lib/types'
-import { usePipelineData } from '@/hooks/usePipelineData'
-import { useAuth } from '@/hooks/useAuth'
+import { Lead } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
-import { useEffect, useState } from 'react'
-import { getLeadsCount } from '@/supabase/services/leads'
+import { useEffect, useState, useMemo } from 'react'
+import { getLeads } from '@/supabase/services/leads'
+import { getPipelines } from '@/supabase/helpers/pipeline'
 import {
   CurrencyDollar,
   TrendUp,
@@ -19,98 +17,128 @@ import {
 import { cn } from '@/lib/utils'
 
 export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
-  const { user } = useAuth()
-  const { leads, pipelines } = usePipelineData({
-    companyId: companyId || '',
-    userId: user?.id
-  })
-  const [tasks] = usePersistentState<Task[]>(`tasks-${companyId}`, [])
+  const [allLeads, setAllLeads] = useState<Lead[]>([])
+  const [pipelinesData, setPipelinesData] = useState<{ id: string; name: string; stageNames: Record<string, string> }[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
-  const [dateRange, setDateRange] = useState<'30days' | 'quarter' | 'year'>('30days')
-  const [metrics, setMetrics] = useState({
-    totalRevenue: 0,
-    revenueTrend: 0,
-    avgDealSize: 0,
-    dealSizeTrend: 0,
-    activeLeads: 0,
-    leadsTrend: 0,
-    completionRate: 0,
-    tasksTrend: 0
-  })
+  const [dateRange, setDateRange] = useState<'30days' | 'quarter'>('30days')
 
+  // Fetch ALL leads and pipelines for this company
   useEffect(() => {
-    if (!leads.length) return
+    if (!companyId) return
+    setIsLoading(true)
 
+    const mapLead = (l: any): Lead => ({
+      id: l.id,
+      name: l.nombre_completo || 'Sin Nombre',
+      email: l.correo_electronico || '',
+      phone: l.telefono || '',
+      company: l.empresa || '',
+      location: l.ubicacion,
+      evento: l.evento,
+      membresia: l.membresia,
+      budget: l.presupuesto || 0,
+      stage: l.etapa_id,
+      pipeline: l.pipeline_id || 'sales',
+      priority: l.prioridad || 'medium',
+      assignedTo: l.asignado_a || '',
+      tags: l.tags || [],
+      createdAt: new Date(l.created_at),
+      lastContact: l.last_message_at ? new Date(l.last_message_at) : new Date(l.created_at),
+      stageEnteredAt: l.stage_entered_at ? new Date(l.stage_entered_at) : null,
+      slaCustomLimitMinutes: l.sla_custom_limit_minutes ?? null
+    })
+
+    Promise.all([
+      getLeads(companyId),
+      getPipelines(companyId)
+    ]).then(([leadsRaw, pipelinesRes]) => {
+      const mapped = (leadsRaw || []).filter(l => !l.archived).map(mapLead)
+      setAllLeads(mapped)
+
+      const pipes = (pipelinesRes.data || []).map((p: any) => ({
+        id: p.id,
+        name: p.nombre || 'Sin Nombre',
+        stageNames: Object.fromEntries((p.etapas || []).map((s: any) => [s.id, s.nombre]))
+      }))
+      setPipelinesData(pipes)
+    }).finally(() => setIsLoading(false))
+  }, [companyId])
+
+  // Compute metrics based on date range
+  const metrics = useMemo(() => {
     const now = new Date()
     let startDate = new Date()
-    let prevStartDate = new Date()
 
     if (dateRange === '30days') {
       startDate.setDate(now.getDate() - 30)
-      prevStartDate.setDate(now.getDate() - 60)
-    } else if (dateRange === 'quarter') {
-      startDate.setMonth(now.getMonth() - 3)
-      prevStartDate.setMonth(now.getMonth() - 6)
     } else {
-      startDate.setFullYear(now.getFullYear() - 1)
-      prevStartDate.setFullYear(now.getFullYear() - 2)
+      startDate.setMonth(now.getMonth() - 3)
     }
 
-    // Filter current period
-    const currentLeads = leads.filter(l => new Date(l.createdAt) >= startDate)
-    const prevLeads = leads.filter(l => {
-      const d = new Date(l.createdAt)
-      return d >= prevStartDate && d < startDate
+    // Filtrar TODOS los leads por el rango de fechas seleccionado
+    const filteredLeads = allLeads.filter(l => l.createdAt >= startDate)
+
+    // Consideramos "Ganado" si la etapa interactúa con nombres de cierre positivo (opcional, o todo el pipeline value)
+    // Para simplificar "Pipeline Value", usaremos la suma del presupuesto de todos los leads filtrados.
+    const totalPipelineValue = filteredLeads.reduce((acc, l) => acc + (l.budget || 0), 0)
+    
+    // Tasa de conversión: asumiendo que las etapas con nombre "Ganado", "Cierre", "Won", "Venta" representan conversión.
+    // Buscamos a qué etapa pertenecen para contar los ganados.
+    const wonLeads = filteredLeads.filter(l => {
+      const p = pipelinesData.find(pipe => pipe.id === l.pipeline)
+      if (!p) return false
+      const stageName = p.stageNames[l.stage] || ''
+      return /ganad|cierre|won|venta|compr/i.test(stageName)
     })
 
-    // Calculate Metrics
-    const currentRevenue = currentLeads.reduce((acc, l) => acc + (l.budget || 0), 0)
-    const prevRevenue = prevLeads.reduce((acc, l) => acc + (l.budget || 0), 0)
+    const closedWonValue = wonLeads.reduce((acc, l) => acc + (l.budget || 0), 0)
+    const conversionRate = filteredLeads.length > 0 ? Math.round((wonLeads.length / filteredLeads.length) * 100) : 0
 
-    const currentAvgDeal = currentLeads.length ? currentRevenue / currentLeads.length : 0
-    const prevAvgDeal = prevLeads.length ? prevRevenue / prevLeads.length : 0
-
-    const currentTasks = (tasks || []).filter(t => new Date(t.dueDate) >= startDate && t.completed).length
-    const totalCurrentTasks = (tasks || []).filter(t => new Date(t.dueDate) >= startDate).length
-    const taskRate = totalCurrentTasks ? Math.round((currentTasks / totalCurrentTasks) * 100) : 0
-
-    const calcTrend = (curr: number, prev: number) => {
-      if (!prev) return curr > 0 ? 100 : 0
-      return Math.round(((curr - prev) / prev) * 100)
+    return {
+      totalRevenue: totalPipelineValue,
+      closedWonValue,
+      conversionRate,
+      activeLeads: filteredLeads.length,
+      wonLeads: wonLeads.length,
+      totalLeads: allLeads.length // Este lo dejamos como histórico total para la tarjeta final
     }
+  }, [allLeads, dateRange, pipelinesData])
 
-    setMetrics({
-      totalRevenue: currentRevenue,
-      revenueTrend: calcTrend(currentRevenue, prevRevenue),
-      avgDealSize: currentAvgDeal,
-      dealSizeTrend: calcTrend(currentAvgDeal, prevAvgDeal),
-      activeLeads: currentLeads.length,
-      leadsTrend: calcTrend(currentLeads.length, prevLeads.length),
-      completionRate: taskRate,
-      tasksTrend: 0 // Mock for now as tasks don't have prev data easily accessible here
-    })
+  const pipelineData = useMemo(() => {
+    const now = new Date()
+    let startDate = new Date()
+    if (dateRange === '30days') {
+      startDate.setDate(now.getDate() - 30)
+    } else {
+      startDate.setMonth(now.getMonth() - 3)
+    }
+    const filteredLeads = allLeads.filter(l => l.createdAt >= startDate)
 
-    // Update charts data based on filtered leads...
-  }, [leads, tasks, dateRange])
-
-  const pipelineData = (pipelines || []).map(pipeline => ({
-    name: pipeline.name,
-    count: (leads || []).filter(l => l.pipeline === pipeline.id).length
-  }))
+    return pipelinesData.map(p => ({
+      name: p.name,
+      count: filteredLeads.filter(l => l.pipeline === p.id).length
+    }))
+  }, [allLeads, pipelinesData, dateRange])
 
   const pipelineChartWidth = Math.max(100 + (pipelineData.length * 120), 600)
 
-  const priorityData = [
-    { name: 'Alta', value: (leads || []).filter(l => l.priority === 'high').length, color: '#f43f5e' },
-    { name: 'Media', value: (leads || []).filter(l => l.priority === 'medium').length, color: '#f59e0b' },
-    { name: 'Baja', value: (leads || []).filter(l => l.priority === 'low').length, color: '#10b981' }
-  ]
+  const priorityData = useMemo(() => {
+    const now = new Date()
+    let startDate = new Date()
+    if (dateRange === '30days') {
+      startDate.setDate(now.getDate() - 30)
+    } else {
+      startDate.setMonth(now.getMonth() - 3)
+    }
+    const filteredLeads = allLeads.filter(l => l.createdAt >= startDate)
 
-  const totalRevenue = (leads || []).reduce((sum, lead) => sum + (lead.budget || 0), 0)
-  const avgDealSize = totalRevenue / ((leads || []).length || 1)
-  const completedTasks = (tasks || []).filter(t => t.completed).length
-  const totalTasks = (tasks || []).length
-  const completionRate = Math.round((completedTasks / (totalTasks || 1)) * 100)
+    return [
+      { name: 'Alta', value: filteredLeads.filter(l => l.priority === 'high').length, color: '#f43f5e' },
+      { name: 'Media', value: filteredLeads.filter(l => l.priority === 'medium').length, color: '#f59e0b' },
+      { name: 'Baja', value: filteredLeads.filter(l => l.priority === 'low').length, color: '#10b981' }
+    ]
+  }, [allLeads, dateRange])
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -119,7 +147,7 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
           <p className="text-xs font-black uppercase tracking-widest text-muted-foreground mb-1">{label}</p>
           <p className="text-sm font-bold text-primary flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-primary" />
-            {payload[0].value.toLocaleString()} {payload[0].name === 'count' ? 'Leads' : ''}
+            {payload[0].value.toLocaleString()} {payload[0].name === 'count' ? 'Oportunidades' : ''}
           </p>
         </div>
       );
@@ -128,7 +156,7 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 pb-32 space-y-8 bg-[#f8fafc] dark:bg-background">
+    <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 pb-32 md:pb-8 space-y-8 bg-background/50">
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
@@ -149,39 +177,47 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <KpiCard
-          title="Ingresos Totales"
+          title="Valor del Embudo"
           value={`$${metrics.totalRevenue.toLocaleString()}`}
-          subtitle="En periodo seleccionado"
-          icon={<CurrencyDollar size={24} weight="duotone" />}
-          gradient="from-emerald-500/20 to-emerald-500/5 text-emerald-600 dark:text-emerald-400"
-          trend={`${metrics.revenueTrend > 0 ? '+' : ''}${metrics.revenueTrend}%`}
-          trendUp={metrics.revenueTrend >= 0}
+          subtitle="Presupuesto potencial filtrado"
+          icon={<CurrencyDollar size={20} weight="bold" className="text-blue-600" />}
+          gradient="bg-gradient-to-br from-blue-500/20 to-transparent border-blue-100/50"
+          themeColor="text-blue-600"
+          bgIcon={CurrencyDollar}
+          trend={`${metrics.activeLeads} prospectos`}
+          trendUp={true}
         />
         <KpiCard
-          title="Promedio Oferta"
-          value={`$${Math.round(metrics.avgDealSize).toLocaleString()}`}
-          subtitle="Valor medio por lead"
-          icon={<TrendUp size={24} weight="duotone" />}
-          gradient="from-blue-500/20 to-blue-500/5 text-blue-600 dark:text-blue-400"
-          trend={`${metrics.dealSizeTrend > 0 ? '+' : ''}${metrics.dealSizeTrend}%`}
-          trendUp={metrics.dealSizeTrend >= 0}
+          title="Ingresos Cerrados"
+          value={`$${metrics.closedWonValue.toLocaleString()}`}
+          subtitle="Ventas ganadas confirmadas"
+          icon={<TrendUp size={20} weight="bold" className="text-emerald-600" />}
+          gradient="bg-gradient-to-br from-emerald-500/20 to-transparent border-emerald-100/50"
+          themeColor="text-emerald-600"
+          bgIcon={TrendUp}
+          trend={`${metrics.wonLeads} clientes`}
+          trendUp={true}
         />
         <KpiCard
-          title="Leads Nuevos"
-          value={metrics.activeLeads.toString()}
-          subtitle="En periodo seleccionado"
-          icon={<Users size={24} weight="duotone" />}
-          gradient="from-indigo-500/20 to-indigo-500/5 text-indigo-600 dark:text-indigo-400"
-          trend={`${metrics.leadsTrend > 0 ? '+' : ''}${metrics.leadsTrend}%`}
-          trendUp={metrics.leadsTrend >= 0}
+          title="Tasa de Conversión"
+          value={`${metrics.conversionRate}%`}
+          subtitle="Promedio de cierre"
+          icon={<Users size={20} weight="bold" className="text-purple-600" />}
+          gradient="bg-gradient-to-br from-purple-500/20 to-transparent border-purple-100/50"
+          themeColor="text-purple-600"
+          bgIcon={Users}
+          trend="Efectividad"
+          trendUp={metrics.conversionRate > 0}
         />
         <KpiCard
-          title="Tasa Completitud"
-          value={`${metrics.completionRate}%`}
-          subtitle="Tareas completadas"
-          icon={<CheckCircle size={24} weight="duotone" />}
-          gradient="from-violet-500/20 to-violet-500/5 text-violet-600 dark:text-violet-400"
-          trend="0%"
+          title="Histórico de Oportunidades"
+          value={metrics.totalLeads.toString()}
+          subtitle="Todas las oportunidades y chats"
+          icon={<CheckCircle size={20} weight="bold" className="text-rose-600" />}
+          gradient="bg-gradient-to-br from-rose-500/20 to-transparent border-rose-100/50"
+          themeColor="text-rose-600"
+          bgIcon={CheckCircle}
+          trend={`${pipelinesData.length} pipelines`}
           trendUp={true}
         />
       </div>
@@ -194,7 +230,7 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
             <div className="space-y-1">
               <CardTitle className="text-xl font-black tracking-tight flex items-center gap-2">
                 <ChartBar size={24} weight="duotone" className="text-primary" />
-                Leads por Pipeline
+                Oportunidades por Pipeline
               </CardTitle>
               <p className="text-sm text-muted-foreground font-medium">Distribución volumétrica por etapa</p>
             </div>
@@ -244,7 +280,7 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
                 <ChartPieSlice size={24} weight="duotone" className="text-primary" />
                 Distribución Prioritaria
               </CardTitle>
-              <p className="text-sm text-muted-foreground font-medium">Análisis de criticidad de leads</p>
+              <p className="text-sm text-muted-foreground font-medium">Análisis de criticidad de oportunidades</p>
             </div>
           </CardHeader>
           <CardContent className="p-8 flex flex-col items-center">
@@ -269,8 +305,8 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
                 </PieChart>
               </ResponsiveContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-3xl font-black">{(leads || []).length}</span>
-                <span className="text-[10px] uppercase font-black tracking-[0.2em] text-muted-foreground">Total Leads</span>
+                <span className="text-3xl font-black">{allLeads.length}</span>
+                <span className="text-[10px] uppercase font-black tracking-[0.2em] text-muted-foreground">Total Oportunidades</span>
               </div>
             </div>
 
@@ -289,27 +325,33 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
   )
 }
 
-function KpiCard({ title, value, subtitle, icon, gradient, trend, trendUp }: any) {
+function KpiCard({ title, value, subtitle, icon, gradient, themeColor, trend, trendUp, bgIcon: BgIcon }: any) {
   return (
-    <Card className="border-none shadow-2xl shadow-black/5 rounded-[2rem] overflow-hidden group hover:scale-[1.02] transition-all duration-300 bg-background">
-      <CardContent className="p-6">
-        <div className="flex justify-between items-start mb-4">
-          <div className={cn("p-3 rounded-2xl bg-gradient-to-br shadow-inner ring-1 ring-black/5", gradient)}>
-            {icon}
-          </div>
+    <Card className={cn(
+      "border-none shadow-sm hover:shadow-md transition-all duration-300 rounded-2xl overflow-hidden relative group bg-background",
+      gradient
+    )}>
+      <div className={cn("absolute top-[-10px] right-[-10px] opacity-10 group-hover:scale-110 transition-transform", themeColor)}>
+        {BgIcon && <BgIcon size={80} weight="fill" />}
+      </div>
+      <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 relative z-10">
+        <CardTitle className={cn("text-xs font-bold uppercase tracking-widest opacity-80", themeColor)}>{title}</CardTitle>
+        <div className="p-2 bg-background/50 rounded-lg backdrop-blur-sm border border-border/10 shadow-sm">
+          {icon}
+        </div>
+      </CardHeader>
+      <CardContent className="relative z-10">
+        <div className="flex items-baseline gap-2">
+          <div className={cn("text-3xl font-black", themeColor)}>{value}</div>
           <div className={cn(
-            "flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black tracking-wider uppercase",
-            trendUp ? "bg-emerald-500/10 text-emerald-600" : "bg-rose-500/10 text-rose-600"
+            "flex items-center gap-0.5 text-[10px] font-bold px-2 py-0.5 rounded-full border shadow-sm",
+            trendUp ? "bg-emerald-500/10 text-emerald-600 border-emerald-200" : "bg-rose-500/10 text-rose-600 border-rose-200"
           )}>
-            {trendUp ? <CaretUp size={12} weight="bold" /> : <CaretDown size={12} weight="bold" />}
+            {trendUp ? <CaretUp size={10} weight="bold" /> : <CaretDown size={10} weight="bold" />}
             {trend}
           </div>
         </div>
-        <div>
-          <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider mb-1 opacity-70">{title}</h3>
-          <div className="text-3xl font-black tracking-tight mb-1">{value}</div>
-          <p className="text-xs text-muted-foreground/80 font-medium">{subtitle}</p>
-        </div>
+        <p className="text-xs font-medium text-muted-foreground mt-1 opacity-70">{subtitle}</p>
       </CardContent>
     </Card>
   )
