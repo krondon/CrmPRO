@@ -331,7 +331,8 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
         if (!companyId) return
 
         const subscription = subscribeToAllMessages((msg) => {
-            if (msg.lead_id && msg.sender === 'lead') {
+            const leadInCurrentView = !!msg.lead_id && leadsRef.current.some(l => l.id === msg.lead_id)
+            if (leadInCurrentView && msg.sender === 'lead') {
                 setUnreadLeads(prev => new Set([...prev, msg.lead_id]))
             }
         })

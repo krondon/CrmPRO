@@ -810,42 +810,46 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
         {filteredMembers.map(member => {
           const roleInfo = getRoleInfo(member.roleId)
           return (
-            <Card key={member.id} className="overflow-hidden border border-border/30 shadow-sm hover:shadow-md transition-all duration-200 rounded-xl group">
-              <CardHeader>
-                <div className="flex items-start justify-between gap-2">
+            <Card key={member.id} className="overflow-hidden border border-border/30 shadow-sm hover:shadow-md transition-all duration-200 rounded-2xl group flex flex-col bg-card/40">
+              <CardHeader className="bg-muted/10 pb-4 border-b border-border/20">
+                <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <Avatar className="h-12 w-12 shrink-0 ring-2 ring-primary/10 ring-offset-2">
+                    <Avatar className="h-14 w-14 shrink-0 shadow-sm border border-primary/10">
                       <AvatarImage src={member.avatar} />
-                      <AvatarFallback className="bg-gradient-to-br from-primary/20 to-primary/5 text-primary font-bold text-lg">{member.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                      <AvatarFallback className="bg-gradient-to-br from-primary/10 to-primary/5 text-primary font-black text-xl">
+                        {member.name.split(' ').map((n: string) => n[0]).join('').substring(0, 2)}
+                      </AvatarFallback>
                     </Avatar>
-                    <div className="min-w-0 flex-1 overflow-hidden">
-                      <div className="flex items-center gap-2 flex-wrap min-w-0">
-                        <CardTitle className="text-base font-bold truncate tracking-tight max-w-[140px]" title={member.name}>{member.name}</CardTitle>
-                        {(member as any).status === 'pending' && (
-                          <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-300 shrink-0">
-                            Pendiente
-                          </Badge>
-                        )}
+                    <div className="min-w-0 flex-1 overflow-hidden flex flex-col justify-center">
+                      <div className="flex items-center gap-2 mb-1">
+                        <CardTitle className="text-lg font-bold truncate text-foreground/90 font-sans tracking-tight" title={member.name}>
+                          {member.name}
+                        </CardTitle>
                         {member.permissionRole && (
-                          <Badge variant="secondary" className="text-[10px] shrink-0 rounded-full px-2 font-bold">
+                          <Badge variant="secondary" className="text-[10px] shrink-0 rounded-md px-1.5 py-0 font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-colors uppercase tracking-widest leading-4">
                             {member.permissionRole === 'admin' ? 'Admin' : 'Viewer'}
                           </Badge>
                         )}
+                        {(member as any).status === 'pending' && (
+                          <Badge variant="outline" className="text-[10px] rounded-md px-1.5 py-0 font-bold bg-yellow-50 text-yellow-700 border-yellow-300 shrink-0 uppercase tracking-widest leading-4">
+                            Pend.
+                          </Badge>
+                        )}
                       </div>
-                      <p className="text-sm text-muted-foreground truncate mt-0.5">{member.role}</p>
+                      <p className="text-sm font-medium text-muted-foreground truncate">{member.role}</p>
                     </div>
                   </div>
                   {isAdminOrOwner && (
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                       {(member as any).status === 'pending' ? (
                         <Button
                           variant="outline"
                           size="sm"
-                          className="text-destructive hover:bg-destructive/10"
+                          className="h-8 w-8 p-0 text-destructive hover:bg-destructive hover:text-white transition-colors rounded-lg shadow-sm"
                           onClick={() => handleDeleteMember(member.id)}
                           title="Cancelar invitación"
                         >
-                          <XCircle size={16} />
+                          <XCircle size={16} weight="bold" />
                         </Button>
                       ) : (
                         (member.userId !== currentUserId && member.email !== currentUserEmail) && (
@@ -861,11 +865,11 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
                             <Button
                               variant="outline"
                               size="sm"
-                              className="text-destructive hover:bg-destructive/10"
+                              className="h-8 w-8 p-0 text-destructive hover:bg-destructive hover:text-white transition-colors rounded-lg shadow-sm"
                               onClick={() => handleDeleteMember(member.id)}
                               title="Eliminar miembro"
                             >
-                              <Trash size={16} />
+                              <Trash size={16} weight="bold" />
                             </Button>
                           </>
                         )
@@ -874,24 +878,28 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
                   )}
                 </div>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm gap-2 min-w-0">
-                    <span className="text-muted-foreground shrink-0">Email</span>
-                    <span className="font-medium truncate text-right" title={member.email}>{member.email}</span>
+              <CardContent className="pt-4 flex-1 flex flex-col">
+                <div className="space-y-3 flex-1">
+                  <div className="flex flex-col gap-1 text-sm bg-muted/30 px-3 py-2 rounded-lg border border-border/40">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60">Email</span>
+                    <span className="font-semibold text-foreground/80 truncate text-xs" title={member.email}>{member.email}</span>
                   </div>
-                  {member.teamId && (
-                    <div className="flex items-center justify-between text-sm gap-2 min-w-0">
-                      <span className="text-muted-foreground shrink-0">Equipo</span>
-                      <span className="font-medium truncate text-right">
-                        {equipos.find(e => e.id === member.teamId)?.nombre_equipo || 'Desconocido'}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground font-medium">Tareas Activas</span>
+                  
+                  <div className="flex items-center justify-between text-sm py-1">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1.5">
+                      <Users size={12} weight="bold" /> Equipo
+                    </span>
+                    <span className="font-bold text-xs text-foreground/80 truncate text-right">
+                      {member.teamId ? (equipos.find(e => e.id === member.teamId)?.nombre_equipo || 'Desconocido') : 'No asignado'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-sm py-1 border-t border-border/20 pt-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1.5">
+                      <CheckCircle size={12} weight="bold" /> Tareas Activas
+                    </span>
                     <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-sm font-semibold px-2 py-0.5">
+                      <Badge variant="secondary" className="text-xs font-bold px-2 py-0 border border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/50 dark:bg-blue-900/20 dark:text-blue-400">
                         {getAssignedLeadsCount(member.id, (member as any).status)}
                       </Badge>
                       {getAssignedLeadsCount(member.id, (member as any).status) > 0 && (
@@ -905,32 +913,32 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
                           onLeadClick={(leadId) => {
                             // Navegar al detalle del lead
                             console.log('Navegando a la oportunidad:', leadId)
-                            // Aquí puedes agregar lógica de navegación
                           }}
                           trigger={
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:bg-muted rounded-full cursor-pointer">
-                              <Info size={16} className="text-muted-foreground" />
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-muted/50 rounded-full cursor-pointer text-muted-foreground">
+                              <Info size={14} weight="bold" />
                             </Button>
                           }
                         />
                       )}
                     </div>
                   </div>
-                  <div className="text-sm">
-                    <span className="text-muted-foreground">Pipelines</span>
-                    <div className="flex flex-wrap gap-1 mt-1">
+
+                  <div className="text-sm pt-2 border-t border-border/20">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60 block mb-2">Pipelines Asignados</span>
+                    <div className="flex flex-wrap gap-1.5">
                       {(() => {
                         const allPipelines = member.pipelines || []
-                        const visiblePipelines = allPipelines.slice(0, 4)
-                        const hiddenPipelines = allPipelines.slice(4)
+                        const visiblePipelines = allPipelines.slice(0, 3)
+                        const hiddenPipelines = allPipelines.slice(3)
 
                         const renderBadge = (tp: string) => {
                           let label = tp
                           if (tp === 'sales') label = 'Ventas'
                           else if (tp === 'support') label = 'Soporte'
-                          else if (tp === 'administrative') label = 'Administrativo'
+                          else if (tp === 'administrative') label = 'Admin'
                           return (
-                            <Badge key={tp} variant="outline" className="text-xs capitalize">
+                            <Badge key={tp} variant="outline" className="text-[10px] font-bold uppercase tracking-wider text-foreground/70 border-border/60 bg-background shadow-xs px-2 py-0.5 rounded-md">
                               {label}
                             </Badge>
                           )
@@ -942,14 +950,14 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
                             {hiddenPipelines.length > 0 && (
                               <Popover>
                                 <PopoverTrigger asChild>
-                                  <Badge variant="secondary" className="text-xs cursor-pointer hover:bg-secondary/80">
-                                    +{hiddenPipelines.length} más
+                                  <Badge variant="secondary" className="text-[10px] font-bold uppercase tracking-wider cursor-pointer hover:bg-secondary/80 px-2 py-0.5 rounded-md transition-colors border shadow-xs">
+                                    +{hiddenPipelines.length}
                                   </Badge>
                                 </PopoverTrigger>
-                                <PopoverContent className="w-64 p-3">
-                                  <div className="space-y-2">
-                                    <h4 className="font-medium text-sm">Pipelines adicionales</h4>
-                                    <div className="flex flex-wrap gap-1">
+                                <PopoverContent className="w-56 p-3 rounded-xl shadow-xl">
+                                  <div className="space-y-3">
+                                    <h4 className="font-bold text-[10px] uppercase tracking-wider text-muted-foreground">Más Pipelines</h4>
+                                    <div className="flex flex-wrap gap-1.5">
                                       {hiddenPipelines.map(renderBadge)}
                                     </div>
                                   </div>
@@ -957,20 +965,13 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
                               </Popover>
                             )}
                             {allPipelines.length === 0 && (
-                              <span className="text-xs text-muted-foreground">Sin asignar</span>
+                              <span className="text-xs text-muted-foreground/50 italic font-medium">No tiene pipelines</span>
                             )}
                           </>
                         )
                       })()}
                     </div>
                   </div>
-                  {roleInfo && roleInfo.permissions.length > 0 && (
-                    <div className="pt-2 border-t border-border/30">
-                      <span className="text-[11px] text-muted-foreground/70 font-medium">
-                        {roleInfo.permissions.length} permisos
-                      </span>
-                    </div>
-                  )}
                 </div>
               </CardContent>
             </Card>
@@ -992,88 +993,99 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
 
         {/* Miembros sin equipo asignado (solo en empresa_miembros) */}
         {onlyApprovedMembers.map(member => (
-          <Card key={member.id} className="overflow-hidden border border-border/30 shadow-sm hover:shadow-md transition-all duration-200 rounded-xl group">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2 w-full min-w-0">
-                <Avatar className="h-10 w-10 shrink-0 ring-2 ring-primary/10 ring-offset-1">
-                  <AvatarFallback className="bg-gradient-to-br from-primary/20 to-primary/5 text-primary font-bold text-sm">
+          <Card key={member.id} className="overflow-hidden border border-border/30 shadow-sm hover:shadow-md transition-all duration-200 rounded-2xl group flex flex-col bg-card/40">
+            <CardHeader className="bg-muted/10 pb-4 border-b border-border/20">
+              <div className="flex items-start justify-between gap-3 min-w-0">
+                <Avatar className="h-14 w-14 shrink-0 shadow-sm border border-primary/10">
+                  <AvatarFallback className="bg-gradient-to-br from-primary/10 to-primary/5 text-primary font-black text-xl">
                     {(member.nombre || member.email).substring(0, 2).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
-                <div className="min-w-0 flex-1 overflow-hidden">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <CardTitle className="text-sm font-bold truncate tracking-tight min-w-0 max-w-[120px]" title={member.nombre || member.email}>
+                <div className="min-w-0 flex-1 overflow-hidden flex flex-col justify-center">
+                  <div className="flex items-center gap-2 mb-1 min-w-0 flex-wrap">
+                    <CardTitle className="text-lg font-bold truncate text-foreground/90 font-sans tracking-tight" title={member.nombre || member.email}>
                       {member.nombre || member.email}
                     </CardTitle>
-                    <Badge variant="secondary" className="text-[10px] shrink-0 rounded-full px-2 font-bold">
+                    <Badge variant="secondary" className="text-[10px] shrink-0 rounded-md px-1.5 py-0 font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-colors uppercase tracking-widest leading-4">
                       {member.role === 'admin' ? 'Admin' : member.role === 'owner' ? 'Propietario' : 'Viewer'}
                     </Badge>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">Colaborador</p>
+                  <p className="text-sm font-medium text-muted-foreground truncate">Colaborador</p>
                 </div>
                 {isAdminOrOwner &&
                   member.email?.toLowerCase() !== currentUserEmail?.toLowerCase() &&
                   member.usuario_id !== currentUserId && (
-                  <div className="flex items-center gap-1 shrink-0 ml-1">
+                  <div className="flex items-center gap-1.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                     {isOwnerById && (
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-8 w-8 p-0"
+                        className="h-8 w-8 p-0 rounded-lg shadow-sm hover:border-primary hover:text-primary transition-colors"
                         onClick={() => { setEditingMemberId(member.id); setEditingMemberRole(member.role) }}
                         title="Editar rol"
                       >
-                        <PencilSimple size={14} />
+                        <PencilSimple size={14} weight="bold" />
                       </Button>
                     )}
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10"
+                      className="h-8 w-8 p-0 text-destructive hover:bg-destructive hover:text-white transition-colors rounded-lg shadow-sm"
                       onClick={() => handleDeleteApprovedMember(member)}
                       title="Eliminar miembro"
                     >
-                      <Trash size={14} />
+                      <Trash size={14} weight="bold" />
                     </Button>
                   </div>
                 )}
               </div>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
+            <CardContent className="pt-4 flex-1 flex flex-col">
+              <div className="space-y-3 flex-1 flex flex-col justify-center">
                 {editingMemberId === member.id ? (
-                  <div className="flex items-center gap-2">
-                    <Select value={editingMemberRole} onValueChange={setEditingMemberRole}>
-                      <SelectTrigger className="h-8 text-xs flex-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="viewer">Lector</SelectItem>
-                        <SelectItem value="admin">Administrador</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Button size="sm" className="h-8" onClick={() => handleUpdateApprovedMemberRole(member)}>
-                      Guardar
-                    </Button>
-                    <Button size="sm" variant="outline" className="h-8" onClick={() => setEditingMemberId(null)}>
-                      Cancelar
-                    </Button>
+                  <div className="flex flex-col gap-3 bg-muted/20 p-3 rounded-xl border border-border/40 mb-2">
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70">Rol del usuario</span>
+                      <Select value={editingMemberRole} onValueChange={setEditingMemberRole}>
+                        <SelectTrigger className="h-9 w-full bg-background font-bold focus:ring-primary/20">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-xl">
+                          <SelectItem value="viewer" className="font-medium text-sm">Lector</SelectItem>
+                          <SelectItem value="admin" className="font-medium text-sm">Administrador</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center justify-end gap-2 mt-1">
+                      <Button size="sm" variant="ghost" className="h-8 rounded-lg text-xs font-bold" onClick={() => setEditingMemberId(null)}>
+                        Cancelar
+                      </Button>
+                      <Button size="sm" className="h-8 rounded-lg text-xs font-bold shadow-sm" onClick={() => handleUpdateApprovedMemberRole(member)}>
+                        Guardar
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <>
-                    <div className="flex items-center justify-between text-sm gap-2 min-w-0">
-                      <span className="text-muted-foreground shrink-0">Email</span>
-                      <span className="font-medium truncate text-right" title={member.email}>{member.email}</span>
+                    <div className="flex flex-col gap-1 text-sm bg-muted/30 px-3 py-2 rounded-lg border border-border/40">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60">Email</span>
+                      <span className="font-semibold text-foreground/80 truncate text-xs" title={member.email}>{member.email}</span>
                     </div>
-                    <div className="flex items-center justify-between text-sm gap-2 min-w-0">
-                      <span className="text-muted-foreground font-medium shrink-0">Tareas Activas</span>
-                      <Badge variant="secondary" className="text-sm font-semibold px-2 py-0.5">
+
+                    <div className="flex items-center justify-between text-sm py-1 border-b border-border/20 pt-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1.5">
+                        <CheckCircle size={12} weight="bold" /> Tareas Activas
+                      </span>
+                      <Badge variant="secondary" className="text-xs font-bold px-2 py-0 border border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/50 dark:bg-blue-900/20 dark:text-blue-400">
                         {getApprovedLeadsCount(member.usuario_id)}
                       </Badge>
                     </div>
-                    <div className="flex items-center justify-between text-sm gap-2 min-w-0">
-                      <span className="text-muted-foreground shrink-0">Registro</span>
-                      <span className="text-xs font-medium">{new Date(member.created_at).toLocaleDateString('es-ES')}</span>
+
+                    <div className="flex items-center justify-between text-sm py-1">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1.5">
+                        <Clock size={12} weight="bold" /> Registro
+                      </span>
+                      <span className="font-bold text-xs text-foreground/80">{new Date(member.created_at).toLocaleDateString('es-ES')}</span>
                     </div>
                   </>
                 )}

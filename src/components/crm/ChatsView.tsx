@@ -43,10 +43,10 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
     updateLeadOrder: updateLeadListOrder,
     updateUnreadCount,
     addLead,
-    searchTerm,
-    setSearchTerm,
-    isSearching,
-    messageSearchResults,
+    searchQuery,
+    setSearchQuery,
+    searchLoading,
+    searchResults,
     allLeads
   } = useLeadsList({ companyId })
 
@@ -54,16 +54,23 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
 
   // Estados UI locales (no relacionados con datos de leads)
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null)
+  const [selectedLeadFromSearch, setSelectedLeadFromSearch] = useState<Lead | null>(null)
   const [showChatSettings, setShowChatSettings] = useState(false)
 
   // Fallback: mensaje entrante propagado desde subscribeToAllMessages hacia ChatWindow
   // Usa timestamp para garantizar que cada mensaje genere una nueva referencia
   const [incomingMessage, setIncomingMessage] = useState<{ msg: Message; ts: number } | null>(null)
 
+  const handleSelectLead = (lead: Lead) => {
+    const existsInPaginated = allLeads.some((row) => row.id === lead.id) || leads.some((row) => row.id === lead.id)
+    setSelectedLeadId(lead.id)
+    setSelectedLeadFromSearch(existsInPaginated ? null : lead)
+  }
 
 
 
-  // NOTA: Los filtros (channelFilter, unreadFilter, searchTerm), sortedLeads, rowVirtualizer,
+
+  // NOTA: Los filtros (channelFilter, unreadFilter, searchQuery), sortedLeads, rowVirtualizer,
   // listParentRef, filterScrollRef ahora viven en el componente ChatList.
   // Se eliminaron ~30 líneas de estados y ~40 líneas de código duplicado.
 
@@ -158,6 +165,7 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
       await toggleArchive(lead, nextState, currentUser?.id, actorNombre)
       if (selectedLeadId === lead.id && ((nextState && chatScope === 'active') || (!nextState && chatScope === 'archived'))) {
         setSelectedLeadId(null)
+        setSelectedLeadFromSearch(null)
       }
     } catch (err) {
       // Error handling done in hook
@@ -190,7 +198,9 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
   const chatScopeRef = useRef(chatScope)
   chatScopeRef.current = chatScope
 
-  const selectedLead = allLeads.find(l => l.id === selectedLeadId) || leads.find(l => l.id === selectedLeadId)
+  const selectedLead = allLeads.find(l => l.id === selectedLeadId)
+    || leads.find(l => l.id === selectedLeadId)
+    || (selectedLeadFromSearch?.id === selectedLeadId ? selectedLeadFromSearch : null)
 
   // Rastrear el último lead seleccionado para detectar eliminación
   const lastSelectedLeadRef = useRef<Lead | null>(null)
@@ -200,7 +210,7 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
 
   // Detectar si el lead seleccionado fue eliminado/archivado (ya no está en la lista)
   // NO detectar eliminación cuando hay búsqueda activa (el lead sigue existiendo, solo no está en los resultados filtrados)
-  const isLeadDeleted = selectedLeadId !== null && !selectedLead && !searchTerm && lastSelectedLeadRef.current?.id === selectedLeadId
+  const isLeadDeleted = selectedLeadId !== null && !selectedLead && searchQuery.trim().length < 2 && lastSelectedLeadRef.current?.id === selectedLeadId
   const deletedLeadInfo = isLeadDeleted ? {
     name: lastSelectedLeadRef.current!.name || lastSelectedLeadRef.current!.phone || 'Lead',
     phone: lastSelectedLeadRef.current!.phone
@@ -218,22 +228,21 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
         chatScope={chatScope}
         companyId={companyId}
         selectedLeadId={selectedLeadId}
-        onSelectLead={setSelectedLeadId}
+        onSelectLead={handleSelectLead}
         onScopeChange={handleScopeChange}
         onLoadMore={fetchMoreLeads}
         onRefresh={loadLeads}
         onOpenSettings={() => setShowChatSettings(true)}
-        searchTerm={searchTerm}
-        onSearchChange={setSearchTerm}
-        isSearching={isSearching}
-        messageSearchResults={messageSearchResults}
-        onSelectLeadFromMessage={setSelectedLeadId}
+        searchQuery={searchQuery}
+        onSearchQueryChange={setSearchQuery}
+        searchLoading={searchLoading}
+        searchResults={searchResults}
       />
       <ChatWindow
         lead={selectedLead || null}
         companyId={companyId}
         canDeleteLead={canDeleteLead}
-        onBack={() => setSelectedLeadId(null)}
+        onBack={() => { setSelectedLeadId(null); setSelectedLeadFromSearch(null) }}
         onArchive={handleArchiveToggle}
         onDelete={handleDeleteLead}
         onNavigateToPipeline={onNavigateToPipeline}
@@ -241,7 +250,7 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
         updateUnreadCount={updateUnreadCount}
         onLeadUpdate={(updatedLead) => handleLeadUpdate(updatedLead)}
         deletedLeadInfo={deletedLeadInfo}
-        onDismissDeleted={() => { setSelectedLeadId(null); lastSelectedLeadRef.current = null }}
+        onDismissDeleted={() => { setSelectedLeadId(null); setSelectedLeadFromSearch(null); lastSelectedLeadRef.current = null }}
         incomingMessage={incomingMessage}
       />
       <ChatSettingsDialog open={showChatSettings} onClose={() => setShowChatSettings(false)} empresaId={companyId} />

@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-supabase-authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, Authorization, x-supabase-authorization, X-Supabase-Authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
@@ -12,6 +12,16 @@ interface MediaPayload {
   fileName: string
   ptt?: boolean
   mimetype?: string
+}
+
+function extractBearerToken(rawHeader: string | null): string | null {
+  if (!rawHeader) return null;
+  const normalized = rawHeader.trim();
+  if (!normalized) return null;
+  if (/^bearer\s+/i.test(normalized)) {
+    return normalized.replace(/^bearer\s+/i, '').trim() || null;
+  }
+  return normalized;
 }
 
 serve(async (req) => {
@@ -31,18 +41,22 @@ serve(async (req) => {
     if (supabaseUrl === '.') throw new Error("SUPABASE_URL es '.' (inválido)");
 
     currentStep = 'Verificar Autenticación';
-    // Obtener el JWT del header de autorización
-    const authHeader = req.headers.get('Authorization');
+    const authorizationHeader = req.headers.get('Authorization') || req.headers.get('authorization');
+    const proxiedAuthorization = req.headers.get('x-supabase-authorization') || req.headers.get('X-Supabase-Authorization');
+    const accessToken = extractBearerToken(authorizationHeader) || extractBearerToken(proxiedAuthorization);
 
-    // Crear cliente autenticado para verificar el usuario
-    const supabaseClient = createClient(supabaseUrl, supabaseServiceKey, {
-      global: {
-        headers: authHeader ? { Authorization: authHeader } : {}
-      }
-    });
+    const supabaseClient = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Verificar que el usuario esté autenticado
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+    if (!accessToken) {
+      console.error('[Auth] No llegó token Authorization/x-supabase-authorization');
+      return new Response(JSON.stringify({ error: 'Unauthorized - missing access token' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Verificar que el usuario esté autenticado usando el token recibido
+    const { data: { user }, error: authError } = await supabaseClient.auth.getUser(accessToken);
     if (authError || !user) {
       console.error('[Auth] Usuario no autenticado:', authError);
       return new Response(JSON.stringify({ error: 'Unauthorized - user not authenticated' }), {

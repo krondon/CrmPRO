@@ -8,6 +8,35 @@ import type {
     SearchLeadsOptions
 } from '@/lib/types'
 
+export const SHARED_LEAD_COLUMNS = [
+    'id',
+    'nombre_completo',
+    'correo_electronico',
+    'telefono',
+    'empresa',
+    'ubicacion',
+    'presupuesto',
+    'etapa_id',
+    'pipeline_id',
+    'prioridad',
+    'asignado_a',
+    'empresa_id',
+    'created_at',
+    'archived',
+    'archived_at',
+    'tags',
+    'evento',
+    'membresia',
+    'channel',
+    'instance_id',
+    'external_handle',
+    'preferred_instance_id',
+    'last_message_at',
+    'last_message_sender',
+    'stage_entered_at',
+    'sla_custom_limit_minutes'
+].join(',')
+
 /**
  * Obtiene todos los leads de una empresa
  */
@@ -25,7 +54,7 @@ export async function getLeads(
     while (hasMore) {
         let query = supabase
             .from('lead')
-            .select('*')
+            .select(SHARED_LEAD_COLUMNS)
             .eq('empresa_id', empresaId)
             .range(page * pageSize, (page + 1) * pageSize - 1)
 
@@ -61,7 +90,7 @@ export async function getLeads(
 export async function getLeadById(id: string): Promise<LeadDB | null> {
     const { data, error } = await supabase
         .from('lead')
-        .select('*')
+        .select(SHARED_LEAD_COLUMNS)
         .eq('id', id)
         .single()
 
@@ -105,7 +134,7 @@ export async function getLeadsPaged(options: GetLeadsPagedOptions): Promise<Pagi
 
     let query = supabase
         .from('lead')
-        .select('*', { count: 'exact' })
+        .select(SHARED_LEAD_COLUMNS, { count: 'exact' })
         .eq('empresa_id', empresaId)
 
     if (archived === true) {
@@ -154,7 +183,7 @@ export async function searchLeads(
 
     let query = supabase
         .from('lead')
-        .select('*')
+        .select(SHARED_LEAD_COLUMNS)
         .eq('empresa_id', empresaId)
 
     if (archived === true) {
@@ -178,6 +207,136 @@ export async function searchLeads(
         .limit(limit)
 
     const { data, error } = await query
+
+    if (error) throw error
+    return data ?? []
+}
+
+function normalizeSearchText(value: unknown): string {
+    return String(value ?? '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim()
+}
+
+function collectTagSearchTokens(rawTags: unknown, savedTagNamesById: Map<string, string>): string[] {
+    const tokens = new Set<string>()
+
+    let tagEntries: unknown[] = []
+    if (Array.isArray(rawTags)) {
+        tagEntries = rawTags
+    } else if (typeof rawTags === 'string') {
+        try {
+            const parsed = JSON.parse(rawTags)
+            tagEntries = Array.isArray(parsed) ? parsed : [rawTags]
+        } catch {
+            tagEntries = [rawTags]
+        }
+    } else if (rawTags && typeof rawTags === 'object') {
+        tagEntries = Object.values(rawTags as Record<string, unknown>)
+    }
+
+    for (const entry of tagEntries) {
+        if (typeof entry === 'string') {
+            const idToken = normalizeSearchText(entry)
+            if (idToken) tokens.add(idToken)
+
+            const resolvedName = savedTagNamesById.get(entry)
+            const resolvedToken = normalizeSearchText(resolvedName)
+            if (resolvedToken) tokens.add(resolvedToken)
+            continue
+        }
+
+        if (!entry || typeof entry !== 'object') continue
+
+        const tagObj = entry as Record<string, unknown>
+        const rawId = tagObj.id
+        if (typeof rawId === 'string') {
+            const idToken = normalizeSearchText(rawId)
+            if (idToken) tokens.add(idToken)
+
+            const resolvedName = savedTagNamesById.get(rawId)
+            const resolvedToken = normalizeSearchText(resolvedName)
+            if (resolvedToken) tokens.add(resolvedToken)
+        }
+
+        for (const key of ['name', 'label', 'nombre', 'text', 'value', 'title']) {
+            const valueToken = normalizeSearchText(tagObj[key])
+            if (valueToken) tokens.add(valueToken)
+        }
+    }
+
+    return Array.from(tokens)
+}
+
+export async function searchLeadsByMeta(
+    empresaId: string,
+    searchTerm: string,
+    archived: boolean
+): Promise<LeadDB[]> {
+    if (!empresaId) return []
+
+    const normalizedTerm = searchTerm.trim()
+    const normalizedNeedle = normalizeSearchText(normalizedTerm)
+    if (normalizedNeedle.length < 2) return []
+
+    const metaMatches = await searchLeads(empresaId, normalizedTerm, {
+        archived,
+        limit: 50,
+    })
+
+    const { data: savedTagsData } = await supabase
+        .from('saved_tags')
+        .select('id, name')
+        .eq('empresa_id', empresaId)
+
+    const savedTagNamesById = new Map<string, string>()
+    for (const row of ((savedTagsData ?? []) as Array<{ id: string; name?: string | null }>)) {
+        const token = normalizeSearchText(row.name)
+        if (token) savedTagNamesById.set(row.id, token)
+    }
+
+    // PostgREST no ofrece contains parcial/case-insensitive sobre tag.name en arreglos jsonb; se filtra en memoria.
+    const { data: tagsCandidates, error: tagsError } = await supabase
+        .from('lead')
+        .select(SHARED_LEAD_COLUMNS)
+        .eq('empresa_id', empresaId)
+        .eq('archived', archived)
+        .not('tags', 'is', null)
+        .limit(2000)
+
+    if (tagsError) {
+        throw tagsError
+    }
+
+    const tagMatches = (tagsCandidates ?? []).filter((lead) => {
+        const tags = (lead as LeadDB & { tags?: unknown }).tags
+        const tokens = collectTagSearchTokens(tags, savedTagNamesById)
+        return tokens.some((token) => token.includes(normalizedNeedle))
+    })
+
+    const dedup = new Map<string, LeadDB>()
+    for (const lead of [...metaMatches, ...tagMatches]) {
+        if (!dedup.has(lead.id)) dedup.set(lead.id, lead)
+    }
+
+    return Array.from(dedup.values()).slice(0, 50)
+}
+
+export async function getLeadsByIds(
+    empresaId: string,
+    leadIds: string[],
+    archived: boolean
+): Promise<LeadDB[]> {
+    if (!empresaId || leadIds.length === 0) return []
+
+    const { data, error } = await supabase
+        .from('lead')
+        .select(SHARED_LEAD_COLUMNS)
+        .eq('empresa_id', empresaId)
+        .eq('archived', archived)
+        .in('id', leadIds)
 
     if (error) throw error
     return data ?? []
