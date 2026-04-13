@@ -62,24 +62,61 @@ export async function sendMessage(
 ) {
   // Si es un mensaje del equipo, usamos la Edge Function para que también se envíe a la Super API
   if (sender === 'team') {
-    // Si es un mensaje del equipo, usamos la Edge Function para que también se envíe a la Super API
-    if (sender === 'team') {
-      const { data, error } = await supabase.functions.invoke('send-message', {
-        body: {
-          lead_id: leadId,
-          content: content ?? '',
-          channel,
-          media
-        }
-      })
+    const { data: sessionData } = await supabase.auth.getSession()
+    const accessToken = sessionData.session?.access_token
 
-      if (error) {
-        console.error('[sendMessage] Error invoking edge function:', error)
-        throw error
-      }
+    if (!accessToken) {
+      throw new Error('Sesion expirada. Inicia sesion de nuevo para enviar mensajes.')
+    }
 
+    const edgePayload = {
+      lead_id: leadId,
+      content: content ?? '',
+      channel,
+      media,
+    }
+
+    const { data, error } = await supabase.functions.invoke('send-message', {
+      body: edgePayload,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'x-supabase-authorization': `Bearer ${accessToken}`,
+      },
+    })
+
+    if (!error && data) {
       return data as Message
     }
+
+    console.warn('[sendMessage] invoke fallo, intentando fetch directo al endpoint:', error)
+
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error(`Error invoking edge function: ${error?.message || 'missing env vars for fallback call'}`)
+    }
+
+    const directResponse = await fetch(`${supabaseUrl}/functions/v1/send-message`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${accessToken}`,
+        'x-supabase-authorization': `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(edgePayload),
+    })
+
+    const directJson = await directResponse.json().catch(() => null)
+
+    if (!directResponse.ok || directJson?.error) {
+      const invokeErrorText = error?.message ? `invoke: ${error.message}` : 'invoke: unknown error'
+      const directErrorText = directJson?.error || `direct: HTTP ${directResponse.status}`
+      throw new Error(`No se pudo enviar por Edge Function (${invokeErrorText}; ${directErrorText})`)
+    }
+
+    return directJson as Message
   }
 
   // Si por alguna razón insertamos un mensaje manual como 'lead' (simulación), va directo a la BD
@@ -252,59 +289,47 @@ export interface MessageSearchResult {
   channel: string
 }
 
+export interface MessageSearchMatch {
+  leadId: string
+  messageId: string
+  snippet: string
+  createdAt: string
+}
+
 export async function searchMessages(
   empresaId: string,
   searchTerm: string,
-  limit: number = 30
-): Promise<MessageSearchResult[]> {
-  if (!searchTerm || searchTerm.length < 2 || !empresaId) return []
+  archived: boolean
+): Promise<MessageSearchMatch[]> {
+  const normalizedTerm = searchTerm.trim()
+  if (!empresaId || normalizedTerm.length < 2) return []
 
-  // Buscar mensajes que contengan el término, filtrando por leads de la empresa
-  const { data: leadsData } = await supabase
-    .from('lead')
-    .select('id, nombre_completo, telefono, avatar_url')
-    .eq('empresa_id', empresaId)
-    .eq('archived', false)
+  const { data, error } = await supabase
+    .from('mensajes')
+    .select('id, lead_id, content, created_at, lead:lead_id!inner(id, empresa_id, archived)')
+    .eq('lead.empresa_id', empresaId)
+    .eq('lead.archived', archived)
+    .ilike('content', `%${normalizedTerm}%`)
+    .not('content', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(50)
 
-  if (!leadsData || leadsData.length === 0) return []
+  if (error) throw error
 
-  const leadIds = leadsData.map(l => l.id)
-  const leadMap = new Map(leadsData.map(l => [l.id, l]))
+  const lowerTerm = normalizedTerm.toLowerCase()
 
-  // Buscar en batches si hay muchos leads
-  const batchSize = 200
-  const allResults: any[] = []
+  return (data ?? []).map((row) => {
+    const content = String((row as { content?: string }).content || '')
+    const lowerContent = content.toLowerCase()
+    const index = lowerContent.indexOf(lowerTerm)
+    const start = index >= 0 ? Math.max(0, index - 30) : 0
+    const end = index >= 0 ? Math.min(content.length, index + normalizedTerm.length + 40) : 80
 
-  for (let i = 0; i < leadIds.length; i += batchSize) {
-    const batch = leadIds.slice(i, i + batchSize)
-    const { data, error } = await supabase
-      .from('mensajes')
-      .select('id, lead_id, content, sender, created_at, channel')
-      .in('lead_id', batch)
-      .ilike('content', `%${searchTerm}%`)
-      .not('content', 'is', null)
-      .order('created_at', { ascending: false })
-      .limit(limit)
-
-    if (error) {
-      console.error('[searchMessages] Error en batch:', error)
-    }
-    if (!error && data) allResults.push(...data)
-    if (allResults.length >= limit) break
-  }
-
-  return allResults.slice(0, limit).map(m => {
-    const lead = leadMap.get(m.lead_id)
     return {
-      id: m.id,
-      lead_id: m.lead_id,
-      content: m.content || '',
-      sender: m.sender,
-      created_at: m.created_at,
-      lead_name: lead?.nombre_completo || 'Desconocido',
-      lead_phone: lead?.telefono || '',
-      lead_avatar: lead?.avatar_url,
-      channel: m.channel || 'whatsapp'
+      leadId: String((row as { lead_id?: string }).lead_id || ''),
+      messageId: String((row as { id?: string }).id || ''),
+      snippet: content.slice(start, end).trim() || content.slice(0, 80),
+      createdAt: String((row as { created_at?: string }).created_at || ''),
     }
   })
 }

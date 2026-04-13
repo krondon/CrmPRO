@@ -22,11 +22,11 @@
  * 5. Verificar que los conteos de no leídos se muestran
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import type { Lead } from '@/lib/types'
-import { getLeadsPaged, setLeadArchived, deleteLead, searchLeads } from '@/supabase/services/leads'
+import { getLeadsPaged, setLeadArchived, deleteLead, searchLeadsByMeta, getLeadsByIds } from '@/supabase/services/leads'
 import { getLastMessagesForLeadIds, getUnreadMessagesCount, searchMessages } from '@/supabase/services/mensajes'
-import type { Message as DbMessage, MessageSearchResult } from '@/supabase/services/mensajes'
+import type { Message as DbMessage, MessageSearchMatch } from '@/supabase/services/mensajes'
 import { getCachedLeads, setCachedLeads, updateCachedLeads, invalidateLeadsCache } from '@/lib/chatsCache'
 import { toast } from 'sonner'
 
@@ -81,14 +81,22 @@ interface UseLeadsListReturn {
     updateUnreadCount: (leadId: string, count: number) => void
     /** Invalidar caché */
     invalidateCache: () => void
-    /** Término de búsqueda actual */
-    searchTerm: string
+    /** Query de búsqueda actual */
+    searchQuery: string
     /** Setter para búsqueda */
-    setSearchTerm: (term: string) => void
+    setSearchQuery: (term: string) => void
     /** Si está buscando activamente */
-    isSearching: boolean
-    /** Resultados de búsqueda en mensajes (estilo WhatsApp) */
-    messageSearchResults: MessageSearchResult[]
+    searchLoading: boolean
+    /** Resultados de búsqueda estilo WhatsApp */
+    searchResults: {
+        chatsMatches: Lead[]
+        messageMatches: Array<{
+            lead: Lead
+            snippet: string
+            messageId: string
+            createdAt: string
+        }>
+    }
     /** Lista completa de leads (sin filtrar por búsqueda) */
     allLeads: Lead[]
 }
@@ -167,11 +175,14 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
     const [offset, setOffset] = useState(0)
     const [chatScope, setChatScope] = useState<ChatScope>('active')
 
-    // Búsqueda server-side
-    const [searchTerm, setSearchTerm] = useState('')
-    const [isSearching, setIsSearching] = useState(false)
-    const [searchResults, setSearchResults] = useState<Lead[] | null>(null)
-    const [msgSearchResults, setMsgSearchResults] = useState<MessageSearchResult[]>([])
+    // Búsqueda server-side paralela (no pisa lista paginada)
+    const [searchQuery, setSearchQuery] = useState('')
+    const [searchLoading, setSearchLoading] = useState(false)
+    const [searchResults, setSearchResults] = useState<{
+        chatsMatches: Lead[]
+        messageMatches: Array<{ lead: Lead; snippet: string; messageId: string; createdAt: string }>
+    }>({ chatsMatches: [], messageMatches: [] })
+    const searchRequestIdRef = useRef(0)
 
     // Datos adicionales
     const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({})
@@ -499,86 +510,116 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
     }, [companyId])
 
     // ==========================================
-    // EFECTO: Búsqueda Server-Side (Debounced)
+    // EFECTO: Búsqueda Server-Side (Debounced 250ms)
     // ==========================================
     useEffect(() => {
-        if (!searchTerm) {
-            setSearchResults(null)
-            setMsgSearchResults([])
+        const normalizedQuery = searchQuery.trim()
+
+        if (normalizedQuery.length < 2) {
+            setSearchLoading(false)
+            setSearchResults({ chatsMatches: [], messageMatches: [] })
             return
         }
 
+        const requestId = ++searchRequestIdRef.current
         const timer = setTimeout(async () => {
-            if (searchTerm.length < 2) return
+            setSearchLoading(true)
+            console.log('[chat-search] start', { query: normalizedQuery, scope: chatScope })
 
-            setIsSearching(true)
             try {
-                // Buscar leads y mensajes en paralelo
-                const [results, msgResults] = await Promise.all([
-                    searchLeads(companyId, searchTerm, {
-                        archived: chatScope === 'archived',
-                        limit: 20
-                    }),
-                    searchMessages(companyId, searchTerm, 30)
+                const archived = chatScope === 'archived'
+                const [chatLeadRows, messageRows] = await Promise.all([
+                    searchLeadsByMeta(companyId, normalizedQuery, archived),
+                    searchMessages(companyId, normalizedQuery, archived)
                 ])
 
-                const mapped = (results || []).map(mapDBToLead)
+                if (searchRequestIdRef.current !== requestId) return
 
-                // Detectar canales para resultados
-                setChannelByLead(prev => {
-                    const next = { ...prev }
-                    mapped.forEach(l => {
-                        if (!next[l.id]) next[l.id] = detectChannel(l)
+                const paginatedById = new Map(leads.map((lead) => [lead.id, lead]))
+                const chatMapped = chatLeadRows.map(mapDBToLead)
+                const chatsMatches = chatMapped.map((lead) => paginatedById.get(lead.id) ?? lead)
+                const chatsById = new Map(chatsMatches.map((lead) => [lead.id, lead]))
+
+                const latestMessageByLead = new Map<string, MessageSearchMatch>()
+                for (const row of messageRows) {
+                    if (!latestMessageByLead.has(row.leadId)) {
+                        latestMessageByLead.set(row.leadId, row)
+                    }
+                }
+
+                const missingIds = Array.from(latestMessageByLead.keys()).filter(
+                    (leadId) => !paginatedById.has(leadId) && !chatsById.has(leadId)
+                )
+
+                let extraById = new Map<string, Lead>()
+                if (missingIds.length > 0) {
+                    const extraRows = await getLeadsByIds(companyId, missingIds, archived)
+                    if (searchRequestIdRef.current !== requestId) return
+                    const mappedExtra = extraRows.map(mapDBToLead)
+                    extraById = new Map(mappedExtra.map((lead) => [lead.id, lead]))
+                }
+
+                const messageMatches = Array.from(latestMessageByLead.values())
+                    .map((row) => {
+                        const lead = paginatedById.get(row.leadId) || chatsById.get(row.leadId) || extraById.get(row.leadId)
+                        if (!lead) return null
+
+                        return {
+                            lead,
+                            snippet: row.snippet,
+                            messageId: row.messageId,
+                            createdAt: row.createdAt,
+                        }
                     })
+                    .filter((row): row is { lead: Lead; snippet: string; messageId: string; createdAt: string } => row !== null)
+
+                setChannelByLead((prev) => {
+                    const next = { ...prev }
+                    for (const lead of [...chatsMatches, ...messageMatches.map((row) => row.lead)]) {
+                        if (!next[lead.id]) {
+                            next[lead.id] = detectChannel(lead)
+                        }
+                    }
                     return next
                 })
 
-                setSearchResults(mapped)
-                setMsgSearchResults(msgResults)
-                console.log('[useLeadsList] Búsqueda completada:', { leads: mapped.length, messages: msgResults.length, term: searchTerm })
+                setSearchResults({ chatsMatches, messageMatches })
+                console.log('[chat-search] raw-results', {
+                    query: normalizedQuery,
+                    chats: chatsMatches.length,
+                    messages: messageMatches.length,
+                })
             } catch (err) {
                 console.error('[useLeadsList] Error buscando:', err)
                 toast.error('Error al buscar chats')
+
+                if (searchRequestIdRef.current === requestId) {
+                    setSearchResults({ chatsMatches: [], messageMatches: [] })
+                }
             } finally {
-                setIsSearching(false)
+                if (searchRequestIdRef.current === requestId) {
+                    setSearchLoading(false)
+                }
             }
-        }, 500) // Debounce 500ms
+        }, 250)
 
         return () => clearTimeout(timer)
-    }, [searchTerm, companyId, chatScope])
+    }, [searchQuery, companyId, chatScope, leads])
 
 
     // ==========================================
     // Carga inicial y lógica de visualización
     // ==========================================
 
-    // Memoizar leads a mostrar: Resultados de búsqueda + matches locales por tag O Lista normal
+    // Lista normal deduplicada; búsqueda vive en estado paralelo
     const displayedLeads = useMemo(() => {
-        if (searchTerm && searchResults) {
-            // Server no busca por tags, agregar matches locales por tag name
-            const search = searchTerm.toLowerCase()
-            const serverIds = new Set(searchResults.map(l => l.id))
-            const tagMatches = leads.filter(l =>
-                !serverIds.has(l.id) &&
-                l.tags?.some(t => (t.name || '').toLowerCase().includes(search))
-            )
-            const combined = tagMatches.length > 0 ? [...searchResults, ...tagMatches] : searchResults
-            // Deduplicar por id
-            const seen = new Set<string>()
-            return combined.filter(l => {
-                if (seen.has(l.id)) return false
-                seen.add(l.id)
-                return true
-            })
-        }
-        // Deduplicar lista normal también
         const seen = new Set<string>()
         return leads.filter(l => {
             if (seen.has(l.id)) return false
             seen.add(l.id)
             return true
         })
-    }, [searchTerm, searchResults, leads])
+    }, [leads])
 
     // Carga inicial (solo si NO hay búsqueda)
     useEffect(() => {
@@ -610,9 +651,9 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
             // Refrescar conteos en background
             loadUnreadCountsInBatches(cached.leads.map((l: any) => l.id), 'active')
         } else {
-            if (!searchTerm) void loadLeads()
+            void loadLeads()
         }
-    }, [companyId, chatScope, autoLoad, searchTerm])
+    }, [companyId, chatScope, autoLoad])
 
     // Recargar cuando cambia el scope
     useEffect(() => {
@@ -640,10 +681,10 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
         updateLeadOrder,
         updateUnreadCount,
         invalidateCache,
-        searchTerm,
-        setSearchTerm,
-        isSearching,
-        messageSearchResults: msgSearchResults,
+        searchQuery,
+        setSearchQuery,
+        searchLoading,
+        searchResults,
         allLeads: leads
     }
 }
