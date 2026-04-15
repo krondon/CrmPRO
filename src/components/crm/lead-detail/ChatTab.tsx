@@ -63,6 +63,7 @@ interface ChatTabProps {
     onFileUpload: (file: File) => Promise<void>
     isUploading: boolean
     canEdit: boolean
+    canDeleteMessages?: boolean
     messagesEndRef: React.RefObject<HTMLDivElement>
     // Audio recording
     isRecording: boolean
@@ -317,6 +318,7 @@ export function ChatTab({
     onFileUpload,
     isUploading,
     canEdit,
+    canDeleteMessages = true,
     messagesEndRef,
     isRecording,
     recordingTime,
@@ -387,7 +389,7 @@ export function ChatTab({
                     })}
                 </div>
 
-                {canEdit && messages.length > 0 && (
+                {canDeleteMessages && canEdit && messages.length > 0 && (
                     <AlertDialog>
                         <AlertDialogTrigger asChild>
                             <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10">
@@ -449,10 +451,10 @@ export function ChatTab({
                                             msg.sender === 'team'
                                                 ? 'ml-auto bg-primary text-primary-foreground'
                                                 : 'mr-auto bg-muted',
-                                            canEdit && activeDeleteMsgId === msg.id && 'ring-2 ring-destructive/50 scale-[0.97] transition-transform'
+                                            canDeleteMessages && activeDeleteMsgId === msg.id && 'ring-2 ring-destructive/50 scale-[0.97] transition-transform'
                                         )}
                                         onClick={() => {
-                                            if (!canEdit) return
+                                            if (!canDeleteMessages) return
                                             if (activeDeleteMsgId === msg.id) {
                                                 onDeleteMessage(msg.id)
                                                 setActiveDeleteMsgId(null)
@@ -461,7 +463,7 @@ export function ChatTab({
                                             }
                                         }}
                                     >
-                                        {canEdit && (
+                                        {canDeleteMessages && (
                                             <>
                                             <button
                                                 onClick={(e) => {

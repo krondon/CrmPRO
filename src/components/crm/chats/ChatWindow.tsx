@@ -27,6 +27,8 @@ interface ChatWindowProps {
     companyId: string
     currentUserEmail?: string // Opcional, para lógica futura
     canDeleteLead?: boolean
+    canDeleteMessages?: boolean
+    canManageTags?: boolean
     onBack: () => void // Para móvil
     onArchive: (lead: Lead, state: boolean) => Promise<void>
     onDelete: (lead: Lead) => Promise<void>
@@ -43,6 +45,8 @@ export function ChatWindow({
     lead,
     companyId,
     canDeleteLead = false,
+    canDeleteMessages = true,
+    canManageTags = true,
     onBack,
     onArchive,
     onDelete,
@@ -404,6 +408,7 @@ export function ChatWindow({
                         >
                             <MagnifyingGlass className="w-[18px] h-[18px] sm:w-5 sm:h-5" />
                         </button>
+                        {canDeleteMessages && (
                         <button
                             type="button"
                             onClick={async (e) => {
@@ -423,6 +428,7 @@ export function ChatWindow({
                         >
                             <Broom className="w-[18px] h-[18px] sm:w-5 sm:h-5" />
                         </button>
+                        )}
                         <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); setShowContactInfo(!showContactInfo); }}
@@ -537,6 +543,7 @@ export function ChatWindow({
                                             chatSearchMatches[chatSearchIndex] === msg.id && "bg-yellow-200/40 dark:bg-yellow-500/20 rounded-xl"
                                         )}
                                     >
+                                        {canDeleteMessages && (
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation()
@@ -552,8 +559,9 @@ export function ChatWindow({
                                         >
                                             <Trash size={16} weight="bold" />
                                         </button>
+                                        )}
                                         {/* Hint "Toca de nuevo para eliminar" en móvil */}
-                                        {activeDeleteMsgId === msg.id && (
+                                        {canDeleteMessages && activeDeleteMsgId === msg.id && (
                                             <div className={cn(
                                                 "absolute -top-8 z-30 px-2.5 py-1 rounded-lg bg-destructive text-white text-[11px] font-semibold shadow-lg animate-in fade-in zoom-in-95 duration-200 whitespace-nowrap sm:hidden",
                                                 isTeam ? "right-0" : "left-0"
@@ -570,6 +578,7 @@ export function ChatWindow({
                                                 activeDeleteMsgId === msg.id && "ring-2 ring-destructive/50 scale-[0.97] transition-transform"
                                             )}
                                             onClick={() => {
+                                                if (!canDeleteMessages) return
                                                 if (activeDeleteMsgId === msg.id) {
                                                     handleDeleteMessage(msg.id)
                                                 } else {
@@ -749,6 +758,7 @@ export function ChatWindow({
                                     leadId={lead.id}
                                     currentTags={lead.tags || []}
                                     companyId={companyId}
+                                    readOnly={!canManageTags}
                                     onUpdate={(newTags) => {
                                         if (onLeadUpdate) {
                                             onLeadUpdate({ ...lead, tags: newTags })

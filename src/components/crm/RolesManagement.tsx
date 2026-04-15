@@ -21,6 +21,8 @@ const ALL_PERMISSIONS: { id: RolePermission; label: string; description: string 
   { id: 'manage_settings', label: 'Gestionar Configuración', description: 'Modificar ajustes del sistema' },
   { id: 'view_budgets', label: 'Ver Presupuestos', description: 'Visualizar presupuestos' },
   { id: 'edit_budgets', label: 'Editar Presupuestos', description: 'Crear y modificar presupuestos' },
+  { id: 'delete_messages', label: 'Eliminar Mensajes', description: 'Borrar mensajes y conversaciones de chat' },
+  { id: 'manage_tags', label: 'Gestionar Etiquetas', description: 'Crear, agregar y quitar etiquetas en leads' },
 ]
 
 export function RolesManagement({ companyId }: { companyId: string }) {
