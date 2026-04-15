@@ -143,6 +143,8 @@ export type RolePermission =
   | 'manage_settings'
   | 'view_budgets'
   | 'edit_budgets'
+  | 'delete_messages'
+  | 'manage_tags'
 
 export interface Role {
   id: string

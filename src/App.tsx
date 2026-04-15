@@ -19,6 +19,7 @@ import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import { UpdatePasswordView } from '@/components/auth/UpdatePasswordView'
 import { CRMLayout } from '@/components/layout/CRMLayout'
 import { useAuth } from '@/hooks/useAuth'
+import { usePermissions } from '@/hooks/usePermissions'
 import { LoadingScreen } from '@/components/ui/LoadingScreen'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
@@ -189,17 +190,21 @@ function App() {
 // Wrapper components para pasar props correctamente
 function ChatsViewWrapper() {
   const { user, companies, currentCompanyId } = useAuth()
+  const { hasPermission, isOwner } = usePermissions()
   const navigate = useNavigate()
 
   const currentCompany = companies.find(c => c.id === currentCompanyId)
-  const isOwner = currentCompany?.ownerId === user?.id
   const isAdmin = (currentCompany?.role || '').toLowerCase() === 'admin'
   const canDeleteLead = !!(isOwner || isAdmin)
+  const canDeleteMessages = isOwner || hasPermission('delete_messages')
+  const canManageTags = isOwner || hasPermission('manage_tags')
 
   return (
     <ChatsView
       companyId={currentCompanyId}
       canDeleteLead={canDeleteLead}
+      canDeleteMessages={canDeleteMessages}
+      canManageTags={canManageTags}
       onNavigateToPipeline={(lead) => {
         sessionStorage.setItem('pendingLeadNavigation', JSON.stringify({
           leadId: lead.id,
