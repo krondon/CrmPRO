@@ -1,13 +1,13 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth } from './useAuth'
 import { supabase } from '@/supabase/client'
 import type { RolePermission } from '@/lib/types'
 
 /**
- * Hook que resuelve los permisos granulares del usuario actual
- * basándose en su role_id → roles.permissions.
+ * Hook que resuelve los permisos granulares del usuario actual.
  *
- * Owners reciben todos los permisos automáticamente.
+ * Owner / Admin → todos los permisos (sincrónicamente, sin fetch).
+ * Viewer / Custom → se leen de roles.permissions (async).
  */
 
 const ALL_PERMISSIONS: RolePermission[] = [
@@ -18,31 +18,26 @@ const ALL_PERMISSIONS: RolePermission[] = [
 
 export function usePermissions() {
   const { user, companies, currentCompanyId } = useAuth()
-  const [permissions, setPermissions] = useState<RolePermission[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const [fetchedPermissions, setFetchedPermissions] = useState<RolePermission[]>([])
+  const [isFetching, setIsFetching] = useState(false)
 
   const currentCompany = companies.find(c => c.id === currentCompanyId)
   const isOwner = !!(currentCompany && user && currentCompany.ownerId === user.id)
+  const companyRole = (currentCompany?.role || '').toLowerCase()
+  // Owner y Admin resuelven permisos de forma inmediata (sin async)
+  const isFullAccess = isOwner || companyRole === 'owner' || companyRole === 'admin'
 
+  // Solo fetchear para viewers / roles custom
   useEffect(() => {
-    if (!user?.id || !currentCompanyId) {
-      setPermissions([])
-      setIsLoading(false)
+    if (!user?.id || !currentCompanyId || isFullAccess) {
+      setFetchedPermissions([])
       return
     }
 
-    // Owners get all permissions
-    if (isOwner) {
-      setPermissions([...ALL_PERMISSIONS])
-      setIsLoading(false)
-      return
-    }
-
-    // For members, fetch their role_id -> roles.permissions
     let cancelled = false
 
     async function fetchPermissions() {
-      setIsLoading(true)
+      setIsFetching(true)
       try {
         const { data: member, error } = await supabase
           .from('empresa_miembros')
@@ -53,46 +48,42 @@ export function usePermissions() {
 
         if (cancelled) return
 
-        if (error) {
-          console.error('[usePermissions] Error fetching member:', error)
-          setPermissions([])
-          setIsLoading(false)
+        if (error || !member) {
+          setFetchedPermissions([])
           return
         }
 
-        if (!member) {
-          setPermissions([])
-          setIsLoading(false)
+        // Double-check: si la BD dice admin (case insensitive), dar todo
+        if ((member.role || '').toLowerCase() === 'admin') {
+          setFetchedPermissions([...ALL_PERMISSIONS])
           return
         }
 
-        // If member has a role_id linked to roles table, use those permissions
+        // Usar permisos granulares del rol asignado
         const rolePerms = (member as any).roles?.permissions as RolePermission[] | undefined
         if (rolePerms && Array.isArray(rolePerms)) {
-          setPermissions(rolePerms)
-          setIsLoading(false)
+          setFetchedPermissions(rolePerms)
           return
         }
 
-        // Fallback: derive from the coarse role string
-        const role = member.role || 'viewer'
-        if (role === 'admin') {
-          setPermissions([...ALL_PERMISSIONS])
-        } else {
-          // viewer — read-only defaults, no delete_messages, no manage_tags
-          setPermissions(['view_dashboard', 'view_pipeline', 'view_analytics', 'view_calendar', 'view_budgets'])
-        }
+        // Fallback viewer
+        setFetchedPermissions(['view_dashboard', 'view_pipeline', 'view_analytics', 'view_calendar', 'view_budgets'])
       } catch (err) {
         console.error('[usePermissions] Unexpected error:', err)
-        if (!cancelled) setPermissions([])
+        if (!cancelled) setFetchedPermissions([])
       } finally {
-        if (!cancelled) setIsLoading(false)
+        if (!cancelled) setIsFetching(false)
       }
     }
 
     fetchPermissions()
     return () => { cancelled = true }
-  }, [user?.id, currentCompanyId, isOwner])
+  }, [user?.id, currentCompanyId, isFullAccess])
+
+  // Owner/Admin: permisos completos de forma síncrona (disponibles en el primer render)
+  // Viewer/Custom: permisos del fetch async
+  const permissions = isFullAccess ? ALL_PERMISSIONS : fetchedPermissions
+  const isLoading = isFullAccess ? false : isFetching
 
   const hasPermission = useCallback(
     (perm: RolePermission) => permissions.includes(perm),
