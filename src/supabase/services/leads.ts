@@ -454,25 +454,59 @@ export async function setLeadArchived(id: string, archived: boolean, actorId?: s
         archived,
         archived_at: archived ? new Date().toISOString() : null
     }
-    return updateLead(id, updates, actorId, actorNombre)
+    const result = await updateLead(id, updates, actorId, actorNombre)
+
+    // Log de auditoría
+    import('./activityLog').then(({ logActivity }) => {
+        logActivity({
+            empresaId: result.empresa_id,
+            categoria: 'leads',
+            accion: archived ? 'archivar' : 'desarchivar',
+            detalle: archived
+                ? `Archivó la oportunidad "${result.nombre_completo}"`
+                : `Desarchivó la oportunidad "${result.nombre_completo}"`,
+            entidadTipo: 'lead',
+            entidadId: id,
+            entidadNombre: result.nombre_completo,
+            actorId,
+            actorNombre
+        }).catch(e => console.error('[setLeadArchived] log error:', e))
+    })
+
+    return result
 }
 
 /**
  * Elimina un lead
  */
 export async function deleteLead(id: string): Promise<boolean> {
+    // Obtener info del lead ANTES de eliminar (para el log de auditoría)
+    const { data: leadInfo } = await supabase
+        .from('lead')
+        .select('nombre_completo, empresa_id')
+        .eq('id', id)
+        .maybeSingle()
+
+    // Log ANTES de eliminar (la fila desaparecerá después)
+    if (leadInfo?.empresa_id) {
+        const { logActivity } = await import('./activityLog')
+        await logActivity({
+            empresaId: leadInfo.empresa_id,
+            categoria: 'leads',
+            accion: 'eliminar',
+            detalle: `Eliminó la oportunidad "${leadInfo.nombre_completo || 'desconocida'}"`,
+            entidadTipo: 'lead',
+            entidadId: id,
+            entidadNombre: leadInfo.nombre_completo || undefined
+        }).catch(e => console.error('[deleteLead] log error:', e))
+    }
+
     // Si en BD no tienen ON DELETE CASCADE, las borramos manualmente
-    // Limpiamos mensajes del chat
     await supabase.from('mensajes').delete().eq('lead_id', id);
-    // Limpiamos historial de la oportunidad
     await supabase.from('lead_historial').delete().eq('lead_id', id);
-    // Limpiamos tareas de la oportunidad
     await supabase.from('tasks').delete().eq('lead_id', id);
-    // Limpiamos notas
     await supabase.from('nota_lead').delete().eq('lead_id', id);
-    // Limpiamos reuniones
     await supabase.from('lead_reuniones').delete().eq('lead_id', id);
-    // Limpiamos presupuestos
     await supabase.from('presupuesto_pdf').delete().eq('lead_id', id);
 
     const { error } = await supabase

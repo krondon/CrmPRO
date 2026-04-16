@@ -82,6 +82,21 @@ export async function createInvitation(payload: CreateInvitationPayload) {
     }
   }
 
+  // Log de auditoría
+  if (payload.empresa_id) {
+    import('./activityLog').then(({ logActivity }) => {
+      logActivity({
+        empresaId: payload.empresa_id!,
+        categoria: 'equipo',
+        accion: 'invitar_miembro',
+        detalle: `Invitó a ${payload.invited_email} como ${payload.permission_role || 'viewer'}`,
+        entidadTipo: 'miembro',
+        entidadNombre: payload.invited_email,
+        metadata: { role: payload.permission_role, nombre: payload.invited_nombre }
+      }).catch(e => console.error('[createInvitation] log error:', e))
+    })
+  }
+
   return data
 }
 

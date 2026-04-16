@@ -282,6 +282,21 @@ export async function updateCompanyMemberRole(
     throw new Error('usuario_id o email requerido para actualizar rol')
 }
 
+// Log de auditoría para cambio de rol (llamar después de updateCompanyMemberRole)
+export async function logRoleChange(companyId: string, memberEmail: string, newRole: string) {
+    import('./activityLog').then(({ logActivity }) => {
+        logActivity({
+            empresaId: companyId,
+            categoria: 'equipo',
+            accion: 'cambiar_rol',
+            detalle: `Cambió el rol de ${memberEmail} a "${newRole}"`,
+            entidadTipo: 'miembro',
+            entidadNombre: memberEmail,
+            metadata: { new_role: newRole }
+        }).catch(e => console.error('[logRoleChange] log error:', e))
+    })
+}
+
 /**
  * Crea o actualiza el rol de un miembro
  */
@@ -452,6 +467,19 @@ export async function leaveCompany(companyId: string, userEmail: string, userId:
         }
     }
 
+    // Log de auditoría
+    import('./activityLog').then(({ logActivity }) => {
+        logActivity({
+            empresaId: companyId,
+            categoria: 'equipo',
+            accion: 'abandonar_empresa',
+            detalle: `${userEmail} abandonó la empresa`,
+            entidadTipo: 'miembro',
+            entidadNombre: userEmail,
+            actorId: userId
+        }).catch(e => console.error('[leaveCompany] log error:', e))
+    })
+
     return true
 }
 
@@ -502,6 +530,18 @@ export async function removeMemberFromCompany(companyId: string, email: string):
         console.error('[EMPRESA] error removing member from company', memberError)
         throw memberError
     }
+
+    // Log de auditoría
+    import('./activityLog').then(({ logActivity }) => {
+        logActivity({
+            empresaId: companyId,
+            categoria: 'equipo',
+            accion: 'eliminar_miembro',
+            detalle: `Eliminó al miembro ${email} de la empresa`,
+            entidadTipo: 'miembro',
+            entidadNombre: email
+        }).catch(e => console.error('[removeMember] log error:', e))
+    })
 
     return true
 }

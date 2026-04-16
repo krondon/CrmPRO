@@ -323,7 +323,8 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
     setStageCounts,
     canEditLeads,
     currentUserId: user?.id,
-    actorNombre: user?.businessName || (user as any)?.nombre || user?.email
+    actorNombre: user?.businessName || (user as any)?.nombre || user?.email,
+    companyId
   })
 
   // Drag & Drop de Etapas (reordenar columnas)
