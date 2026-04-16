@@ -1,0 +1,2 @@
+[functions.get-lead-info]
+verify_jwt = false

@@ -65,6 +65,7 @@ import { getPresupuestosByLead, uploadPresupuestoPdf, deletePresupuestoPdf, Pres
 import { useAudioRecorder } from '@/hooks/useAudioRecorder'
 import { safeFormatDate } from '@/hooks/useDateFormat'
 import { detectChannel } from '@/hooks/useLeadsList'
+import { usePermissions } from '@/hooks/usePermissions'
 import { NotesTab, MeetingsTab, OverviewTab, ChatTab } from './lead-detail'
 
 interface User {
@@ -97,6 +98,9 @@ const MAX_BUDGET = 10_000_000
 
 export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [], canEdit = true, currentUser, onMarkAsRead, companyId, canDeleteLead = false, onDeleteLead, onCountsChange }: LeadDetailSheetProps) {
   const t = useTranslation('es')
+  const { hasPermission, isOwner } = usePermissions()
+  const canDeleteMessages = isOwner || hasPermission('delete_messages')
+  const canManageTags = isOwner || hasPermission('manage_tags')
   const [messages, setMessages] = useState<Message[]>([])
   // Estados locales para evitar errores de autenticación del KV.
   // Nos enfocamos en el chat; estos estados se mantienen locales.
@@ -837,11 +841,14 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
                 style={{ backgroundColor: tag.color }}
               >
                 {tag.name}
+                {canManageTags && (
                 <button onClick={() => removeTag(tag.id)} className="hover:opacity-70 transition-opacity">
                   <X size={10} weight="bold" />
                 </button>
+                )}
               </Badge>
             ))}
+            {canManageTags && (
             <Dialog open={showTagDialog} onOpenChange={setShowTagDialog}>
               <DialogTrigger asChild>
                 <Button variant="outline" size="sm" className="h-7 rounded-full text-[10px] font-bold uppercase tracking-wider bg-background/50 hover:bg-background border-border/40">
@@ -966,6 +973,7 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
                 </ScrollArea>
               </DialogContent>
             </Dialog>
+            )}
           </div>
         </SheetHeader>
 
@@ -1044,6 +1052,7 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
               onFileUpload={handleFileUpload}
               isUploading={isUploading}
               canEdit={canEdit}
+              canDeleteMessages={canDeleteMessages}
               messagesEndRef={messagesEndRef as React.RefObject<HTMLDivElement>}
               isRecording={isRecording}
               recordingTime={recordingTime}

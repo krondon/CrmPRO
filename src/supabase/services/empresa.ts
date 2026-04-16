@@ -63,7 +63,7 @@ export async function createEmpresa({ nombre_empresa, usuario_id, logo_url }: Cr
                 toInsert.push({
                     empresa_id: inserted.id,
                     name: 'Admin',
-                    permissions: ['view_dashboard','view_pipeline','edit_leads','delete_leads','view_analytics','view_calendar','manage_team','manage_settings','view_budgets','edit_budgets'],
+                    permissions: ['view_dashboard','view_pipeline','edit_leads','delete_leads','view_analytics','view_calendar','manage_team','manage_settings','view_budgets','edit_budgets','delete_messages','manage_tags'],
                     color: '#8b5cf6',
                     is_system: true
                 })
