@@ -213,13 +213,27 @@ export async function addTagToLead(leadId: string, currentTags: Tag[], newTag: T
         await saveTag(empresaId, newTag)
     }
 
+    // Log de auditoría
+    import('./activityLog').then(({ logActivity }) => {
+        logActivity({
+            empresaId,
+            categoria: 'tags',
+            accion: 'agregar_tag',
+            detalle: `Agregó la etiqueta "${newTag.text}" a una oportunidad`,
+            entidadTipo: 'lead',
+            entidadId: leadId,
+            entidadNombre: newTag.text
+        }).catch(e => console.error('[addTagToLead] log error:', e))
+    })
+
     return updatedTags
 }
 
 /**
  * Remueve una etiqueta de un lead específico (Helper)
  */
-export async function removeTagFromLead(leadId: string, currentTags: Tag[], tagId: string) {
+export async function removeTagFromLead(leadId: string, currentTags: Tag[], tagId: string, empresaId?: string) {
+    const removedTag = currentTags.find(t => t.id === tagId)
     const updatedTags = currentTags.filter(t => t.id !== tagId)
 
     const { error } = await supabase
@@ -228,6 +242,22 @@ export async function removeTagFromLead(leadId: string, currentTags: Tag[], tagI
         .eq('id', leadId)
 
     if (error) throw error
+
+    // Log de auditoría
+    if (empresaId && removedTag) {
+        import('./activityLog').then(({ logActivity }) => {
+            logActivity({
+                empresaId,
+                categoria: 'tags',
+                accion: 'eliminar_tag',
+                detalle: `Eliminó la etiqueta "${removedTag.text}" de una oportunidad`,
+                entidadTipo: 'lead',
+                entidadId: leadId,
+                entidadNombre: removedTag.text
+            }).catch(e => console.error('[removeTagFromLead] log error:', e))
+        })
+    }
+
     return updatedTags
 }
 

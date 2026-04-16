@@ -55,7 +55,7 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
     { id: 'pipeline', icon: Kanban, label: t.nav.pipeline },
     { id: 'chats', icon: ChatCircleDots, label: 'Chats' },
     { id: 'contacts', icon: AddressBook, label: 'Contactos' },
-    { id: 'historial', icon: ClockCounterClockwise, label: 'Historial' },
+    ...(!isGuestMode ? [{ id: 'historial', icon: ClockCounterClockwise, label: 'Historial' }] : []),
     { id: 'analytics', icon: ChartBar, label: t.nav.analytics },
     { id: 'calendar', icon: CalendarBlank, label: t.nav.calendar },
     { id: 'team', icon: Users, label: t.nav.team },

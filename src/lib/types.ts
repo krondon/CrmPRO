@@ -599,6 +599,24 @@ export interface CreateLeadHistoryDTO {
   metadata?: any
 }
 
+// ----- Actividad CRM (Audit Log) -----
+export type ActividadCategoria = 'leads' | 'mensajes' | 'equipo' | 'pipeline' | 'etapas' | 'tags' | 'notas' | 'reuniones'
+
+export interface ActividadCRM {
+  id: string
+  empresa_id: string
+  usuario_id: string | null
+  usuario_nombre: string | null
+  categoria: ActividadCategoria
+  accion: string
+  detalle: string
+  entidad_tipo: string | null
+  entidad_id: string | null
+  entidad_nombre: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
 // ----- Landing Tokens -----
 export interface LandingTokenDB {
   id: string

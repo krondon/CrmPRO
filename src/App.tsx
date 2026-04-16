@@ -175,7 +175,7 @@ function App() {
             <NotificationsViewWrapper />
           } />
           <Route path="historial" element={
-            <HistorialView companyId={currentCompanyId} />
+            <Navigate to="/guest/dashboard" replace />
           } />
         </Route>
 

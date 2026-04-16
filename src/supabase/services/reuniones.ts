@@ -152,18 +152,48 @@ export async function createLeadMeeting(input: CreateLeadMeetingInput): Promise<
     participantRows = insertedParticipants || []
   }
 
+  // Log de auditoría
+  if (input.empresaId) {
+    import('./activityLog').then(({ logActivity }) => {
+      logActivity({
+        empresaId: input.empresaId,
+        categoria: 'reuniones',
+        accion: 'crear_reunion',
+        detalle: `Creó la reunión "${input.title}"`,
+        entidadTipo: 'reunion',
+        entidadId: meetingRow.id,
+        entidadNombre: input.title,
+        actorId: createdBy || undefined
+      }).catch(e => console.error('[createLeadMeeting] log error:', e))
+    })
+  }
+
   return mapLeadMeeting({
     ...meetingRow,
     participantes: participantRows
   })
 }
-export async function deleteLeadMeeting(meetingId: string): Promise<void> {
+export async function deleteLeadMeeting(meetingId: string, empresaId?: string, meetingTitle?: string): Promise<void> {
   const { error } = await supabase
     .from('lead_reuniones')
     .delete()
     .eq('id', meetingId)
 
   if (error) throw error
+
+  if (empresaId) {
+    import('./activityLog').then(({ logActivity }) => {
+      logActivity({
+        empresaId,
+        categoria: 'reuniones',
+        accion: 'eliminar_reunion',
+        detalle: `Eliminó la reunión "${meetingTitle || 'sin título'}"`,
+        entidadTipo: 'reunion',
+        entidadId: meetingId,
+        entidadNombre: meetingTitle
+      }).catch(e => console.error('[deleteLeadMeeting] log error:', e))
+    })
+  }
 }
 
 export async function getCompanyMeetings(empresaId: string): Promise<Meeting[]> {
