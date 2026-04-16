@@ -28,10 +28,13 @@ export function usePermissions() {
   const currentCompany = companies.find(c => c.id === currentCompanyId)
   const isOwner = !!(currentCompany && user && currentCompany.ownerId === user.id)
 
-  // Solo el owner resuelve permisos de forma inmediata (sin async)
-  // Admin, viewer y custom deben leer sus permisos reales de la BD
+  // Owner y Admin resuelven ALL_PERMISSIONS de forma síncrona (sin fetch)
+  const companyRole = (currentCompany?.role || '').toLowerCase()
+  const isFullAccess = isOwner || companyRole === 'owner' || companyRole === 'admin'
+
+  // Solo viewer y roles custom leen de la BD
   useEffect(() => {
-    if (!user?.id || !currentCompanyId || isOwner) {
+    if (!user?.id || !currentCompanyId || isFullAccess) {
       setFetchedPermissions([])
       return
     }
@@ -91,12 +94,12 @@ export function usePermissions() {
 
     fetchPermissions()
     return () => { cancelled = true }
-  }, [user?.id, currentCompanyId, isOwner])
+  }, [user?.id, currentCompanyId, isFullAccess])
 
-  // Owner: permisos completos de forma síncrona (disponibles en el primer render)
-  // Admin/Viewer/Custom: permisos reales desde la BD (async)
-  const permissions = isOwner ? ALL_PERMISSIONS : fetchedPermissions
-  const isLoading = isOwner ? false : isFetching
+  // Owner/Admin: permisos completos de forma síncrona (disponibles en el primer render)
+  // Viewer/Custom: permisos reales desde la BD (async)
+  const permissions = isFullAccess ? ALL_PERMISSIONS : fetchedPermissions
+  const isLoading = isFullAccess ? false : isFetching
 
   const hasPermission = useCallback(
     (perm: RolePermission) => permissions.includes(perm),
