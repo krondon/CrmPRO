@@ -40,9 +40,21 @@ export function RolesManagement({ companyId }: { companyId: string }) {
       if (!companyId) return
       setIsLoading(true)
       try {
-        const { getRoles } = await import('@/supabase/services/roles')
-        const dbRoles = await getRoles(companyId)
-        // Los roles de sistema (Admin, Viewer) ya vienen de la BD
+        const { supabase } = await import('@/supabase/client')
+
+        // Asegurar que existan los roles de sistema y obtenerlos (SECURITY DEFINER bypasa RLS)
+        const { data, error } = await supabase.rpc('get_company_roles', { p_empresa_id: companyId })
+
+        if (error) throw error
+
+        const dbRoles: Role[] = (data || []).map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          color: r.color || '#3b82f6',
+          permissions: r.permissions as RolePermission[],
+          isSystem: r.is_system
+        }))
+
         setRoles(dbRoles)
       } catch (err) {
         console.error('Error fetching roles:', err)
@@ -85,15 +97,26 @@ export function RolesManagement({ companyId }: { companyId: string }) {
       const { createRole, updateRole } = await import('@/supabase/services/roles')
 
       if (editingRole) {
-        const updated = await updateRole(editingRole.id, {
-          name: roleName,
-          color: roleColor,
-          permissions: selectedPermissions
-        })
+        if (editingRole.isSystem) {
+          // Roles de sistema: usar RPC para bypass de RLS (policy bloquea UPDATE en is_system)
+          const { supabase } = await import('@/supabase/client')
+          const { error: rpcError } = await supabase.rpc('update_role_permissions', {
+            p_role_id: editingRole.id,
+            p_permissions: selectedPermissions
+          })
+          if (rpcError) throw rpcError
 
-        setRoles(current =>
-          current.map(r => r.id === editingRole.id ? updated : r)
-        )
+          setRoles(current =>
+            current.map(r => r.id === editingRole.id ? { ...r, permissions: selectedPermissions } : r)
+          )
+        } else {
+          const updated = await updateRole(editingRole.id, {
+            name: roleName, color: roleColor, permissions: selectedPermissions
+          })
+          setRoles(current =>
+            current.map(r => r.id === editingRole.id ? updated : r)
+          )
+        }
         toast.success('Rol actualizado correctamente')
       } else {
         const created = await createRole(companyId, {
@@ -186,16 +209,16 @@ export function RolesManagement({ companyId }: { companyId: string }) {
                       <CardTitle className="text-lg">{role.name}</CardTitle>
                     </div>
 
-                    {!isSystemRole && (
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                          onClick={() => handleOpenDialog(role)}
-                        >
-                          <PencilSimple size={16} />
-                        </Button>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => handleOpenDialog(role)}
+                      >
+                        <PencilSimple size={16} />
+                      </Button>
+                      {!isSystemRole && (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -204,8 +227,8 @@ export function RolesManagement({ companyId }: { companyId: string }) {
                         >
                           <Trash size={16} />
                         </Button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -251,7 +274,11 @@ export function RolesManagement({ companyId }: { companyId: string }) {
                 value={roleName}
                 onChange={(e) => setRoleName(e.target.value)}
                 placeholder="Ej: Gerente de Ventas"
+                disabled={!!editingRole?.isSystem}
               />
+              {editingRole?.isSystem && (
+                <p className="text-xs text-muted-foreground">El nombre de los roles del sistema no se puede modificar</p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -262,6 +289,7 @@ export function RolesManagement({ companyId }: { companyId: string }) {
                   value={roleColor}
                   onChange={(e) => setRoleColor(e.target.value)}
                   className="w-20 h-10"
+                  disabled={!!editingRole?.isSystem}
                 />
                 <Badge style={{ backgroundColor: roleColor, color: 'white' }}>
                   {roleName || 'Vista Previa'}

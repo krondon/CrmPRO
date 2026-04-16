@@ -219,7 +219,7 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
   } : null
 
   return (
-    <div className="flex flex-1 min-h-0 bg-background rounded-tl-2xl border-t border-l shadow-sm overflow-hidden w-full">
+    <div className="flex flex-1 min-h-0 bg-background overflow-hidden w-full">
       <ChatList
         leads={leads}
         isInitialLoading={isInitialLoading}

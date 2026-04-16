@@ -21,6 +21,7 @@ import { LeadTags } from './LeadTags'
 import { LeadDetailSheet } from '../LeadDetailSheet'
 import { listWhatsappInstancias } from '@/supabase/services/instances'
 import type { EmpresaInstanciaDB } from '@/lib/types'
+import { usePermissions } from '@/hooks/usePermissions'
 
 interface ChatWindowProps {
     lead: Lead | null
@@ -58,6 +59,15 @@ export function ChatWindow({
     onDismissDeleted,
     incomingMessage
 }: ChatWindowProps) {
+    // Resolver permisos directamente en el componente (más confiable que props)
+    const { hasPermission, isOwner } = usePermissions()
+    const resolvedCanDeleteMessages = isOwner || hasPermission('delete_messages')
+    const resolvedCanManageTags = isOwner || hasPermission('manage_tags')
+
+    // Usar permisos resueltos localmente en vez de los props
+    canDeleteMessages = resolvedCanDeleteMessages
+    canManageTags = resolvedCanManageTags
+
     // Estados locales
     const [messages, setMessages] = useState<DbMessage[]>([])
     const [isLoadingMessages, setIsLoadingMessages] = useState(false)
@@ -353,7 +363,7 @@ export function ChatWindow({
 
     return (
         <div className="flex-1 flex flex-row relative min-h-0 overflow-hidden bg-[#efeae2] dark:bg-background/95">
-            <div className="flex-1 flex flex-col min-h-0 relative transition-all duration-300">
+            <div className="flex-1 flex flex-col min-h-0 relative transition-all duration-300 min-w-0 overflow-hidden">
                 {/* Header */}
                 <div
                     className="h-14 sm:h-16 px-2 sm:px-4 border-b bg-background flex items-center justify-between shrink-0 cursor-pointer hover:bg-muted/30 transition-colors group"
@@ -502,8 +512,8 @@ export function ChatWindow({
                 )}
 
                 {/* Messages Area */}
-                <div className="flex-1 overflow-y-auto p-4 sm:p-6 scrollbar-thin scrollbar-thumb-muted-foreground/10" id="chat-scroll-area">
-                    <div className="space-y-6 max-w-3xl mx-auto pb-4">
+                <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 scrollbar-thin scrollbar-thumb-muted-foreground/10" id="chat-scroll-area">
+                    <div className="space-y-6 w-full max-w-3xl mx-auto pb-4">
                         {messages.map((msg, idx) => {
                             const isTeam = msg.sender === 'team'
                             const msgDate = safeFormatDate(msg.created_at, 'yyyy-MM-dd')
@@ -571,7 +581,7 @@ export function ChatWindow({
                                         )}
                                         <div
                                             className={cn(
-                                                "max-w-[85%] sm:max-w-[70%] min-w-0 px-3.5 py-2.5 rounded-2xl shadow-sm text-[15px] relative animate-in fade-in slide-in-from-bottom-2 duration-300 break-words overflow-hidden cursor-pointer sm:cursor-default",
+                                                "max-w-[75%] min-w-0 px-3.5 py-2.5 rounded-2xl shadow-sm text-[15px] relative animate-in fade-in slide-in-from-bottom-2 duration-300 break-words overflow-hidden cursor-pointer sm:cursor-default",
                                                 isTeam
                                                     ? "bg-primary text-primary-foreground rounded-tr-none shadow-primary/10"
                                                     : "bg-white text-black rounded-tl-none border border-border/10 shadow-black/5",
@@ -706,7 +716,7 @@ export function ChatWindow({
             {showContactInfo && (
                 <div className={cn(
                     "flex flex-col shrink-0 animate-in slide-in-from-right duration-300 shadow-2xl overflow-hidden z-20 bg-background border-l border-border",
-                    "absolute inset-0 w-full md:static md:w-[360px] min-h-0"
+                    "absolute inset-0 w-full md:static md:w-[320px] md:max-w-[320px] min-h-0"
                 )}>
                     {/* ... Contenido del panel de info ... */}
                     <div className="h-16 px-4 bg-muted/10 border-b flex items-center justify-between shrink-0">

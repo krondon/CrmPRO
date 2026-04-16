@@ -147,7 +147,7 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
               Catalogo
             </TabsTrigger>
           )} */}
-          {isAdminOrOwner && (
+          {userRole === 'owner' && (
             <TabsTrigger value="roles" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
               <ShieldCheck size={14} weight="duotone" />
               Roles
@@ -554,9 +554,23 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
           )}
         </TabsContent>
 
-        {/* ── Roles ─────────────────────────────────── */}
+        {/* ── Roles (solo owner) ─────────────────────────────────── */}
         <TabsContent value="roles" className="space-y-6 mt-8">
-          <RolesManagement companyId={currentCompanyId || ''} />
+          {userRole === 'owner' ? (
+            <RolesManagement companyId={currentCompanyId || ''} />
+          ) : (
+            <Card className="border-none shadow-sm rounded-2xl">
+              <CardContent className="py-16">
+                <div className="flex flex-col items-center justify-center text-center space-y-3 opacity-60">
+                  <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+                    <ShieldCheck size={32} className="text-muted-foreground" weight="thin" />
+                  </div>
+                  <p className="font-bold text-lg">Sin permisos</p>
+                  <p className="text-sm text-muted-foreground">Solo el propietario puede gestionar roles.</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* ── Automatizaciones ─────────────────────────────── */}

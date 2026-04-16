@@ -199,6 +199,7 @@ function ChatsViewWrapper() {
   const canDeleteMessages = isOwner || hasPermission('delete_messages')
   const canManageTags = isOwner || hasPermission('manage_tags')
 
+
   return (
     <ChatsView
       companyId={currentCompanyId}
