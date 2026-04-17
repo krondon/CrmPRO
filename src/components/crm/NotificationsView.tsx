@@ -52,7 +52,7 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
     const [responseNotifications, setResponseNotifications] = useState<ResponseNotification[]>([])
     const [leadAssignedNotifications, setLeadAssignedNotifications] = useState<ResponseNotification[]>([])
     const [loading, setLoading] = useState(true)
-    const [activeTab, setActiveTab] = useState<'leads' | 'team'>('leads')
+    const [activeTab, setActiveTab] = useState<'all' | 'leads' | 'team'>('all')
     const [joinRequests, setJoinRequests] = useState<ResponseNotification[]>([])
     const [processingRequest, setProcessingRequest] = useState<string | null>(null)
 
@@ -203,8 +203,11 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
             if (!forceAll) {
                 if (activeTab === 'leads') {
                     query = query.in('type', ['lead_assigned'])
+                } else if (activeTab === 'team') {
+                    query = query.in('type', ['invitation_response', 'team_invitation'])
                 } else {
-                    query = query.in('type', ['invitation_response'])
+                    // 'all' → marcar todo como leído
+                    query = query.in('type', ['lead_assigned', 'invitation_response', 'team_invitation'])
                 }
             } else {
                 query = query.in('type', ['lead_assigned', 'invitation_response', 'team_invitation'])
@@ -213,10 +216,10 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
             await query
 
             // Actualizar estado local
-            if (forceAll || activeTab === 'leads') {
+            if (forceAll || activeTab === 'leads' || activeTab === 'all') {
                 setLeadAssignedNotifications(prev => prev.map(n => ({ ...n, read: true })))
             }
-            if (forceAll || activeTab === 'team') {
+            if (forceAll || activeTab === 'team' || activeTab === 'all') {
                 setResponseNotifications(prev => prev.map(n => ({ ...n, read: true })))
             }
 
@@ -315,13 +318,14 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
                 </div>
 
                 {/* Controles de pestañas simples */}
-                <div className="flex items-center gap-2 mt-4">
-                    <Button variant={activeTab === 'leads' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('leads')}>Todas</Button>
-                    <Button variant={activeTab === 'team' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('team')}>Equipo</Button>
+                <div className="flex items-center gap-2 mt-4 flex-wrap">
+                    <Button variant={activeTab === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('all')}>Todas</Button>
+                    <Button variant={activeTab === 'leads' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('leads')}>Oportunidades asignadas</Button>
+                    <Button variant={activeTab === 'team' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('team')}>Invitación a equipo</Button>
                 </div>
 
-                {/* Contenido de Leads */}
-                {activeTab === 'leads' && (
+                {/* Contenido de Leads (visible en 'leads' y 'all') */}
+                {(activeTab === 'leads' || activeTab === 'all') && (
                     <div className="space-y-6 mt-4">
 
                         {/* Solicitudes de Acceso al CRM (vista del dueño) */}
@@ -446,8 +450,8 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
                     </div>
                 )}
 
-                {/* Contenido de Equipo */}
-                {activeTab === 'team' && (
+                {/* Contenido de Equipo (visible en 'team' y 'all') */}
+                {(activeTab === 'team' || activeTab === 'all') && (
                     <div className="space-y-6 mt-4">
                         <h2 className="text-xl font-semibold flex items-center gap-2">
                             Invitaciones de Equipo
@@ -529,8 +533,8 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
                     </div>
                 )}
 
-                {/* Respuestas a tus Invitaciones */}
-                {activeTab === 'team' && responseNotifications.length > 0 && (
+                {/* Respuestas a tus Invitaciones (visible en 'team' y 'all') */}
+                {(activeTab === 'team' || activeTab === 'all') && responseNotifications.length > 0 && (
                     <div className="space-y-6 mt-12">
 
                         <h2 className="text-xl font-semibold flex items-center gap-2">

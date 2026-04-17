@@ -1376,19 +1376,34 @@ serve(async (req) => {
                   autoAssignedTo = assigneeData[0].usuario_id;
                   console.log(`[webhook-chat] RPC Round Robin asignó a usuario: ${autoAssignedTo}`);
 
-                  // Resolver email del usuario asignado para notificación
+                  // Resolver email del usuario asignado para notificación.
+                  // Prioridad: auth.users (lo que usa el frontend para logearse) > tabla usuarios (fallback).
                   try {
-                    const { data: assignedUser } = await supabase
-                      .from('usuarios')
-                      .select('email, nombre')
-                      .eq('id', autoAssignedTo)
-                      .single();
-                    if (assignedUser) {
-                      assignedUserEmail = assignedUser.email;
-                      assignedUserName = assignedUser.nombre;
+                    const { data: authUser } = await supabase.auth.admin.getUserById(autoAssignedTo);
+                    if (authUser?.user?.email) {
+                      assignedUserEmail = authUser.user.email;
+                      console.log(`[webhook-chat] Email resuelto desde auth.users: ${assignedUserEmail}`);
                     }
                   } catch (e) {
-                    console.warn('[webhook-chat] No se pudo resolver email del asignado:', e);
+                    console.warn('[webhook-chat] Error consultando auth.admin.getUserById:', e);
+                  }
+
+                  // Fallback: tabla usuarios si no se pudo obtener desde auth
+                  if (!assignedUserEmail) {
+                    try {
+                      const { data: assignedUser } = await supabase
+                        .from('usuarios')
+                        .select('email, nombre')
+                        .eq('id', autoAssignedTo)
+                        .single();
+                      if (assignedUser) {
+                        assignedUserEmail = assignedUser.email;
+                        assignedUserName = assignedUser.nombre;
+                        console.log(`[webhook-chat] Email resuelto desde tabla usuarios (fallback): ${assignedUserEmail}`);
+                      }
+                    } catch (e) {
+                      console.warn('[webhook-chat] No se pudo resolver email desde tabla usuarios:', e);
+                    }
                   }
                 } else {
                   console.log(`[webhook-chat] Pipeline manual o sin miembros, sin auto-asignar.`);
@@ -1490,18 +1505,33 @@ serve(async (req) => {
 
             // Notificación al Owner (solo si es lead nuevo, no si se encontró por race condition)
             if (!existingLead && !lastMinuteCheck && !createError) {
+              // Resolver nombre de empresa una sola vez para ambas notificaciones
+              let empresaNombre: string | null = null;
+              let ownerUsuarioId: string | null = null;
               try {
                 const { data: empresaData } = await supabase.from('empresa').select('usuario_id, nombre_empresa').eq('id', empresa_id).single();
-                if (empresaData?.usuario_id) {
+                empresaNombre = empresaData?.nombre_empresa || null;
+                ownerUsuarioId = empresaData?.usuario_id || null;
+              } catch (e) {
+                console.warn("[webhook-chat] No se pudo resolver nombre de empresa:", e);
+              }
+
+              try {
+                if (ownerUsuarioId) {
                   // Resolver email del owner
-                  const { data: ownerUser } = await supabase.from('usuarios').select('email').eq('id', empresaData.usuario_id).single();
+                  const { data: ownerUser } = await supabase.from('usuarios').select('email').eq('id', ownerUsuarioId).single();
                   if (ownerUser?.email) {
                     await supabase.from('notificaciones').insert({
                       usuario_email: ownerUser.email,
                       type: `nuevo_lead_${sourceType.toLowerCase()}`,
                       title: `Nuevo Lead desde ${sourceType}`,
                       message: `Se ha creado automáticamente un nuevo lead: ${finalName}`,
-                      data: { lead_id: newLeadInstance.id, telefono: cleanPhone, empresa_id: empresa_id }
+                      data: {
+                        lead_id: newLeadInstance.id,
+                        telefono: cleanPhone,
+                        empresa_id: empresa_id,
+                        empresa_nombre: empresaNombre
+                      }
                     });
                   }
                 }
@@ -1512,7 +1542,7 @@ serve(async (req) => {
               // Notificación al vendedor asignado por Round Robin
               if (autoAssignedTo !== '00000000-0000-0000-0000-000000000000' && assignedUserEmail) {
                 try {
-                  await supabase.from('notificaciones').insert({
+                  const { error: notifInsertError } = await supabase.from('notificaciones').insert({
                     usuario_email: assignedUserEmail,
                     type: 'lead_assigned',
                     title: 'Nueva oportunidad asignada',
@@ -1520,11 +1550,16 @@ serve(async (req) => {
                     data: {
                       lead_id: newLeadInstance.id,
                       empresa_id: empresa_id,
+                      empresa_nombre: empresaNombre,
                       assigned_by_nombre: 'Round Robin (automático)',
                       telefono: cleanPhone
                     }
                   });
-                  console.log(`[webhook-chat] Notificación enviada al vendedor asignado: ${assignedUserEmail}`);
+                  if (notifInsertError) {
+                    console.error(`[webhook-chat] ❌ Error insertando notificación para ${assignedUserEmail}:`, notifInsertError);
+                  } else {
+                    console.log(`[webhook-chat] ✅ Notificación enviada al vendedor asignado: ${assignedUserEmail} (empresa: ${empresaNombre})`);
+                  }
                 } catch (notifError) {
                   console.warn("[webhook-chat] No se pudo notificar al vendedor asignado:", notifError);
                 }
