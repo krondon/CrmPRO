@@ -78,7 +78,7 @@ function LeadCardComponent({
 
     const getAssignedName = () => {
         const NIL_UUID = '00000000-0000-0000-0000-000000000000'
-        const member = teamMembers.find(m => m.id === lead.assignedTo)
+        const member = teamMembers.find(m => m.id === lead.assignedTo || m.userId === lead.assignedTo)
         if (member) return member.name
         if (lead.assignedTo === NIL_UUID || lead.assignedTo == null) {
             return 'Todos'
