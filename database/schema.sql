@@ -1824,7 +1824,112 @@ TO authenticated
 WITH CHECK (bucket_id = 'catalog-images');
 
 -- Política 3: (Opcional, pero recomendada) Solo un usuario con sesión iniciada puede ELIMINAR fotos a futuro
-CREATE POLICY "Solo los dueños pueden borrar fotos de su propia empresa" 
-ON storage.objects FOR DELETE 
-TO authenticated 
+CREATE POLICY "Solo los dueños pueden borrar fotos de su propia empresa"
+ON storage.objects FOR DELETE
+TO authenticated
 USING (bucket_id = 'catalog-images');
+
+
+-- ============================================================
+-- ROUND ROBIN / AUTO-ASIGNACIÓN
+-- ============================================================
+
+-- Asegurar que la tabla pipeline tenga las columnas necesarias
+ALTER TABLE pipeline ADD COLUMN IF NOT EXISTS assignment_type text DEFAULT 'manual';
+ALTER TABLE pipeline ADD COLUMN IF NOT EXISTS last_assigned_persona_id uuid;
+
+-- Función RPC atómica para obtener el siguiente asignado (round_robin o random).
+-- Usa bloqueo a nivel de fila (FOR UPDATE) para evitar race conditions
+-- cuando dos webhooks llegan al mismo tiempo.
+-- Retorna TABLE(persona_id uuid, usuario_id uuid).
+-- Si el pipeline es manual o no tiene miembros, retorna vacío (0 filas).
+CREATE OR REPLACE FUNCTION get_next_assignee(p_pipeline_id uuid)
+RETURNS TABLE(persona_id uuid, usuario_id uuid)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_assignment_type text;
+  v_last_persona_id uuid;
+  v_members         jsonb;
+  v_count           int;
+  v_next_index      int;
+  v_selected_pid    uuid;
+  v_selected_uid    uuid;
+BEGIN
+  -- 1. Leer pipeline con bloqueo de fila para serializar asignaciones concurrentes
+  SELECT p.assignment_type, p.last_assigned_persona_id
+    INTO v_assignment_type, v_last_persona_id
+    FROM pipeline p
+   WHERE p.id = p_pipeline_id
+     FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN;  -- pipeline no existe
+  END IF;
+
+  -- Si es manual, no auto-asignar
+  IF v_assignment_type IS NULL OR v_assignment_type = 'manual' THEN
+    RETURN;
+  END IF;
+
+  -- 2. Obtener miembros del pipeline con usuario_id válido, ordenados por persona_id
+  SELECT jsonb_agg(sub ORDER BY sub.pid)
+    INTO v_members
+    FROM (
+      SELECT pp.persona_id AS pid, per.usuario_id AS uid
+        FROM persona_pipeline pp
+        JOIN persona per ON per.id = pp.persona_id
+       WHERE pp.pipeline_id = p_pipeline_id
+         AND per.usuario_id IS NOT NULL
+       ORDER BY pp.persona_id
+    ) sub;
+
+  IF v_members IS NULL OR jsonb_array_length(v_members) = 0 THEN
+    RETURN;  -- sin miembros
+  END IF;
+
+  v_count := jsonb_array_length(v_members);
+
+  -- 3. Seleccionar según tipo de asignación
+  IF v_assignment_type = 'round_robin' THEN
+    -- Buscar índice del último asignado
+    v_next_index := 0;
+    IF v_last_persona_id IS NOT NULL THEN
+      FOR i IN 0 .. v_count - 1 LOOP
+        IF (v_members -> i ->> 'pid')::uuid = v_last_persona_id THEN
+          v_next_index := (i + 1) % v_count;
+          EXIT;
+        END IF;
+      END LOOP;
+    END IF;
+
+    v_selected_pid := (v_members -> v_next_index ->> 'pid')::uuid;
+    v_selected_uid := (v_members -> v_next_index ->> 'uid')::uuid;
+
+    -- Actualizar puntero de rotación
+    UPDATE pipeline
+       SET last_assigned_persona_id = v_selected_pid
+     WHERE id = p_pipeline_id;
+
+  ELSIF v_assignment_type = 'random' THEN
+    v_next_index := floor(random() * v_count)::int;
+    v_selected_pid := (v_members -> v_next_index ->> 'pid')::uuid;
+    v_selected_uid := (v_members -> v_next_index ->> 'uid')::uuid;
+
+  ELSE
+    RETURN;  -- tipo desconocido
+  END IF;
+
+  -- 4. Retornar resultado
+  persona_id := v_selected_pid;
+  usuario_id := v_selected_uid;
+  RETURN NEXT;
+END;
+$$;
+
+-- Permisos: accesible para service_role (Edge Functions) y usuarios autenticados
+REVOKE ALL ON FUNCTION get_next_assignee(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION get_next_assignee(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION get_next_assignee(uuid) TO service_role;

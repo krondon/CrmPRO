@@ -1314,6 +1314,11 @@ serve(async (req) => {
           let createError = null;
           let lastMinuteCheck = false;
 
+          // Variables de auto-asignación (scope exterior para poder usarlas en el bloque de notificaciones)
+          let autoAssignedTo = '00000000-0000-0000-0000-000000000000';
+          let assignedUserEmail: string | null = null;
+          let assignedUserName: string | null = null;
+
           if (!existingLead) {
             // VERIFICAR SI SE DEBE CREAR AUTOMÁTICAMENTE (lee de la instancia)
             const autoCreate = resolvedInstanceConfig ? resolvedInstanceConfig.auto_create_lead : true;
@@ -1358,17 +1363,33 @@ serve(async (req) => {
             }
 
             // ==== AUTO-ASIGNACIÓN (Round Robin / Random) con RPC atómica ====
-            let autoAssignedTo = '00000000-0000-0000-0000-000000000000';
             if (targetPipelineId) {
               try {
+                console.log(`[webhook-chat] 🔍 Llamando RPC get_next_assignee con pipeline: ${targetPipelineId}`);
                 const { data: assigneeData, error: rpcError } = await supabase.rpc('get_next_assignee', {
                   p_pipeline_id: targetPipelineId
                 });
+                console.log(`[webhook-chat] 🔍 RPC resultado:`, JSON.stringify({ data: assigneeData, error: rpcError }));
                 if (rpcError) {
                   console.warn('[webhook-chat] Error llamando a get_next_assignee:', rpcError);
-                } else if (assigneeData && assigneeData.length > 0 && assigneeData[0].persona_id) {
-                  autoAssignedTo = assigneeData[0].persona_id;
-                  console.log(`[webhook-chat] RPC Round Robin asignó a persona: ${autoAssignedTo}`);
+                } else if (assigneeData && assigneeData.length > 0 && assigneeData[0].usuario_id) {
+                  autoAssignedTo = assigneeData[0].usuario_id;
+                  console.log(`[webhook-chat] RPC Round Robin asignó a usuario: ${autoAssignedTo}`);
+
+                  // Resolver email del usuario asignado para notificación
+                  try {
+                    const { data: assignedUser } = await supabase
+                      .from('usuarios')
+                      .select('email, nombre')
+                      .eq('id', autoAssignedTo)
+                      .single();
+                    if (assignedUser) {
+                      assignedUserEmail = assignedUser.email;
+                      assignedUserName = assignedUser.nombre;
+                    }
+                  } catch (e) {
+                    console.warn('[webhook-chat] No se pudo resolver email del asignado:', e);
+                  }
                 } else {
                   console.log(`[webhook-chat] Pipeline manual o sin miembros, sin auto-asignar.`);
                 }
@@ -1387,9 +1408,10 @@ serve(async (req) => {
               prioridad: 'medium',
               empresa: `${sourceType} Contact`,
               correo_electronico: `${cleanPhone}@${sourceType.toLowerCase()}.com`,
-              asignado_a: '00000000-0000-0000-0000-000000000000'
+              asignado_a: autoAssignedTo
             };
 
+            console.log(`[webhook-chat] 🔍 Lead payload asignado_a: ${newLeadPayload.asignado_a}`);
             // Insertar Lead (con manejo de race condition)
             let { data: createdLead, error: insertError } = await supabase
               .from("lead")
@@ -1469,19 +1491,43 @@ serve(async (req) => {
             // Notificación al Owner (solo si es lead nuevo, no si se encontró por race condition)
             if (!existingLead && !lastMinuteCheck && !createError) {
               try {
-                const { data: empresa } = await supabase.from('empresa').select('owner_id, nombre').eq('id', empresa_id).single();
-                if (empresa?.owner_id) {
-                  await supabase.from('notificaciones').insert({
-                    user_id: empresa.owner_id,
-                    tipo: `nuevo_lead_${sourceType.toLowerCase()}`,
-                    titulo: `Nuevo Lead desde ${sourceType}`,
-                    mensaje: `Se ha creado automáticamente un nuevo lead ${sourceIcon}: ${finalName}`,
-                    datos: { lead_id: newLeadInstance.id, telefono: cleanPhone, empresa_id: empresa_id },
-                    leido: false
-                  });
+                const { data: empresaData } = await supabase.from('empresa').select('usuario_id, nombre_empresa').eq('id', empresa_id).single();
+                if (empresaData?.usuario_id) {
+                  // Resolver email del owner
+                  const { data: ownerUser } = await supabase.from('usuarios').select('email').eq('id', empresaData.usuario_id).single();
+                  if (ownerUser?.email) {
+                    await supabase.from('notificaciones').insert({
+                      usuario_email: ownerUser.email,
+                      type: `nuevo_lead_${sourceType.toLowerCase()}`,
+                      title: `Nuevo Lead desde ${sourceType}`,
+                      message: `Se ha creado automáticamente un nuevo lead: ${finalName}`,
+                      data: { lead_id: newLeadInstance.id, telefono: cleanPhone, empresa_id: empresa_id }
+                    });
+                  }
                 }
               } catch (notifError) {
-                console.warn("No se pudo crear notificación:", notifError);
+                console.warn("[webhook-chat] No se pudo crear notificación al owner:", notifError);
+              }
+
+              // Notificación al vendedor asignado por Round Robin
+              if (autoAssignedTo !== '00000000-0000-0000-0000-000000000000' && assignedUserEmail) {
+                try {
+                  await supabase.from('notificaciones').insert({
+                    usuario_email: assignedUserEmail,
+                    type: 'lead_assigned',
+                    title: 'Nueva oportunidad asignada',
+                    message: `Se te asignó automáticamente la oportunidad "${finalName}" desde ${sourceType}.`,
+                    data: {
+                      lead_id: newLeadInstance.id,
+                      empresa_id: empresa_id,
+                      assigned_by_nombre: 'Round Robin (automático)',
+                      telefono: cleanPhone
+                    }
+                  });
+                  console.log(`[webhook-chat] Notificación enviada al vendedor asignado: ${assignedUserEmail}`);
+                } catch (notifError) {
+                  console.warn("[webhook-chat] No se pudo notificar al vendedor asignado:", notifError);
+                }
               }
             }
 
