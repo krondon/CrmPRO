@@ -149,16 +149,44 @@
 }
 
 .pulse-notification {
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation: notification-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.4);
 }
 
-@keyframes pulse {
-  0%, 100% {
+@keyframes notification-pulse {
+  0% {
     opacity: 1;
+    box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.5);
   }
   50% {
-    opacity: 0.7;
+    opacity: 0.85;
+    box-shadow: 0 0 0 6px rgba(255, 59, 48, 0);
   }
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(255, 59, 48, 0);
+  }
+}
+
+/* Notification bounce-in for new badge */
+.notification-bounce {
+  animation: notif-bounce 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes notif-bounce {
+  0% { transform: scale(0); opacity: 0; }
+  50% { transform: scale(1.25); }
+  70% { transform: scale(0.9); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Toast custom styles for notification types */
+[data-sonner-toast].notification-toast-lead {
+  border-left: 4px solid oklch(0.60 0.25 320) !important;
+}
+
+[data-sonner-toast].notification-toast-team {
+  border-left: 4px solid oklch(0.55 0.15 250) !important;
 }
 
 @layer utilities {

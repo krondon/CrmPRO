@@ -198,7 +198,7 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
             />
             <span>{t.nav.notifications}</span>
             {unreadCount > 0 && (
-              <Badge variant="destructive" className="ml-auto pulse-notification bg-[#FF3B30] text-white border-none h-5 min-w-[20px] px-1 shadow-sm">
+              <Badge variant="destructive" className="ml-auto pulse-notification notification-bounce bg-[#FF3B30] text-white border-none h-5 min-w-[20px] px-1 shadow-sm">
                 {unreadCount}
               </Badge>
             )}
@@ -266,6 +266,27 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
               </NavLink>
             )
           })}
+
+          {/* Notification Bell - Mobile */}
+          <NavLink
+            to={getPath('notifications')}
+            className={cn(
+              'flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg text-xs font-medium transition-all min-w-fit relative',
+              isActive('notifications')
+                ? 'text-primary'
+                : 'text-muted-foreground'
+            )}
+          >
+            <div className="relative">
+              <Bell size={20} weight={isActive('notifications') ? 'fill' : 'regular'} />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1.5 -right-2 h-4 min-w-[16px] px-0.5 flex items-center justify-center rounded-full bg-[#FF3B30] text-white text-[9px] font-bold pulse-notification notification-bounce shadow-sm">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </div>
+            <span className="text-[9px]">Alertas</span>
+          </NavLink>
         </nav>
       </div>
 
