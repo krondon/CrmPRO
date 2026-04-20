@@ -43,6 +43,8 @@ export interface UseDragDropOptions {
     currentUserId?: string
     /** Nombre del usuario actual para auditoría (historial) */
     actorNombre?: string
+    /** ID de la empresa para log de auditoría */
+    companyId?: string
 }
 
 export interface UseDragDropReturn {
@@ -62,7 +64,7 @@ export interface UseDragDropReturn {
 // HOOK PRINCIPAL
 // ============================================
 export function useDragDrop(options: UseDragDropOptions): UseDragDropReturn {
-    const { setLeads, setStageCounts, canEditLeads, currentUserId, actorNombre } = options
+    const { setLeads, setStageCounts, canEditLeads, currentUserId, actorNombre, companyId } = options
 
     // Ref para el lead siendo arrastrado (evita re-renders durante drag)
     const draggedLeadRef = useRef<Lead | null>(null)
@@ -104,6 +106,24 @@ export function useDragDrop(options: UseDragDropOptions): UseDragDropReturn {
             try {
                 await updateLead(lead.id, { etapa_id: targetStageId, stage_entered_at: new Date().toISOString(), sla_custom_limit_minutes: null }, currentUserId, actorNombre)
                 toast.success('Lead movido a nueva etapa')
+
+                // Log de auditoría (non-blocking)
+                if (companyId) {
+                    import('@/supabase/services/activityLog').then(({ logActivity }) => {
+                        logActivity({
+                            empresaId: companyId,
+                            categoria: 'leads',
+                            accion: 'mover_etapa',
+                            detalle: `Movió "${lead.name || 'Oportunidad'}" a nueva etapa`,
+                            entidadTipo: 'lead',
+                            entidadId: lead.id,
+                            entidadNombre: lead.name,
+                            metadata: { from_stage: originalStageId, to_stage: targetStageId },
+                            actorId: currentUserId,
+                            actorNombre
+                        }).catch(e => console.error('[useDragDrop] log error:', e))
+                    })
+                }
 
                 // 🤖 Automation: fire stage_change trigger (non-blocking)
                 // We pass the lead with the NEW stage so the engine can match rules for that stage

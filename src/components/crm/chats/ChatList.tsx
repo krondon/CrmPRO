@@ -35,7 +35,15 @@ import {
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
 import { safeFormatDate } from '@/hooks/useDateFormat'
-import type { ChatScope } from '@/hooks/useLeadsList'
+import { detectChannel, type ChatScope } from '@/hooks/useLeadsList'
+
+function normalizeSearchToken(value: unknown): string {
+    return String(value ?? '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim()
+}
 
 interface ChatListProps {
     // Datos del padre
@@ -143,7 +151,66 @@ export const ChatList = memo(function ChatList({
     // Refs
     const listParentRef = useRef<HTMLDivElement | null>(null)
     const filterScrollRef = useRef<HTMLDivElement | null>(null)
-    const totalSearchCount = searchResults.chatsMatches.length + searchResults.messageMatches.length
+
+    const resolvedSearchChatMatches = useMemo(() => {
+        if (!isSearchMode) return searchResults.chatsMatches
+
+        const needle = normalizeSearchToken(searchQuery)
+        const dedup = new Map<string, Lead>()
+
+        for (const lead of searchResults.chatsMatches) {
+            dedup.set(lead.id, lead)
+        }
+
+        // Fallback local para recuperar búsqueda por etiquetas si la búsqueda server-side
+        // no retorna algún lead ya cargado en memoria.
+        if (needle.length >= 2) {
+            for (const lead of leads) {
+                const hasTagMatch = (lead.tags || []).some((tag) => {
+                    const tagName = normalizeSearchToken(tag?.name)
+                    const tagId = normalizeSearchToken(tag?.id)
+                    return tagName.includes(needle) || tagId.includes(needle)
+                })
+
+                if (hasTagMatch && !dedup.has(lead.id)) {
+                    dedup.set(lead.id, lead)
+                }
+            }
+        }
+
+        return Array.from(dedup.values())
+    }, [isSearchMode, searchQuery, searchResults.chatsMatches, leads])
+
+    const totalSearchCount = resolvedSearchChatMatches.length + searchResults.messageMatches.length
+
+    const getLeadChannel = (lead: Lead) => channelByLead[lead.id] || detectChannel(lead)
+
+    const renderLeadTags = (lead: Lead, maxVisible = 3) => {
+        if (!lead.tags || lead.tags.length === 0) return null
+
+        return (
+            <div className="flex flex-wrap gap-1 mt-1.5 min-w-0">
+                {lead.tags.slice(0, maxVisible).map((tag: any) => (
+                    <span
+                        key={tag.id}
+                        className="text-[9px] px-1.5 py-0.5 rounded-sm font-bold uppercase tracking-wider border opacity-90"
+                        style={{
+                            backgroundColor: tag.color + '15',
+                            color: tag.color,
+                            borderColor: tag.color + '30'
+                        }}
+                    >
+                        {tag.name}
+                    </span>
+                ))}
+                {lead.tags.length > maxVisible && (
+                    <span className="text-[9px] text-muted-foreground font-bold px-1 py-0.5">
+                        +{lead.tags.length - maxVisible}
+                    </span>
+                )}
+            </div>
+        )
+    }
 
     // Filtrar y ordenar leads
     const sortedLeads = useMemo(() => {
@@ -283,9 +350,9 @@ export const ChatList = memo(function ChatList({
                     {isSearchMode && !searchLoading && (
                         <div className="flex items-center gap-1.5 mt-1.5 px-1">
                             <span className="text-[11px] text-muted-foreground font-medium">
-                                {searchResults.chatsMatches.length === 0 && searchResults.messageMatches.length === 0
+                                {resolvedSearchChatMatches.length === 0 && searchResults.messageMatches.length === 0
                                     ? 'Sin resultados'
-                                    : `${searchResults.chatsMatches.length} chat${searchResults.chatsMatches.length !== 1 ? 's' : ''}${searchResults.messageMatches.length > 0 ? ` · ${searchResults.messageMatches.length} mensaje${searchResults.messageMatches.length !== 1 ? 's' : ''}` : ''}`
+                                    : `${resolvedSearchChatMatches.length} chat${resolvedSearchChatMatches.length !== 1 ? 's' : ''}${searchResults.messageMatches.length > 0 ? ` · ${searchResults.messageMatches.length} mensaje${searchResults.messageMatches.length !== 1 ? 's' : ''}` : ''}`
                                 }
                             </span>
                         </div>
@@ -456,18 +523,29 @@ export const ChatList = memo(function ChatList({
                             </span>
                         </div>
 
-                        {searchResults.chatsMatches.map((lead) => (
+                        {resolvedSearchChatMatches.map((lead) => (
                             <button
                                 key={`chat-${lead.id}`}
                                 onClick={() => handleSearchSelection(lead, 'chats')}
                                 className="flex items-center gap-3 px-4 py-3 text-left transition-all duration-200 border-b border-border/40 w-full hover:bg-muted/50 group"
                             >
-                                <Avatar className="h-11 w-11 border-2 border-background shadow-sm ring-1 ring-border/50 shrink-0">
-                                    <AvatarImage src={lead.avatar} />
-                                    <AvatarFallback className="bg-muted text-muted-foreground font-bold text-xs">
-                                        {(lead.name || '??').substring(0, 2).toUpperCase()}
-                                    </AvatarFallback>
-                                </Avatar>
+                                <div className="relative shrink-0">
+                                    <Avatar className="h-11 w-11 border-2 border-background shadow-sm ring-1 ring-border/50">
+                                        <AvatarImage src={lead.avatar} />
+                                        <AvatarFallback className="bg-muted text-muted-foreground font-bold text-xs">
+                                            {(lead.name || '??').substring(0, 2).toUpperCase()}
+                                        </AvatarFallback>
+                                    </Avatar>
+                                    <div className="absolute -bottom-1 -right-1 bg-background rounded-full p-0.5 shadow-sm border border-background">
+                                        {getLeadChannel(lead) === 'instagram' ? (
+                                            <InstagramLogo weight="fill" className="h-3.5 w-3.5 text-[#E1306C]" />
+                                        ) : getLeadChannel(lead) === 'facebook' ? (
+                                            <FacebookLogo weight="fill" className="h-3.5 w-3.5 text-[#1877F2]" />
+                                        ) : (
+                                            <WhatsappLogo weight="fill" className="h-3.5 w-3.5 text-[#25D366]" />
+                                        )}
+                                    </div>
+                                </div>
                                 <div className="flex-1 min-w-0 flex flex-col gap-0.5">
                                     <span className="truncate text-[14px] font-semibold text-foreground/90">
                                         {highlightMatch(lead.name || 'Sin nombre', searchQuery)}
@@ -475,11 +553,12 @@ export const ChatList = memo(function ChatList({
                                     <span className="truncate text-xs text-muted-foreground">
                                         {highlightMatch(lead.phone || lead.company || 'Sin detalle', searchQuery)}
                                     </span>
+                                    {renderLeadTags(lead, 2)}
                                 </div>
                             </button>
                         ))}
 
-                        {searchResults.chatsMatches.length === 0 && (
+                        {resolvedSearchChatMatches.length === 0 && (
                             <div className="px-4 py-3 text-xs text-muted-foreground border-b border-border/40">
                                 Sin coincidencias en chats
                             </div>
@@ -497,17 +576,28 @@ export const ChatList = memo(function ChatList({
                                 onClick={() => handleSearchSelection(row.lead, 'messages')}
                                 className="flex items-center gap-3 px-4 py-3 text-left transition-all duration-200 border-b border-border/40 w-full hover:bg-muted/50 group"
                             >
-                                <Avatar className="h-11 w-11 border-2 border-background shadow-sm ring-1 ring-border/50 shrink-0">
-                                    <AvatarImage src={row.lead.avatar} />
-                                    <AvatarFallback className="bg-muted text-muted-foreground font-bold text-xs">
-                                        {(row.lead.name || '??').substring(0, 2).toUpperCase()}
-                                    </AvatarFallback>
-                                </Avatar>
+                                <div className="relative shrink-0">
+                                    <Avatar className="h-11 w-11 border-2 border-background shadow-sm ring-1 ring-border/50">
+                                        <AvatarImage src={row.lead.avatar} />
+                                        <AvatarFallback className="bg-muted text-muted-foreground font-bold text-xs">
+                                            {(row.lead.name || '??').substring(0, 2).toUpperCase()}
+                                        </AvatarFallback>
+                                    </Avatar>
+                                    <div className="absolute -bottom-1 -right-1 bg-background rounded-full p-0.5 shadow-sm border border-background">
+                                        {getLeadChannel(row.lead) === 'instagram' ? (
+                                            <InstagramLogo weight="fill" className="h-3.5 w-3.5 text-[#E1306C]" />
+                                        ) : getLeadChannel(row.lead) === 'facebook' ? (
+                                            <FacebookLogo weight="fill" className="h-3.5 w-3.5 text-[#1877F2]" />
+                                        ) : (
+                                            <WhatsappLogo weight="fill" className="h-3.5 w-3.5 text-[#25D366]" />
+                                        )}
+                                    </div>
+                                </div>
 
                                 <div className="flex-1 min-w-0 flex flex-col gap-0.5">
                                     <div className="flex justify-between items-baseline">
                                         <span className="truncate text-[14px] font-semibold text-foreground/80 group-hover:text-foreground">
-                                            {row.lead.name}
+                                            {highlightMatch(row.lead.name || 'Sin nombre', searchQuery)}
                                         </span>
                                         <span className="text-[10px] uppercase tracking-tighter whitespace-nowrap ml-2 font-bold text-muted-foreground">
                                             {safeFormatDate(row.createdAt, 'dd/MM/yyyy', { locale: es })}
@@ -516,6 +606,7 @@ export const ChatList = memo(function ChatList({
                                     <p className="text-sm truncate text-muted-foreground group-hover:text-muted-foreground/80">
                                         {highlightMatch(row.snippet, searchQuery)}
                                     </p>
+                                    {renderLeadTags(row.lead, 2)}
                                 </div>
                             </button>
                         ))}

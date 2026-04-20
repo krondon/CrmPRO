@@ -17,7 +17,7 @@ export async function getNotasByLead(leadId: string) {
 /**
  * Crear una nueva nota para un lead
  */
-export async function createNota(leadId: string, contenido: string, creadorNombre?: string) {
+export async function createNota(leadId: string, contenido: string, creadorNombre?: string, empresaId?: string) {
     const { data: { user } } = await supabase.auth.getUser()
 
     const { data, error } = await supabase
@@ -32,19 +32,50 @@ export async function createNota(leadId: string, contenido: string, creadorNombr
         .single()
 
     if (error) throw error
+
+    // Log de auditoría
+    if (empresaId) {
+        import('./activityLog').then(({ logActivity }) => {
+            logActivity({
+                empresaId,
+                categoria: 'notas',
+                accion: 'crear_nota',
+                detalle: `Agregó una nota: "${contenido.substring(0, 60)}${contenido.length > 60 ? '...' : ''}"`,
+                entidadTipo: 'lead',
+                entidadId: leadId,
+                actorId: user?.id || undefined,
+                actorNombre: creadorNombre
+            }).catch(e => console.error('[createNota] log error:', e))
+        })
+    }
+
     return data
 }
 
 /**
  * Eliminar una nota
  */
-export async function deleteNota(notaId: string) {
+export async function deleteNota(notaId: string, empresaId?: string) {
     const { error } = await supabase
         .from('nota_lead')
         .delete()
         .eq('id', notaId)
 
     if (error) throw error
+
+    if (empresaId) {
+        import('./activityLog').then(({ logActivity }) => {
+            logActivity({
+                empresaId,
+                categoria: 'notas',
+                accion: 'eliminar_nota',
+                detalle: 'Eliminó una nota',
+                entidadTipo: 'nota',
+                entidadId: notaId
+            }).catch(e => console.error('[deleteNota] log error:', e))
+        })
+    }
+
     return true
 }
 

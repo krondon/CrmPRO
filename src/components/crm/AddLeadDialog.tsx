@@ -240,21 +240,44 @@ export function AddLeadDialog({
         if (assignedId && assignedId !== NIL_UUID) {
           const recipient = teamMembers?.find(m => m.id === assignedId || m.userId === assignedId)
           if (recipient?.email) {
+            // 1. Insertar notificación directamente en BD (garantiza alerta in-app)
             try {
-              await import('@/lib/supabase').then(({ supabase }) => {
-                supabase.functions.invoke('send-lead-assigned', {
-                  body: {
-                    leadId: dbLead.id,
-                    leadName: dbLead.nombre_completo,
-                    empresaId: companyId,
-                    empresaNombre: companyName,
-                    assignedUserId: recipient.userId || assignedId,
-                    assignedUserEmail: recipient.email,
-                    assignedByEmail: effectiveUser?.email,
-                    assignedByNombre: actorNombre
-                  }
-                }).catch(e => console.error('[AddLeadDialog] Error en bg notification:', e))
+              const { supabase: sb } = await import('@/supabase/client')
+              await sb.from('notificaciones').insert({
+                usuario_email: recipient.email,
+                title: `Nueva oportunidad asignada: ${dbLead.nombre_completo}`,
+                message: `${actorNombre || 'El sistema'} te asignó la oportunidad "${dbLead.nombre_completo}"${companyName ? ` en ${companyName}` : ''}`,
+                type: 'lead_assigned',
+                read: false,
+                data: {
+                  lead_id: dbLead.id,
+                  lead_name: dbLead.nombre_completo,
+                  empresa_id: companyId,
+                  empresa_nombre: companyName,
+                  assigned_by_email: effectiveUser?.email,
+                  assigned_by_nombre: actorNombre
+                },
+                created_at: new Date()
               })
+            } catch (e) {
+              console.warn('[AddLeadDialog] Error insertando notificación directa:', e)
+            }
+
+            // 2. Edge function (emails/push, puede fallar silenciosamente)
+            try {
+              const { supabase: sb } = await import('@/supabase/client')
+              sb.functions.invoke('send-lead-assigned', {
+                body: {
+                  leadId: dbLead.id,
+                  leadName: dbLead.nombre_completo,
+                  empresaId: companyId,
+                  empresaNombre: companyName,
+                  assignedUserId: recipient.userId || assignedId,
+                  assignedUserEmail: recipient.email,
+                  assignedByEmail: effectiveUser?.email,
+                  assignedByNombre: actorNombre
+                }
+              }).catch(e => console.error('[AddLeadDialog] Error en bg notification:', e))
             } catch (e) {
               console.error('[AddLeadDialog] Error enviando notificación de asignación', e)
             }

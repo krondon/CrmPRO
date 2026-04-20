@@ -52,7 +52,7 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
     const [responseNotifications, setResponseNotifications] = useState<ResponseNotification[]>([])
     const [leadAssignedNotifications, setLeadAssignedNotifications] = useState<ResponseNotification[]>([])
     const [loading, setLoading] = useState(true)
-    const [activeTab, setActiveTab] = useState<'leads' | 'team'>('leads')
+    const [activeTab, setActiveTab] = useState<'all' | 'leads' | 'team'>('all')
     const [joinRequests, setJoinRequests] = useState<ResponseNotification[]>([])
     const [processingRequest, setProcessingRequest] = useState<string | null>(null)
 
@@ -203,8 +203,11 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
             if (!forceAll) {
                 if (activeTab === 'leads') {
                     query = query.in('type', ['lead_assigned'])
+                } else if (activeTab === 'team') {
+                    query = query.in('type', ['invitation_response', 'team_invitation'])
                 } else {
-                    query = query.in('type', ['invitation_response'])
+                    // 'all' → marcar todo como leído
+                    query = query.in('type', ['lead_assigned', 'invitation_response', 'team_invitation'])
                 }
             } else {
                 query = query.in('type', ['lead_assigned', 'invitation_response', 'team_invitation'])
@@ -213,10 +216,10 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
             await query
 
             // Actualizar estado local
-            if (forceAll || activeTab === 'leads') {
+            if (forceAll || activeTab === 'leads' || activeTab === 'all') {
                 setLeadAssignedNotifications(prev => prev.map(n => ({ ...n, read: true })))
             }
-            if (forceAll || activeTab === 'team') {
+            if (forceAll || activeTab === 'team' || activeTab === 'all') {
                 setResponseNotifications(prev => prev.map(n => ({ ...n, read: true })))
             }
 
@@ -225,6 +228,27 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
             }
         } catch (e) {
             console.error('Error marking notifications read', e)
+        }
+    }
+
+    // Marcar UNA notificación individual como leída/no leída
+    const toggleSingleRead = async (notifId: string, currentRead: boolean) => {
+        const newRead = !currentRead
+        try {
+            await supabase
+                .from('notificaciones')
+                .update({ read: newRead })
+                .eq('id', notifId)
+
+            // Actualizar estado local en todas las listas
+            const updater = (prev: ResponseNotification[]) =>
+                prev.map(n => n.id === notifId ? { ...n, read: newRead } : n)
+
+            setLeadAssignedNotifications(updater)
+            setResponseNotifications(updater)
+            setJoinRequests(updater)
+        } catch (e) {
+            console.error('Error toggling notification read', e)
         }
     }
 
@@ -315,13 +339,14 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
                 </div>
 
                 {/* Controles de pestañas simples */}
-                <div className="flex items-center gap-2 mt-4">
-                    <Button variant={activeTab === 'leads' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('leads')}>Todas</Button>
-                    <Button variant={activeTab === 'team' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('team')}>Equipo</Button>
+                <div className="flex items-center gap-2 mt-4 flex-wrap">
+                    <Button variant={activeTab === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('all')}>Todas</Button>
+                    <Button variant={activeTab === 'leads' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('leads')}>Oportunidades asignadas</Button>
+                    <Button variant={activeTab === 'team' ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab('team')}>Invitación a equipo</Button>
                 </div>
 
-                {/* Contenido de Leads */}
-                {activeTab === 'leads' && (
+                {/* Contenido de Leads (visible en 'leads' y 'all') */}
+                {(activeTab === 'leads' || activeTab === 'all') && (
                     <div className="space-y-6 mt-4">
 
                         {/* Solicitudes de Acceso al CRM (vista del dueño) */}
@@ -398,23 +423,51 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
                                 {leadAssignedNotifications.map((notification) => (
                                     <Card
                                         key={notification.id}
-                                        className="overflow-hidden transition-all hover:shadow-md border-l-4 border-l-primary bg-primary/5"
+                                        onClick={() => toggleSingleRead(notification.id, notification.read)}
+                                        className={cn(
+                                            'overflow-hidden transition-all hover:shadow-md border-l-4 cursor-pointer group',
+                                            notification.read
+                                                ? 'border-l-muted-foreground/30 bg-background opacity-70 hover:opacity-100'
+                                                : 'border-l-primary bg-primary/5'
+                                        )}
                                     >
                                         <div className="flex flex-col md:flex-row md:items-center justify-between p-6 gap-4">
                                             <div className="flex items-start gap-4">
-                                                <Avatar className="h-12 w-12 border-2 border-background shadow-sm">
-                                                    <AvatarFallback className="bg-primary/10 text-primary font-bold">LD</AvatarFallback>
-                                                </Avatar>
+                                                {/* Indicador de no leída */}
+                                                <div className="relative">
+                                                    <Avatar className="h-12 w-12 border-2 border-background shadow-sm">
+                                                        <AvatarFallback className={cn(
+                                                            'font-bold',
+                                                            notification.read
+                                                                ? 'bg-muted text-muted-foreground'
+                                                                : 'bg-primary/10 text-primary'
+                                                        )}>LD</AvatarFallback>
+                                                    </Avatar>
+                                                    {!notification.read && (
+                                                        <span className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-primary ring-2 ring-background notification-bounce" />
+                                                    )}
+                                                </div>
 
                                                 <div className="space-y-1">
                                                     <div className="flex items-center gap-2 flex-wrap">
-                                                        <h3 className="font-semibold text-lg">
+                                                        <h3 className={cn(
+                                                            'font-semibold text-lg',
+                                                            notification.read && 'text-muted-foreground'
+                                                        )}>
                                                             {notification.title || 'Te asignaron una oportunidad'}
                                                         </h3>
-                                                        <Badge variant="secondary" className="text-xs font-normal">Asignación</Badge>
+                                                        <Badge variant="secondary" className={cn(
+                                                            'text-xs font-normal',
+                                                            !notification.read && 'bg-primary/10 text-primary border-primary/20'
+                                                        )}>
+                                                            {notification.read ? 'Leída' : 'Nueva'}
+                                                        </Badge>
                                                     </div>
 
-                                                    <p className="text-sm text-muted-foreground">
+                                                    <p className={cn(
+                                                        'text-sm',
+                                                        notification.read ? 'text-muted-foreground/70' : 'text-muted-foreground'
+                                                    )}>
                                                         {notification.message}
                                                     </p>
 
@@ -438,6 +491,28 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
                                                     </div>
                                                 </div>
                                             </div>
+
+                                            {/* Botón para toggle read */}
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className={cn(
+                                                    'shrink-0 text-xs transition-all',
+                                                    notification.read
+                                                        ? 'text-muted-foreground hover:text-primary'
+                                                        : 'text-primary hover:text-primary/80'
+                                                )}
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    toggleSingleRead(notification.id, notification.read)
+                                                }}
+                                            >
+                                                {notification.read ? (
+                                                    <><Bell size={14} className="mr-1" /> Marcar no leída</>
+                                                ) : (
+                                                    <><Check size={14} className="mr-1" /> Marcar leída</>
+                                                )}
+                                            </Button>
                                         </div>
                                     </Card>
                                 ))}
@@ -446,8 +521,8 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
                     </div>
                 )}
 
-                {/* Contenido de Equipo */}
-                {activeTab === 'team' && (
+                {/* Contenido de Equipo (visible en 'team' y 'all') */}
+                {(activeTab === 'team' || activeTab === 'all') && (
                     <div className="space-y-6 mt-4">
                         <h2 className="text-xl font-semibold flex items-center gap-2">
                             Invitaciones de Equipo
@@ -529,8 +604,8 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
                     </div>
                 )}
 
-                {/* Respuestas a tus Invitaciones */}
-                {activeTab === 'team' && responseNotifications.length > 0 && (
+                {/* Respuestas a tus Invitaciones (visible en 'team' y 'all') */}
+                {(activeTab === 'team' || activeTab === 'all') && responseNotifications.length > 0 && (
                     <div className="space-y-6 mt-12">
 
                         <h2 className="text-xl font-semibold flex items-center gap-2">

@@ -14,6 +14,7 @@ interface LeadTagsProps {
     currentTags: Tag[]
     companyId: string
     onUpdate: (newTags: Tag[]) => void
+    readOnly?: boolean
 }
 
 const PRESET_COLORS = [
@@ -21,7 +22,7 @@ const PRESET_COLORS = [
     '#06b6d4', '#3b82f6', '#6366f1', '#d946ef', '#ec4899', '#64748b'
 ]
 
-export function LeadTags({ leadId, currentTags, companyId, onUpdate }: LeadTagsProps) {
+export function LeadTags({ leadId, currentTags, companyId, onUpdate, readOnly = false }: LeadTagsProps) {
     const [availableTags, setAvailableTags] = useState<Tag[]>([])
     const [savedTagIds, setSavedTagIds] = useState<Set<string>>(new Set())
     const [open, setOpen] = useState(false)
@@ -131,6 +132,7 @@ export function LeadTags({ leadId, currentTags, companyId, onUpdate }: LeadTagsP
         <div className="space-y-3">
             <div className="flex items-center justify-between">
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Etiquetas</span>
+                {!readOnly && (
                 <Popover open={open} onOpenChange={setOpen}>
                     <PopoverTrigger asChild>
                         <Button variant="ghost" size="sm" className="h-6 w-6 p-0 rounded-full hover:bg-primary/10 hover:text-primary">
@@ -216,6 +218,7 @@ export function LeadTags({ leadId, currentTags, companyId, onUpdate }: LeadTagsP
                         </Command>
                     </PopoverContent>
                 </Popover>
+                )}
             </div>
 
             <div className="flex flex-wrap gap-1.5">
@@ -228,12 +231,14 @@ export function LeadTags({ leadId, currentTags, companyId, onUpdate }: LeadTagsP
                             variant="outline"
                         >
                             {tag.name}
+                            {!readOnly && (
                             <button
                                 onClick={() => handleRemoveTag(tag.id)}
                                 className="hover:bg-red-500 hover:text-white rounded-full p-0.5 transition-colors opacity-0 group-hover:opacity-100"
                             >
                                 <X size={10} weight="bold" />
                             </button>
+                            )}
                         </Badge>
                     ))
                 ) : (

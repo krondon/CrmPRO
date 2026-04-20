@@ -168,7 +168,21 @@ export function subscribeToMessages(leadId: string, onMessage: (msg: Message) =>
     .subscribe()
 }
 
-export async function deleteMessage(messageId: string) {
+export async function deleteMessage(messageId: string, empresaId?: string) {
+  // Log de auditoría antes de eliminar
+  if (empresaId) {
+    import('./activityLog').then(({ logActivity }) => {
+      logActivity({
+        empresaId,
+        categoria: 'mensajes',
+        accion: 'eliminar_mensaje',
+        detalle: 'Eliminó un mensaje del chat',
+        entidadTipo: 'mensaje',
+        entidadId: messageId
+      }).catch(e => console.error('[deleteMessage] log error:', e))
+    })
+  }
+
   const { error } = await supabase
     .from('mensajes')
     .delete()
@@ -177,7 +191,22 @@ export async function deleteMessage(messageId: string) {
   if (error) throw error
 }
 
-export async function deleteConversation(leadId: string) {
+export async function deleteConversation(leadId: string, empresaId?: string, leadNombre?: string) {
+  // Log de auditoría antes de eliminar
+  if (empresaId) {
+    import('./activityLog').then(({ logActivity }) => {
+      logActivity({
+        empresaId,
+        categoria: 'mensajes',
+        accion: 'eliminar_conversacion',
+        detalle: `Eliminó toda la conversación de "${leadNombre || 'oportunidad'}"`,
+        entidadTipo: 'lead',
+        entidadId: leadId,
+        entidadNombre: leadNombre
+      }).catch(e => console.error('[deleteConversation] log error:', e))
+    })
+  }
+
   const { error } = await supabase
     .from('mensajes')
     .delete()
