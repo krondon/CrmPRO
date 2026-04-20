@@ -2,13 +2,13 @@ import { Outlet } from 'react-router-dom'
 import { Sidebar } from '@/components/crm/Sidebar'
 import { NotificationPanel } from '@/components/crm/NotificationPanel'
 import { useAuth } from '@/hooks/useAuth'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '@/supabase/client'
 import { getPendingInvitations } from '@/supabase/services/invitations'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { Copy } from '@phosphor-icons/react'
+import { Copy, Bell, UserCirclePlus, ArrowSquareOut } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { preloadChatsForCompany } from '@/lib/chatsCache'
 import { useNavigate, useLocation } from 'react-router-dom'
@@ -64,6 +64,92 @@ export function CRMLayout({ isGuestMode: forcedGuestMode }: CRMLayoutProps) {
         }
     }, [authGuestMode, location.pathname, navigate])
 
+    // Referencia para saber si estamos en la página de notificaciones
+    const isOnNotificationsRef = useRef(false)
+    useEffect(() => {
+        isOnNotificationsRef.current = location.pathname.endsWith('/notifications') || location.pathname.endsWith('/notifications/')
+    }, [location.pathname])
+
+    // Mostrar toast rico para una notificación nueva
+    const showNotificationToast = useCallback((notif: any) => {
+        // No mostrar toast si ya estamos en la página de notificaciones
+        if (isOnNotificationsRef.current) return
+
+        const isLeadAssigned = notif.type === 'lead_assigned'
+        const isTeamInvitation = notif.type === 'team_invitation'
+        const isInvitationResponse = notif.type === 'invitation_response'
+
+        // Sonar notificación (usando Web Audio API para un tono corto)
+        try {
+            const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)()
+            const oscillator = audioCtx.createOscillator()
+            const gainNode = audioCtx.createGain()
+            oscillator.connect(gainNode)
+            gainNode.connect(audioCtx.destination)
+            oscillator.frequency.setValueAtTime(880, audioCtx.currentTime)
+            oscillator.frequency.setValueAtTime(1174.66, audioCtx.currentTime + 0.1)
+            gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime)
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4)
+            oscillator.start(audioCtx.currentTime)
+            oscillator.stop(audioCtx.currentTime + 0.4)
+        } catch { /* silently fail if audio not available */ }
+
+        const prefix = isGuestMode ? '/guest' : ''
+
+        if (isLeadAssigned) {
+            toast(
+                '🎯 Nuevo Lead Asignado',
+                {
+                    description: notif.message || 'Se te ha asignado una nueva oportunidad',
+                    duration: 8000,
+                    action: {
+                        label: 'Ver',
+                        onClick: () => navigate(`${prefix}/notifications`)
+                    },
+                    className: 'notification-toast-lead',
+                }
+            )
+        } else if (isTeamInvitation) {
+            toast(
+                '👥 Nueva Invitación de Equipo',
+                {
+                    description: notif.message || 'Te han invitado a un equipo',
+                    duration: 8000,
+                    action: {
+                        label: 'Ver',
+                        onClick: () => navigate(`${prefix}/notifications`)
+                    },
+                    className: 'notification-toast-team',
+                }
+            )
+        } else if (isInvitationResponse) {
+            const accepted = notif.data?.response === 'accepted'
+            toast(
+                accepted ? '✅ Invitación Aceptada' : '❌ Invitación Rechazada',
+                {
+                    description: notif.message || 'Han respondido a tu invitación',
+                    duration: 6000,
+                    action: {
+                        label: 'Ver',
+                        onClick: () => navigate(`${prefix}/notifications`)
+                    },
+                }
+            )
+        } else {
+            toast(
+                '🔔 Nueva Notificación',
+                {
+                    description: notif.message || notif.title || 'Tienes una nueva notificación',
+                    duration: 6000,
+                    action: {
+                        label: 'Ver',
+                        onClick: () => navigate(`${prefix}/notifications`)
+                    },
+                }
+            )
+        }
+    }, [isGuestMode, navigate])
+
     // Contar notificaciones no leídas
     useEffect(() => {
         if (!user?.email) return
@@ -80,11 +166,23 @@ export function CRMLayout({ isGuestMode: forcedGuestMode }: CRMLayoutProps) {
 
         fetchNotificationCount()
 
-        // Suscripción en tiempo real
+        // Suscripción en tiempo real - actualizar conteo Y mostrar toast
         const channel = supabase
             .channel(`noti-counter-${user.email}`)
             .on('postgres_changes', {
-                event: '*',
+                event: 'INSERT',
+                schema: 'public',
+                table: 'notificaciones',
+                filter: `usuario_email=eq.${user.email}`
+            }, (payload: any) => {
+                fetchNotificationCount()
+                // Mostrar toast para la nueva notificación
+                if (payload.new) {
+                    showNotificationToast(payload.new)
+                }
+            })
+            .on('postgres_changes', {
+                event: 'UPDATE',
                 schema: 'public',
                 table: 'notificaciones',
                 filter: `usuario_email=eq.${user.email}`
@@ -94,7 +192,7 @@ export function CRMLayout({ isGuestMode: forcedGuestMode }: CRMLayoutProps) {
         return () => {
             channel.unsubscribe()
         }
-    }, [user?.email])
+    }, [user?.email, showNotificationToast])
 
     // Cuando el usuario navega a /notifications, resetear el badge inmediatamente
     // y re-consultar para asegurar que el conteo está actualizado

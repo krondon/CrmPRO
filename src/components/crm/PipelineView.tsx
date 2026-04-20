@@ -1155,24 +1155,24 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
                 const assignmentChanged = prevSelected && prevSelected.assignedTo !== updated.assignedTo
                 const newAssignedId = (updated.assignedTo === 'todos' ? NIL_UUID : updated.assignedTo) || NIL_UUID
                 if (assignmentChanged && isAdminOrOwner && newAssignedId && newAssignedId !== NIL_UUID) {
-                  const recipient = teamMembers.find(m => m.id === newAssignedId)
-                  if (recipient?.email) {
-                    try {
-                      await supabase.functions.invoke('send-lead-assigned', {
-                        body: {
-                          leadId: updated.id,
-                          leadName: updated.name,
-                          empresaId: companyId,
-                          empresaNombre: currentCompany?.name,
-                          assignedUserId: recipient?.userId || newAssignedId,
-                          assignedUserEmail: recipient?.email,
-                          assignedByEmail: user?.email,
-                          assignedByNombre: user?.businessName || currentCompany?.name || user?.email
-                        }
-                      })
-                    } catch (e) {
-                      console.error('[PipelineView] Error enviando notificación de asignación', e)
-                    }
+                  const recipient = teamMembers.find(m => m.id === newAssignedId || m.userId === newAssignedId)
+                  // Si no lo encontramos en teamMembers, enviamos igual con el id crudo;
+                  // send-lead-assigned resuelve el email desde auth.admin.getUserById como fallback.
+                  try {
+                    await supabase.functions.invoke('send-lead-assigned', {
+                      body: {
+                        leadId: updated.id,
+                        leadName: updated.name,
+                        empresaId: companyId,
+                        empresaNombre: currentCompany?.name,
+                        assignedUserId: recipient?.userId || newAssignedId,
+                        assignedUserEmail: recipient?.email,
+                        assignedByEmail: user?.email,
+                        assignedByNombre: user?.businessName || currentCompany?.name || user?.email
+                      }
+                    })
+                  } catch (e) {
+                    console.error('[PipelineView] Error enviando notificación de asignación', e)
                   }
                 }
               } catch (error: any) {
