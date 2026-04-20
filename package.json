@@ -12,6 +12,7 @@
         "preview": "vite preview"
     },
     "dependencies": {
+        "@breezystack/lamejs": "^1.2.7",
         "@github/spark": "^0.39.0",
         "@heroicons/react": "^2.2.0",
         "@hookform/resolvers": "^4.1.3",
