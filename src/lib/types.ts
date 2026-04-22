@@ -8,6 +8,7 @@ export interface Tag {
   id: string
   name: string
   color: string
+  short_id?: number | null
 }
 
 export interface Message {
@@ -632,4 +633,45 @@ export interface LandingTokenDB {
   metadata?: Record<string, unknown>
   created_at?: string
   updated_at?: string
+}
+
+// ============================================================
+// AI AUTOMATION
+// ============================================================
+
+export type AiIntentActionType = 'move_stage' | 'add_tag' | 'notify_team'
+
+export interface AiIntentMapping {
+  id: string
+  intent: string
+  action_type: AiIntentActionType
+  action_config: Record<string, any>
+  enabled: boolean
+}
+
+export interface AiAutomationConfig {
+  id: string
+  empresa_id: string
+  nombre: string
+  is_active: boolean
+  activation_time_start: string | null
+  activation_time_end: string | null
+  message_limit: number | null
+  sandbox_prompt: string | null
+  ai_api_key: string | null
+  ai_model: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateAiAutomationConfigDTO {
+  empresa_id: string
+  nombre: string
+  is_active: boolean
+  activation_time_start?: string | null
+  activation_time_end?: string | null
+  message_limit?: number | null
+  sandbox_prompt?: string | null
+  ai_api_key?: string | null
+  ai_model?: string | null
 }

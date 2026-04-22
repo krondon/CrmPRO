@@ -1033,7 +1033,7 @@ serve(async (req) => {
               }
 
               // Insertar mensaje para este lead
-              const { error: insertError } = await supabase.from("mensajes").insert({
+              const { data: insertedMsg, error: insertError } = await supabase.from("mensajes").insert({
                 lead_id: lead.id,
                 content: content,
                 sender: senderRole,
@@ -1044,7 +1044,7 @@ serve(async (req) => {
                   instanceId: instanceResolved?.id || null,
                   platform: channelType
                 }
-              });
+              }).select('id').single();
 
               if (insertError) {
                 console.error(`❌ Error insertando mensaje para lead ${lead.id}:`, insertError);
@@ -1161,6 +1161,11 @@ serve(async (req) => {
                     // Nunca interrumpir el flujo principal por errores de automatización
                     console.warn('[AutomationEngine] Error evaluando reglas de automatización:', autoErr);
                   }
+
+                  // 🤖 IA: Detección de intenciones (fire-and-forget, no bloquea respuesta)
+                  supabase.functions.invoke('ai-intent-detector', {
+                    body: { lead_id: lead.id, message_id: insertedMsg?.id ?? null, content, empresa_id: lead.empresa_id },
+                  }).catch((aiErr: any) => console.warn('[AI Detector] Error:', aiErr?.message));
                 }
                 // FIN AUTOMATIZACIÓN
 

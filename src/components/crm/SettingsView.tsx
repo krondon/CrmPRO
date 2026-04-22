@@ -19,6 +19,7 @@ import { IntegrationsManager } from './settings/IntegrationsManager'
 import { LandingTokensManager } from './settings/LandingTokensManager'
 import { updatePipeline, getPipelines } from '@/supabase/helpers/pipeline'
 import { AutomationsPanel } from './settings/AutomationsPanel'
+import { AiAutomationPanel } from './settings/ai-automation/AiAutomationPanel'
 import { useAuth } from '@/hooks/useAuth'
 import { toast } from 'sonner'
 
@@ -157,6 +158,12 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
             <TabsTrigger value="automations" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
               <Lightning size={14} weight="duotone" />
               Automatizaciones
+            </TabsTrigger>
+          )}
+          {isAdminOrOwner && (
+            <TabsTrigger value="ai-automation" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
+              🤖
+              IA
             </TabsTrigger>
           )}
           {isAdminOrOwner && (
@@ -589,6 +596,28 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
                   </div>
                   <p className="font-bold text-lg">Sin permisos</p>
                   <p className="text-sm text-muted-foreground">No tienes permisos para gestionar automatizaciones.</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* ── Automatización IA ─────────────────────────────── */}
+        <TabsContent value="ai-automation" className="space-y-6 mt-8">
+          {isAdminOrOwner && currentCompanyId ? (
+            <AiAutomationPanel
+              empresaId={currentCompanyId}
+              pipelines={pipelines || []}
+            />
+          ) : (
+            <Card className="border-none shadow-sm rounded-2xl">
+              <CardContent className="py-16">
+                <div className="flex flex-col items-center justify-center text-center space-y-3 opacity-60">
+                  <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center text-3xl">
+                    🤖
+                  </div>
+                  <p className="font-bold text-lg">Sin permisos</p>
+                  <p className="text-sm text-muted-foreground">No tienes permisos para gestionar automatizaciones IA.</p>
                 </div>
               </CardContent>
             </Card>
