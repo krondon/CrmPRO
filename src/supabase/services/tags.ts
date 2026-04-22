@@ -11,7 +11,7 @@ import { Tag, LeadDB } from '@/lib/types'
 export async function getSavedTags(empresaId: string): Promise<Tag[]> {
     const { data, error } = await supabase
         .from('saved_tags')
-        .select('id, name, color')
+        .select('id, name, color, short_id')
         .eq('empresa_id', empresaId)
         .order('name')
 
@@ -20,7 +20,7 @@ export async function getSavedTags(empresaId: string): Promise<Tag[]> {
         return []
     }
 
-    return (data || []).map(row => ({ id: row.id, name: row.name, color: row.color }))
+    return (data || []).map(row => ({ id: row.id, name: row.name, color: row.color, short_id: row.short_id ?? null }))
 }
 
 /**

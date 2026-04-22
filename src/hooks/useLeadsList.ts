@@ -157,6 +157,7 @@ export function mapDBToLead(d: any): Lead {
         stage: d.etapa_id || d.stage || '',
         archived: !!d.archived,
         archivedAt: d.archived_at ? new Date(d.archived_at) : undefined,
+        customFields: d.custom_fields ?? {},
     }
 }
 

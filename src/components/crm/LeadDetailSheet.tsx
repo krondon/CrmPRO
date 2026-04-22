@@ -66,6 +66,7 @@ import { useAudioRecorder } from '@/hooks/useAudioRecorder'
 import { safeFormatDate } from '@/hooks/useDateFormat'
 import { detectChannel } from '@/hooks/useLeadsList'
 import { usePermissions } from '@/hooks/usePermissions'
+import { useCustomFields } from '@/hooks/useCustomFields'
 import { NotesTab, MeetingsTab, OverviewTab, ChatTab } from './lead-detail'
 
 interface User {
@@ -99,6 +100,7 @@ const MAX_BUDGET = 10_000_000
 export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [], canEdit = true, currentUser, onMarkAsRead, companyId, canDeleteLead = false, onDeleteLead, onCountsChange }: LeadDetailSheetProps) {
   const t = useTranslation('es')
   const { hasPermission, isOwner } = usePermissions()
+  const { fields: customFieldDefs } = useCustomFields(companyId || '')
   const canDeleteMessages = isOwner || hasPermission('delete_messages')
   const canManageTags = isOwner || hasPermission('manage_tags')
   const [messages, setMessages] = useState<Message[]>([])
@@ -634,6 +636,19 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
     }
   }
 
+  const handleUpdateCustomField = async (key: string, value: any) => {
+    const merged = { ...(lead.customFields ?? {}), [key]: value }
+    onUpdate({ ...lead, customFields: merged })
+    try {
+      const { updateLead } = await import('@/supabase/services/leads')
+      const actorNombre = currentUser?.businessName || (currentUser as any)?.nombre || currentUser?.email
+      await updateLead(lead.id, { custom_fields: merged }, currentUser?.id, actorNombre)
+    } catch (e) {
+      console.error('Error updating custom field:', e)
+      toast.error('Error guardando el campo personalizado')
+    }
+  }
+
   const handleAddBudget = (budget: Budget) => {
     setBudgets((current) => [...(current || []), budget])
   }
@@ -1025,6 +1040,8 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
               assignedTo={assignedTo}
               onUpdateAssignedTo={handleUpdateAssignedTo}
               onUpdateField={updateField}
+              onUpdateCustomField={handleUpdateCustomField}
+              customFieldDefs={customFieldDefs}
               recentMessages={leadMessages}
               canEdit={canEdit}
               maxBudget={MAX_BUDGET}

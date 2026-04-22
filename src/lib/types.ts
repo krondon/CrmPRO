@@ -8,6 +8,7 @@ export interface Tag {
   id: string
   name: string
   color: string
+  short_id?: number | null
 }
 
 export interface Message {
@@ -284,6 +285,7 @@ export interface CreateLeadDTO {
   membresia?: string
   empresa?: string
   preferred_instance_id?: string | null
+  custom_fields?: Record<string, any>
 }
 
 export interface UpdateLeadDTO {
@@ -303,6 +305,23 @@ export interface UpdateLeadDTO {
   archived_at?: string | null
   stage_entered_at?: string | null
   sla_custom_limit_minutes?: number | null
+  custom_fields?: Record<string, any>
+}
+
+// ============================================================
+// CUSTOM FIELDS
+// ============================================================
+
+export interface CustomFieldDefinition {
+  id: string
+  empresa_id: string
+  nombre: string
+  clave: string
+  tipo: 'text' | 'number' | 'select'
+  opciones?: string[] | null
+  requerido: boolean
+  orden: number
+  created_at: string
 }
 
 // Lead como viene de la BD (snake_case)
@@ -331,6 +350,7 @@ export interface LeadDB {
   preferred_instance_id?: string | null
   stage_entered_at?: string | null
   sla_custom_limit_minutes?: number | null
+  custom_fields?: Record<string, any>
 }
 
 // ============================================================
@@ -632,4 +652,45 @@ export interface LandingTokenDB {
   metadata?: Record<string, unknown>
   created_at?: string
   updated_at?: string
+}
+
+// ============================================================
+// AI AUTOMATION
+// ============================================================
+
+export type AiIntentActionType = 'move_stage' | 'add_tag' | 'notify_team'
+
+export interface AiIntentMapping {
+  id: string
+  intent: string
+  action_type: AiIntentActionType
+  action_config: Record<string, any>
+  enabled: boolean
+}
+
+export interface AiAutomationConfig {
+  id: string
+  empresa_id: string
+  nombre: string
+  is_active: boolean
+  activation_time_start: string | null
+  activation_time_end: string | null
+  message_limit: number | null
+  sandbox_prompt: string | null
+  ai_api_key: string | null
+  ai_model: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateAiAutomationConfigDTO {
+  empresa_id: string
+  nombre: string
+  is_active: boolean
+  activation_time_start?: string | null
+  activation_time_end?: string | null
+  message_limit?: number | null
+  sandbox_prompt?: string | null
+  ai_api_key?: string | null
+  ai_model?: string | null
 }

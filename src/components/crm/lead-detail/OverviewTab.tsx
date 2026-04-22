@@ -6,7 +6,7 @@
  * Extraído de LeadDetailSheet para mantener el código organizado.
  */
 
-import { Lead, Message, Channel, TeamMember, EmpresaInstanciaDB } from '@/lib/types'
+import { Lead, Message, Channel, TeamMember, EmpresaInstanciaDB, CustomFieldDefinition } from '@/lib/types'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -48,6 +48,8 @@ interface OverviewTabProps {
     assignedTo: string | null
     onUpdateAssignedTo: (value: string) => void
     onUpdateField: (field: keyof Lead, value: string | number) => void
+    onUpdateCustomField?: (key: string, value: any) => void
+    customFieldDefs?: CustomFieldDefinition[]
     recentMessages: Message[]
     canEdit: boolean
     maxBudget: number
@@ -90,6 +92,8 @@ export function OverviewTab({
     assignedTo,
     onUpdateAssignedTo,
     onUpdateField,
+    onUpdateCustomField,
+    customFieldDefs = [],
     recentMessages,
     canEdit,
     maxBudget,
@@ -232,6 +236,47 @@ export function OverviewTab({
                     </div>
                 )}
             </div>
+
+            {/* Custom fields */}
+            {customFieldDefs.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-6 pt-2">
+                    {customFieldDefs.map(def => (
+                        <div key={def.clave} className="space-y-1.5">
+                            <div className="flex items-center gap-2 text-muted-foreground/60">
+                                <Label className="text-[10px] uppercase font-black tracking-widest">{def.nombre}</Label>
+                            </div>
+                            <div className="h-11 flex items-center px-4 rounded-xl bg-background border border-border/40 hover:border-primary/30 transition-all shadow-sm">
+                                {def.tipo === 'select' ? (
+                                    <Select
+                                        value={String(lead.customFields?.[def.clave] ?? '__none__')}
+                                        onValueChange={v => onUpdateCustomField?.(def.clave, v === '__none__' ? '' : v)}
+                                        disabled={!canEdit}
+                                    >
+                                        <SelectTrigger className="border-0 shadow-none h-auto p-0 font-bold text-sm text-foreground/80 focus:ring-0">
+                                            <SelectValue placeholder="Sin selección" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="__none__">Sin selección</SelectItem>
+                                            {(def.opciones ?? []).map(opt => (
+                                                <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                ) : (
+                                    <InlineEdit
+                                        value={lead.customFields?.[def.clave] ?? ''}
+                                        onSave={v => onUpdateCustomField?.(def.clave, def.tipo === 'number' ? Number(v) : v)}
+                                        type={def.tipo === 'number' ? 'number' : 'text'}
+                                        displayClassName="font-bold text-sm text-foreground/80 !m-0 !p-0 hover:bg-transparent justify-start w-auto"
+                                        disabled={!canEdit}
+                                        placeholder={`Sin ${def.nombre.toLowerCase()}`}
+                                    />
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
 
             <div className="relative pt-4">
                 <div className="absolute top-0 left-0 w-8 h-1 rounded-full bg-gradient-to-r from-primary to-transparent" />
