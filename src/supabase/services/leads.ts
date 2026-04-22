@@ -34,7 +34,8 @@ export const SHARED_LEAD_COLUMNS = [
     'last_message_at',
     'last_message_sender',
     'stage_entered_at',
-    'sla_custom_limit_minutes'
+    'sla_custom_limit_minutes',
+    'custom_fields'
 ].join(',')
 
 /**

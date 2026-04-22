@@ -285,6 +285,7 @@ export interface CreateLeadDTO {
   membresia?: string
   empresa?: string
   preferred_instance_id?: string | null
+  custom_fields?: Record<string, any>
 }
 
 export interface UpdateLeadDTO {
@@ -304,6 +305,23 @@ export interface UpdateLeadDTO {
   archived_at?: string | null
   stage_entered_at?: string | null
   sla_custom_limit_minutes?: number | null
+  custom_fields?: Record<string, any>
+}
+
+// ============================================================
+// CUSTOM FIELDS
+// ============================================================
+
+export interface CustomFieldDefinition {
+  id: string
+  empresa_id: string
+  nombre: string
+  clave: string
+  tipo: 'text' | 'number' | 'select'
+  opciones?: string[] | null
+  requerido: boolean
+  orden: number
+  created_at: string
 }
 
 // Lead como viene de la BD (snake_case)
@@ -332,6 +350,7 @@ export interface LeadDB {
   preferred_instance_id?: string | null
   stage_entered_at?: string | null
   sla_custom_limit_minutes?: number | null
+  custom_fields?: Record<string, any>
 }
 
 // ============================================================

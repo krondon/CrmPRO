@@ -1,0 +1,47 @@
+import { useState, useEffect, useCallback } from 'react'
+import { supabase } from '@/supabase/client'
+import type { CustomFieldDefinition } from '@/lib/types'
+
+export function useCustomFields(empresaId: string) {
+  const [fields, setFields] = useState<CustomFieldDefinition[]>([])
+  const [loading, setLoading] = useState(false)
+
+  const load = useCallback(async () => {
+    if (!empresaId) return
+    setLoading(true)
+    const { data } = await supabase
+      .from('empresa_custom_fields')
+      .select('*')
+      .eq('empresa_id', empresaId)
+      .order('orden', { ascending: true })
+    setFields((data as CustomFieldDefinition[]) ?? [])
+    setLoading(false)
+  }, [empresaId])
+
+  useEffect(() => { load() }, [load])
+
+  const addField = async (
+    def: Omit<CustomFieldDefinition, 'id' | 'created_at'>
+  ): Promise<CustomFieldDefinition> => {
+    const { data, error } = await supabase
+      .from('empresa_custom_fields')
+      .insert(def)
+      .select()
+      .single()
+    if (error) throw error
+    const newField = data as CustomFieldDefinition
+    setFields(prev => [...prev, newField].sort((a, b) => a.orden - b.orden))
+    return newField
+  }
+
+  const removeField = async (id: string) => {
+    const { error } = await supabase
+      .from('empresa_custom_fields')
+      .delete()
+      .eq('id', id)
+    if (error) throw error
+    setFields(prev => prev.filter(f => f.id !== id))
+  }
+
+  return { fields, loading, addField, removeField, reload: load }
+}
