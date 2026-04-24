@@ -395,14 +395,21 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
      * Actualizar un lead en la lista
      */
     const updateLead = useCallback((lead: Lead) => {
-        setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, ...lead } : l))
+        setLeads(prev => {
+            const newLeads = prev.map(l => l.id === lead.id ? { ...l, ...lead } : l)
+            // Sincronizar la caché para que los cambios persistan al navegar entre vistas
+            if (chatScope === 'active') {
+                updateCachedLeads(companyId, { leads: newLeads })
+            }
+            return newLeads
+        })
 
         // Actualizar canal también por si cambió teléfono o nombre
         setChannelByLead(prev => ({
             ...prev,
             [lead.id]: detectChannel(lead)
         }))
-    }, [])
+    }, [companyId, chatScope])
 
     /**
      * Agregar un nuevo lead al inicio de la lista

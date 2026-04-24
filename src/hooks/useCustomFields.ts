@@ -43,5 +43,14 @@ export function useCustomFields(empresaId: string) {
     setFields(prev => prev.filter(f => f.id !== id))
   }
 
-  return { fields, loading, addField, removeField, reload: load }
+  const removeFields = async (ids: string[]) => {
+    const { error } = await supabase
+      .from('empresa_custom_fields')
+      .delete()
+      .in('id', ids)
+    if (error) throw error
+    setFields(prev => prev.filter(f => !ids.includes(f.id)))
+  }
+
+  return { fields, loading, addField, removeField, removeFields, reload: load }
 }
