@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { MagnifyingGlass, User, X, ArrowsClockwise, Shuffle } from '@phosphor-icons/react'
-import { TeamMember, Stage, EmpresaInstanciaDB, ContactDB, AssignmentType } from '@/lib/types'
+import { TeamMember, Stage, EmpresaInstanciaDB, ContactDB, AssignmentType, CustomFieldDefinition } from '@/lib/types'
 import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
 
@@ -34,6 +34,7 @@ export interface SingleLeadFormData {
     stageId: string
     assignedTo: string
     preferredInstanceId?: string
+    customFields?: Record<string, any>
 }
 
 interface SingleLeadFormProps {
@@ -44,6 +45,7 @@ interface SingleLeadFormProps {
     onSubmit: (data: SingleLeadFormData) => void | Promise<void>
     isSubmitting?: boolean
     whatsappInstances?: Pick<EmpresaInstanciaDB, 'id' | 'label'>[]
+    customFieldDefs?: CustomFieldDefinition[]
     /** Contacto seleccionado para pre-llenar el formulario */
     selectedContact?: ContactDB | null
     /** Datos sugeridos desde la pestaña de pegado rápido */
@@ -66,6 +68,7 @@ export function SingleLeadForm({
     onSubmit,
     isSubmitting = false,
     whatsappInstances = [],
+    customFieldDefs = [],
     selectedContact,
     prefillData,
     contactSearch = '',
@@ -99,6 +102,7 @@ export function SingleLeadForm({
     const [preferredInstanceId, setPreferredInstanceId] = useState<string | undefined>(
         whatsappInstances.length === 1 ? whatsappInstances[0].id : undefined
     )
+    const [customFieldValues, setCustomFieldValues] = useState<Record<string, any>>({})
 
     // Update defaults when they change
     useEffect(() => {
@@ -175,7 +179,8 @@ export function SingleLeadForm({
             priority,
             stageId,
             assignedTo,
-            preferredInstanceId
+            preferredInstanceId,
+            customFields: Object.keys(customFieldValues).length ? customFieldValues : undefined,
         })
 
         // Reset form after successful submit
@@ -188,6 +193,7 @@ export function SingleLeadForm({
         setMembresia('')
         setBudget('')
         setPriority('medium')
+        setCustomFieldValues({})
     }
 
     const handleBudgetChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -415,6 +421,53 @@ export function SingleLeadForm({
                     placeholder="Ej. Gold"
                 />
             </div>
+
+            {/* Custom fields */}
+            {customFieldDefs.length > 0 && (
+                <>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground pt-1">
+                        <div className="flex-1 h-px bg-border" />
+                        Campos adicionales
+                        <div className="flex-1 h-px bg-border" />
+                    </div>
+                    {customFieldDefs.map(def => (
+                        <div key={def.clave}>
+                            <Label htmlFor={`cf-${def.clave}`}>
+                                {def.nombre}{def.requerido && <span className="text-destructive ml-1">*</span>}
+                            </Label>
+                            {def.tipo === 'select' ? (
+                                <Select
+                                    value={customFieldValues[def.clave] ?? ''}
+                                    onValueChange={v => setCustomFieldValues(prev => ({ ...prev, [def.clave]: v }))}
+                                >
+                                    <SelectTrigger id={`cf-${def.clave}`}>
+                                        <SelectValue placeholder="Selecciona una opción" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {(def.opciones ?? []).map(opt => (
+                                            <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            ) : (
+                                <Input
+                                    id={`cf-${def.clave}`}
+                                    type={def.tipo === 'number' ? 'number' : 'text'}
+                                    value={customFieldValues[def.clave] ?? ''}
+                                    onChange={e => {
+                                        const raw = e.target.value
+                                        setCustomFieldValues(prev => ({
+                                            ...prev,
+                                            [def.clave]: def.tipo === 'number' ? (raw === '' ? '' : Number(raw)) : raw,
+                                        }))
+                                    }}
+                                    placeholder={def.tipo === 'number' ? '0' : `Ingresa ${def.nombre.toLowerCase()}`}
+                                />
+                            )}
+                        </div>
+                    ))}
+                </>
+            )}
 
             {/* Stage - only show if stages exist */}
             {stages.length > 0 && (

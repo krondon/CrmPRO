@@ -423,7 +423,9 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
           [lead.stage]: (prev[lead.stage] || 0) + 1
         }))
       }
-      setLeads((current) => current.map(l => l.id === lead.id ? lead : l));
+      // Preservar customFields del estado local si el evento realtime no los trae
+      const merged = { ...lead, customFields: lead.customFields && Object.keys(lead.customFields).length ? lead.customFields : (oldLead?.customFields ?? {}) }
+      setLeads((current) => current.map(l => l.id === lead.id ? merged : l));
       toast.info(`Oportunidad actualizada: ${lead.name}`);
     },
     onDelete: (leadId) => {

@@ -104,7 +104,8 @@ function mapDbLeadToLead(l: any): Lead {
         createdAt: new Date(l.created_at),
         lastContact: l.last_message_at ? new Date(l.last_message_at) : new Date(l.created_at),
         stageEnteredAt: l.stage_entered_at ? new Date(l.stage_entered_at) : null,
-        slaCustomLimitMinutes: l.sla_custom_limit_minutes ?? null
+        slaCustomLimitMinutes: l.sla_custom_limit_minutes ?? null,
+        customFields: l.custom_fields ?? {}
     }
 }
 
