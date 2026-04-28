@@ -219,10 +219,10 @@ export async function addTagToLead(leadId: string, currentTags: Tag[], newTag: T
             empresaId,
             categoria: 'tags',
             accion: 'agregar_tag',
-            detalle: `Agregó la etiqueta "${newTag.text}" a una oportunidad`,
+            detalle: `Agregó la etiqueta "${newTag.name}" a una oportunidad`,
             entidadTipo: 'lead',
             entidadId: leadId,
-            entidadNombre: newTag.text
+            entidadNombre: newTag.name
         }).catch(e => console.error('[addTagToLead] log error:', e))
     })
 
@@ -250,10 +250,10 @@ export async function removeTagFromLead(leadId: string, currentTags: Tag[], tagI
                 empresaId,
                 categoria: 'tags',
                 accion: 'eliminar_tag',
-                detalle: `Eliminó la etiqueta "${removedTag.text}" de una oportunidad`,
+                detalle: `Eliminó la etiqueta "${removedTag.name}" de una oportunidad`,
                 entidadTipo: 'lead',
                 entidadId: leadId,
-                entidadNombre: removedTag.text
+                entidadNombre: removedTag.name
             }).catch(e => console.error('[removeTagFromLead] log error:', e))
         })
     }

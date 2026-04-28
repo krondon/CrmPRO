@@ -108,7 +108,13 @@ export function AddLeadDialog({
   const [stageId, setStageId] = useState(defaultStageId || stages[0]?.id || '')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [waInstances, setWaInstances] = useState<Pick<EmpresaInstanciaDB, 'id' | 'label'>[]>([])
-  const { fields: customFieldDefs } = useCustomFields(companyId || '')
+  const { fields: customFieldDefs, addField } = useCustomFields(companyId || '')
+
+  const handleAddCustomField = useCallback(async (
+    def: Omit<import('@/lib/types').CustomFieldDefinition, 'id' | 'created_at' | 'empresa_id' | 'orden'>
+  ) => {
+    return addField({ ...def, empresa_id: companyId || '', orden: customFieldDefs.length })
+  }, [addField, companyId, customFieldDefs.length])
 
   // Contact search state
   const [contactSearch, setContactSearch] = useState('')
@@ -571,6 +577,7 @@ export function AddLeadDialog({
               isSubmitting={isSubmitting}
               whatsappInstances={waInstances}
               customFieldDefs={customFieldDefs}
+              onAddCustomField={handleAddCustomField}
               selectedContact={selectedContact}
               prefillData={manualPrefill}
               contactSearch={contactSearch}
