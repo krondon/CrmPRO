@@ -20,7 +20,7 @@ const ACTION_ITEM_SCHEMA = {
   properties: {
     type: {
       type: "string",
-      enum: ["move_stage", "add_tag", "notify_team"],
+      enum: ["move_stage", "add_tag", "remove_tag", "notify_team"],
       description: "Tipo de acción a ejecutar.",
     },
     stage_short_id: {
@@ -29,7 +29,7 @@ const ACTION_ITEM_SCHEMA = {
     },
     tag_name: {
       type: "string",
-      description: "Nombre exacto de la etiqueta a agregar. Solo para add_tag.",
+      description: "Nombre exacto de la etiqueta a agregar o quitar. Para add_tag y remove_tag.",
     },
     message: {
       type: "string",
@@ -67,14 +67,6 @@ const CRM_TOOL_OPENAI = {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function isWithinActivationWindow(cfg: any): boolean {
-  const now = new Date();
-  const timeStr = now.toTimeString().slice(0, 5); // HH:MM
-  if (cfg.activation_time_start && timeStr < cfg.activation_time_start) return false;
-  if (cfg.activation_time_end && timeStr > cfg.activation_time_end) return false;
-  return true;
-}
 
 async function callAI(
   apiKey: string,
@@ -154,48 +146,18 @@ export async function processMessage(params: {
 }): Promise<{ skipped?: string; actions?: any[]; actions_taken: number }> {
   const { lead_id, message_id, content, empresa_id, supabase } = params;
 
-  // 1. Active configs for this company
+  // 1. Active config for this company
   const { data: configs, error: configError } = await supabase
     .from("ai_automation_config")
-    .select(
-      "id, is_active, activation_time_start, activation_time_end, message_limit, sandbox_prompt, ai_api_key, ai_model"
-    )
+    .select("id, is_active, sandbox_prompt, ai_api_key, ai_model")
     .eq("empresa_id", empresa_id)
     .eq("is_active", true);
 
   if (configError) throw configError;
   if (!configs?.length) return { skipped: "no_active_configs", actions_taken: 0 };
 
-  // 2. Filter by time window
-  const windowConfigs = configs.filter(isWithinActivationWindow);
-  if (!windowConfigs.length) return { skipped: "outside_activation_window", actions_taken: 0 };
-
-  // 3. Check daily message limit
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
-
-  const eligibleConfigs: any[] = [];
-  for (const cfg of windowConfigs) {
-    if (!cfg.sandbox_prompt || !cfg.ai_api_key) continue;
-
-    if (cfg.message_limit) {
-      const { count } = await supabase
-        .from("ai_intent_log")
-        .select("*", { count: "exact", head: true })
-        .eq("empresa_id", empresa_id)
-        .gte("created_at", startOfDay.toISOString());
-
-      if ((count ?? 0) >= cfg.message_limit) {
-        console.log(`[ai-intent-detector] Daily limit reached (${count}/${cfg.message_limit})`);
-        continue;
-      }
-    }
-    eligibleConfigs.push(cfg);
-  }
-
-  if (!eligibleConfigs.length) return { skipped: "limit_or_no_config", actions_taken: 0 };
-
-  const cfg = eligibleConfigs[0];
+  const cfg = configs.find((c: any) => c.sandbox_prompt && c.ai_api_key && c.ai_model);
+  if (!cfg) return { skipped: "no_valid_config", actions_taken: 0 };
 
   // 4. Get lead data (tags is JSONB array of {id, name, color})
   const { data: lead } = await supabase
@@ -312,6 +274,23 @@ export async function processMessage(params: {
         } else {
           console.warn(`[ai-intent-detector] ⚠️ Tag "${tagName}" no encontrada en saved_tags`);
           actionsTaken.push({ action: "add_tag", tag_name: tagName, warning: "tag_not_found" });
+        }
+      }
+
+      // ── remove_tag ──────────────────────────────────────────────────────────
+      if (item.type === "remove_tag" && item.tag_name?.trim()) {
+        const tagName = item.tag_name.trim();
+        const currentTags: any[] = Array.isArray(lead.tags) ? lead.tags : [];
+        const filtered = currentTags.filter(
+          (t: any) => t.name?.toLowerCase() !== tagName.toLowerCase()
+        );
+        if (filtered.length < currentTags.length) {
+          await supabase.from("lead").update({ tags: filtered }).eq("id", lead_id);
+          lead.tags = filtered;
+          actionsTaken.push({ action: "remove_tag", tag_name: tagName });
+          console.log(`[ai-intent-detector] ✅ remove_tag → "${tagName}"`);
+        } else {
+          console.log(`[ai-intent-detector] ℹ️ remove_tag → "${tagName}" no estaba en el lead`);
         }
       }
 

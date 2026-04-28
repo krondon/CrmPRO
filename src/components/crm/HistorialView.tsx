@@ -123,7 +123,11 @@ export function HistorialView({ companyId }: HistorialViewProps) {
     }
 
     const filteredActivity = activity.filter(entry => {
-        const matchesFilter = filter === 'all' || entry.categoria === filter
+        const matchesFilter =
+            filter === 'all' ||
+            entry.categoria === filter ||
+            // Movimientos de etapa se loguean en 'leads' pero deben aparecer en el tab Pipeline
+            (filter === 'pipeline' && entry.accion === 'mover_etapa')
         const searchLower = search.toLowerCase()
         const matchesSearch = !search ||
             entry.detalle.toLowerCase().includes(searchLower) ||

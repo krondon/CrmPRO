@@ -676,6 +676,10 @@ export interface AiAutomationConfig {
   activation_time_start: string | null
   activation_time_end: string | null
   message_limit: number | null
+  background_time_window: string | null
+  background_message_limit: number | null
+  execution_interval_hours: number | null
+  last_execution_at: string | null
   sandbox_prompt: string | null
   ai_api_key: string | null
   ai_model: string | null
@@ -690,6 +694,9 @@ export interface CreateAiAutomationConfigDTO {
   activation_time_start?: string | null
   activation_time_end?: string | null
   message_limit?: number | null
+  background_time_window?: string | null
+  background_message_limit?: number | null
+  execution_interval_hours?: number | null
   sandbox_prompt?: string | null
   ai_api_key?: string | null
   ai_model?: string | null
