@@ -120,6 +120,7 @@ export interface Stage {
   order: number
   color: string
   pipelineType: PipelineType
+  short_id?: number | null
   is_sla_enabled?: boolean
   sla_limit_minutes?: number | null
 }
@@ -129,6 +130,7 @@ export interface Pipeline {
   name: string
   type: PipelineType
   stages: Stage[]
+  short_id?: number | null
   assignment_type?: AssignmentType
   order?: number
 }
@@ -321,7 +323,16 @@ export interface CustomFieldDefinition {
   opciones?: string[] | null
   requerido: boolean
   orden: number
+  /** Descripción inyectada al prompt de la IA para guiar cuándo leer/escribir este campo. */
+  descripcion?: string | null
   created_at: string
+}
+
+export interface PredefinedFieldDescriptionRow {
+  empresa_id: string
+  field_key: string
+  descripcion: string
+  updated_at: string
 }
 
 // Lead como viene de la BD (snake_case)
@@ -605,7 +616,7 @@ export interface LeadHistory {
   lead_id: string
   usuario_id: string
   usuario_nombre?: string // Join helper
-  accion: 'creacion' | 'asignacion' | 'reasignacion' | 'etapa_cambio' | 'prioridad_cambio' | string
+  accion: 'creacion' | 'asignacion' | 'reasignacion' | 'etapa_cambio' | 'prioridad_cambio' | 'automatizacion' | 'automatizacion_ia' | string
   detalle: string
   metadata?: any
   created_at: string

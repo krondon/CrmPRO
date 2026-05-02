@@ -481,7 +481,15 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
             }
           }))
 
-          if (!cancelled) setTeamMembers(mapped)
+          // Deduplicar miembros por email (o id)
+          const uniqueMap = new Map()
+          for (const m of mapped) {
+            const key = m.email ? m.email.toLowerCase() : m.id
+            if (!uniqueMap.has(key)) {
+              uniqueMap.set(key, m)
+            }
+          }
+          if (!cancelled) setTeamMembers(Array.from(uniqueMap.values()))
         } catch (e) {
           console.error('Error loading team members in PipelineView', e)
         }

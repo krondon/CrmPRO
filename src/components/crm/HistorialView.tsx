@@ -22,7 +22,8 @@ import {
     NotePencil,
     CalendarCheck,
     Kanban,
-    ShieldCheck
+    ShieldCheck,
+    Robot
 } from '@phosphor-icons/react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
@@ -50,6 +51,7 @@ const FILTER_OPTIONS: { id: FilterType; label: string; color: string }[] = [
 
 const CATEGORIA_ICON: Record<string, (accion: string) => React.ReactNode> = {
     leads: (accion) => {
+        if (accion.startsWith('ia_')) return <Robot size={18} className="text-violet-500" weight="fill" />
         if (accion.includes('eliminar')) return <Trash size={18} className="text-red-500" weight="fill" />
         if (accion.includes('archivar')) return <Archive size={18} className="text-amber-500" weight="fill" />
         if (accion.includes('desarchivar')) return <Archive size={18} className="text-emerald-500" weight="fill" />
@@ -239,10 +241,17 @@ export function HistorialView({ companyId }: HistorialViewProps) {
                     <ScrollArea className="h-full">
                         <div className="max-w-5xl mx-auto px-6 py-8">
                             <div className="relative space-y-6 before:absolute before:inset-0 before:ml-[18px] before:-translate-x-px before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-border/40 before:to-transparent">
-                                {filteredActivity.map((entry) => (
+                                {filteredActivity.map((entry) => {
+                                    const isAi = entry.accion.startsWith('ia_') || (entry.metadata as any)?.ai_action === true
+                                    return (
                                     <div key={entry.id} className="relative flex items-start gap-5 group">
                                         {/* Timeline node */}
-                                        <div className="relative z-10 flex items-center justify-center w-9 h-9 rounded-full bg-background border-2 border-border shadow-sm group-hover:border-primary/30 group-hover:shadow-md transition-all shrink-0 mt-0.5">
+                                        <div className={cn(
+                                            "relative z-10 flex items-center justify-center w-9 h-9 rounded-full bg-background border-2 shadow-sm group-hover:shadow-md transition-all shrink-0 mt-0.5",
+                                            isAi
+                                                ? "border-violet-300 ring-2 ring-violet-500/10"
+                                                : "border-border group-hover:border-primary/30"
+                                        )}>
                                             {getIcon(entry)}
                                         </div>
 
@@ -260,6 +269,12 @@ export function HistorialView({ companyId }: HistorialViewProps) {
                                                     >
                                                         {CATEGORIA_LABEL[entry.categoria] || entry.categoria}
                                                     </Badge>
+                                                    {isAi && (
+                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-violet-500/10 border border-violet-200/50 text-[9px] font-black uppercase tracking-widest text-violet-600">
+                                                            <Robot size={10} weight="fill" />
+                                                            IA
+                                                        </span>
+                                                    )}
                                                     <span className="text-[10px] font-bold text-muted-foreground/50 bg-muted/30 px-2 py-0.5 rounded-full border border-border/20 whitespace-nowrap truncate max-w-full">
                                                         {format(new Date(entry.created_at), "HH:mm · dd MMM yyyy", { locale: es })}
                                                     </span>
@@ -284,14 +299,15 @@ export function HistorialView({ companyId }: HistorialViewProps) {
 
                                             {/* Footer */}
                                             <div className="flex items-center gap-2 pt-2 border-t border-border/30">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-primary/40 shrink-0" />
+                                                <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", isAi ? "bg-violet-400" : "bg-primary/40")} />
                                                 <span className="text-xs font-medium text-muted-foreground">
                                                     Por: <span className="text-foreground/80 font-bold">{entry.usuario_nombre || 'Sistema'}</span>
                                                 </span>
                                             </div>
                                         </div>
                                     </div>
-                                ))}
+                                    )
+                                })}
                             </div>
                             <div className="h-8" />
                         </div>

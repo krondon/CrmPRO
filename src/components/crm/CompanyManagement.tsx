@@ -435,25 +435,26 @@ export function CompanyManagement({ currentUserId, currentCompanyId, onCompanyCh
                       <p className="text-xs text-muted-foreground mt-1">
                         Creada el {new Date(company.createdAt).toLocaleDateString('es-ES')}
                       </p>
-                      {company.role === 'owner' && company.codigoEmpresa && (
-                        <div className="flex items-center gap-1.5 mt-1">
-                          <span className="text-xs text-muted-foreground">Código:</span>
-                          <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded select-all">
-                            {company.codigoEmpresa}
-                          </code>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5"
-                            onClick={() => {
-                              navigator.clipboard.writeText(company.codigoEmpresa!)
-                              toast.success('Código copiado')
-                            }}
-                          >
-                            <Copy size={12} />
-                          </Button>
-                        </div>
-                      )}
+                      {/* Company ID */}
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <span className="text-xs text-muted-foreground font-mono">ID:</span>
+                        <code className="text-xs font-mono bg-muted/60 px-1.5 py-0.5 rounded select-all text-foreground/70">
+                          {company.id.slice(0, 8)}…
+                        </code>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5"
+                          title="Copiar ID de empresa"
+                          onClick={() => {
+                            navigator.clipboard.writeText(company.id)
+                            toast.success('ID de empresa copiado')
+                          }}
+                        >
+                          <Copy size={12} />
+                        </Button>
+                      </div>
+
                     </div>
 
                     <div className="flex gap-2">

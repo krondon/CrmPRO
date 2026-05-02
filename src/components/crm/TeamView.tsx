@@ -292,7 +292,23 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
             status: 'active'
           }))
 
-          setTeamMembers([...mappedMembers, ...mappedPending])
+          // Deduplicar miembros activos por email o id
+          const uniqueMembersMap = new Map()
+          for (const m of mappedMembers) {
+            const key = m.email ? m.email.toLowerCase() : m.id
+            if (!uniqueMembersMap.has(key)) {
+              uniqueMembersMap.set(key, m)
+            }
+          }
+          const uniqueMembers = Array.from(uniqueMembersMap.values())
+
+          // Filtrar pendientes que ya estén activos
+          const uniquePending = mappedPending.filter((p: any) => {
+            const key = p.email ? p.email.toLowerCase() : p.id
+            return !uniqueMembersMap.has(key)
+          })
+
+          setTeamMembers([...uniqueMembers, ...uniquePending])
         } catch (e: any) {
           console.error('[TeamView] error cargando miembros', e)
         }

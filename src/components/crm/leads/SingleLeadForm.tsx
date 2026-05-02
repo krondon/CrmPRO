@@ -114,6 +114,7 @@ export function SingleLeadForm({
     const [newFieldType, setNewFieldType] = useState<'text' | 'number' | 'select'>('text')
     const [newFieldOptions, setNewFieldOptions] = useState('')
     const [newFieldRequired, setNewFieldRequired] = useState(false)
+    const [newFieldDescription, setNewFieldDescription] = useState('')
     const [addingField, setAddingField] = useState(false)
 
     const resetAddField = () => {
@@ -122,6 +123,7 @@ export function SingleLeadForm({
         setNewFieldType('text')
         setNewFieldOptions('')
         setNewFieldRequired(false)
+        setNewFieldDescription('')
     }
 
     const handleAddNewField = async () => {
@@ -140,7 +142,7 @@ export function SingleLeadForm({
             const opciones = newFieldType === 'select'
                 ? newFieldOptions.split(',').map(o => o.trim()).filter(Boolean)
                 : null
-            await onAddCustomField({ nombre: newFieldName.trim(), clave, tipo: newFieldType, opciones, requerido: newFieldRequired })
+            await onAddCustomField({ nombre: newFieldName.trim(), clave, tipo: newFieldType, opciones, requerido: newFieldRequired, descripcion: newFieldDescription.trim() || null })
             toast.success(`Campo "${newFieldName.trim()}" agregado`)
             resetAddField()
         } catch (e: any) {
@@ -537,6 +539,19 @@ export function SingleLeadForm({
                                     />
                                 </div>
                             )}
+                            <div className="space-y-1.5">
+                                <Label className="text-xs font-medium">Descripción para la IA (opcional)</Label>
+                                <textarea
+                                    placeholder="Ej. Cantidad de invitados al evento. Llénalo cuando el cliente mencione un número."
+                                    value={newFieldDescription}
+                                    onChange={e => setNewFieldDescription(e.target.value)}
+                                    rows={2}
+                                    className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                                />
+                                <p className="text-[10px] text-muted-foreground leading-snug">
+                                    Le indica a la IA cuándo llenar este campo a partir de los mensajes del cliente.
+                                </p>
+                            </div>
                             <div className="flex justify-end gap-2 pt-1">
                                 <Button type="button" variant="ghost" size="sm" onClick={resetAddField}>
                                     Cancelar
