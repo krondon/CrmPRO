@@ -245,7 +245,7 @@ export function OverviewTab({
                             <div className="flex items-center gap-2 text-muted-foreground/60">
                                 <Label className="text-[10px] uppercase font-black tracking-widest">{def.nombre}</Label>
                             </div>
-                            <div className="h-11 flex items-center px-4 rounded-xl bg-background border border-border/40 hover:border-primary/30 transition-all shadow-sm">
+                            <div className="min-h-11 flex items-center px-4 py-2.5 rounded-xl bg-background border border-border/40 hover:border-primary/30 transition-all shadow-sm">
                                 {def.tipo === 'select' ? (
                                     <Select
                                         value={String(lead.customFields?.[def.clave] ?? '__none__')}

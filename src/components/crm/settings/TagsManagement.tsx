@@ -323,13 +323,6 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
                                                     </Badge>
                                                 )}
                                             </div>
-                                            <div
-                                                className="text-[10px] text-muted-foreground font-mono bg-muted/40 px-2 py-1 rounded truncate select-all cursor-text"
-                                                title="ID para usar en integraciones y webhooks"
-                                            >
-                                                <span className="font-bold opacity-60 mr-1">ID:</span>
-                                                {tag.id}
-                                            </div>
                                         </div>
 
                                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">

@@ -13,6 +13,92 @@ const CORS_HEADERS = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+// ─── Predefined lead fields ───────────────────────────────────────────────────
+// Mirror of src/lib/predefinedFields.ts. Inlined here because Supabase Edge
+// Functions only bundle index.ts — sibling files are not picked up.
+// IMPORTANT: keep this list in sync with src/lib/predefinedFields.ts.
+
+type PredefinedFieldType = "text" | "number" | "select";
+
+interface PredefinedField {
+  key: string;
+  label: string;
+  tipo: PredefinedFieldType;
+  opciones?: string[];
+  descripcionDefault: string;
+}
+
+const PREDEFINED_FIELDS: PredefinedField[] = [
+  {
+    key: "nombre_completo",
+    label: "Nombre completo",
+    tipo: "text",
+    descripcionDefault:
+      "Nombre completo del cliente. Actualízalo solo si el cliente se identifica explícitamente con un nombre distinto al actual.",
+  },
+  {
+    key: "telefono",
+    label: "Teléfono",
+    tipo: "text",
+    descripcionDefault:
+      "Teléfono de contacto del cliente. Actualízalo solo si el cliente proporciona un número diferente al registrado.",
+  },
+  {
+    key: "correo_electronico",
+    label: "Correo electrónico",
+    tipo: "text",
+    descripcionDefault:
+      "Correo electrónico del cliente. Guárdalo cuando el cliente lo comparta por primera vez o pida usarlo como contacto principal.",
+  },
+  {
+    key: "empresa",
+    label: "Empresa",
+    tipo: "text",
+    descripcionDefault:
+      "Nombre de la empresa para la que trabaja el cliente. Actualízalo si menciona claramente su lugar de trabajo.",
+  },
+  {
+    key: "ubicacion",
+    label: "Ubicación",
+    tipo: "text",
+    descripcionDefault:
+      "Ciudad, zona o dirección del cliente. Actualízalo cuando mencione dónde se encuentra o dónde necesita el servicio.",
+  },
+  {
+    key: "evento",
+    label: "Evento",
+    tipo: "text",
+    descripcionDefault:
+      "Tipo o nombre del evento que el cliente está organizando (boda, cumpleaños, corporativo, etc.). Llénalo cuando el cliente lo describa.",
+  },
+  {
+    key: "membresia",
+    label: "Membresía",
+    tipo: "text",
+    descripcionDefault:
+      "Tipo de membresía o plan que tiene o desea contratar el cliente. Actualízalo si menciona un plan específico.",
+  },
+  {
+    key: "presupuesto",
+    label: "Presupuesto",
+    tipo: "number",
+    descripcionDefault:
+      "Monto del presupuesto del cliente en USD. Actualízalo solo cuando el cliente confirme una cifra concreta, no estimaciones.",
+  },
+  {
+    key: "prioridad",
+    label: "Prioridad",
+    tipo: "select",
+    opciones: ["low", "medium", "high"],
+    descripcionDefault:
+      'Prioridad del lead. Súbela a "high" si el cliente muestra urgencia o intención clara de compra, "low" si es exploratorio.',
+  },
+];
+
+function getPredefinedField(key: string): PredefinedField | undefined {
+  return PREDEFINED_FIELDS.find((f) => f.key === key);
+}
+
 // ─── Tool schema — multi-action array ─────────────────────────────────────────
 
 const ACTION_ITEM_SCHEMA = {
@@ -20,7 +106,7 @@ const ACTION_ITEM_SCHEMA = {
   properties: {
     type: {
       type: "string",
-      enum: ["move_stage", "add_tag", "remove_tag", "notify_team"],
+      enum: ["move_stage", "add_tag", "remove_tag", "notify_team", "set_field"],
       description: "Tipo de acción a ejecutar.",
     },
     stage_short_id: {
@@ -34,6 +120,14 @@ const ACTION_ITEM_SCHEMA = {
     message: {
       type: "string",
       description: "Mensaje descriptivo para el equipo. Solo para notify_team.",
+    },
+    field_key: {
+      type: "string",
+      description: "Clave exacta del campo a actualizar. Solo para set_field. Debe coincidir con uno de los field_key listados en el contexto.",
+    },
+    value: {
+      type: "string",
+      description: "Valor a escribir en el campo. Solo para set_field. Para campos numéricos, envía el número como string (ej '5000'). Para campos de selección, usa exactamente una de las opciones permitidas.",
     },
   },
   required: ["type"],
@@ -67,6 +161,62 @@ const CRM_TOOL_OPENAI = {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatFieldValue(value: any): string {
+  if (value === null || value === undefined || value === "") return "(vacío)";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+interface CustomFieldDef {
+  clave: string;
+  nombre: string;
+  tipo: "text" | "number" | "select";
+  opciones: string[] | null;
+  descripcion: string | null;
+}
+
+/**
+ * Construye el bloque de contexto de campos que se inyecta al system prompt.
+ * Incluye los campos predefinidos (con su descripción efectiva) y los custom fields,
+ * junto con el valor actual de cada uno y guía para la acción set_field.
+ */
+function buildFieldsContext(
+  lead: any,
+  customFields: CustomFieldDef[],
+  overrideMap: Record<string, string>,
+): string {
+  const predefinedLines = PREDEFINED_FIELDS.map((f) => {
+    const desc = overrideMap[f.key] ?? f.descripcionDefault;
+    const opciones = f.opciones?.length ? ` (opciones permitidas: ${f.opciones.join(", ")})` : "";
+    const valor = formatFieldValue(lead[f.key]);
+    return `- field_key: "${f.key}" | tipo: ${f.tipo}${opciones} | valor actual: ${valor} | descripción: ${desc}`;
+  }).join("\n");
+
+  const customLines = customFields.length
+    ? customFields
+        .map((f) => {
+          const opciones = f.opciones && Array.isArray(f.opciones) && f.opciones.length
+            ? ` (opciones permitidas: ${f.opciones.join(", ")})`
+            : "";
+          const valor = formatFieldValue(lead.custom_fields?.[f.clave]);
+          const desc = f.descripcion?.trim()
+            ? f.descripcion.trim()
+            : "(sin descripción — NO escribir este campo automáticamente)";
+          return `- field_key: "${f.clave}" | tipo: ${f.tipo}${opciones} | valor actual: ${valor} | descripción: ${desc}`;
+        })
+        .join("\n")
+    : "(no hay campos personalizados)";
+
+  return (
+    `\n\n──── CAMPOS DEL LEAD ────\n` +
+    `Usa la acción "set_field" cuando el cliente proporcione información clara y explícita que corresponda a uno de los campos listados. ` +
+    `No inventes valores ni completes campos con información ambigua. ` +
+    `Solo escribe un campo si su descripción te lo indica y el valor actual es distinto al nuevo.\n\n` +
+    `Campos del sistema:\n${predefinedLines}\n\n` +
+    `Campos personalizados:\n${customLines}`
+  );
+}
 
 async function callAI(
   apiKey: string,
@@ -159,10 +309,15 @@ export async function processMessage(params: {
   const cfg = configs.find((c: any) => c.sandbox_prompt && c.ai_api_key && c.ai_model);
   if (!cfg) return { skipped: "no_valid_config", actions_taken: 0 };
 
-  // 4. Get lead data (tags is JSONB array of {id, name, color})
+  // 4. Get lead data — incluye todos los campos predefinidos + custom_fields
+  //    para que la IA pueda ver el valor actual de cada campo.
   const { data: lead } = await supabase
     .from("lead")
-    .select("id, etapa_id, pipeline_id, tags, archived")
+    .select(
+      "id, etapa_id, pipeline_id, tags, archived, " +
+      "nombre_completo, telefono, correo_electronico, empresa, ubicacion, evento, membresia, presupuesto, prioridad, " +
+      "custom_fields"
+    )
     .eq("id", lead_id)
     .maybeSingle();
 
@@ -178,6 +333,25 @@ export async function processMessage(params: {
     ? `\n\nEtiquetas disponibles (usa estos nombres EXACTOS al llamar add_tag): ${availableTags.map((t: any) => `"${t.name}"`).join(", ")}`
     : "";
 
+  // 4c. Cargar definiciones de campos custom + overrides de descripciones predefinidas
+  const [{ data: customFieldDefs }, { data: predefinedOverrides }] = await Promise.all([
+    supabase
+      .from("empresa_custom_fields")
+      .select("clave, nombre, tipo, opciones, descripcion")
+      .eq("empresa_id", empresa_id),
+    supabase
+      .from("empresa_predefined_field_descriptions")
+      .select("field_key, descripcion")
+      .eq("empresa_id", empresa_id),
+  ]);
+
+  const overrideMap: Record<string, string> = {};
+  for (const row of (predefinedOverrides ?? []) as Array<{ field_key: string; descripcion: string }>) {
+    overrideMap[row.field_key] = row.descripcion;
+  }
+
+  const fieldsContext = buildFieldsContext(lead, customFieldDefs ?? [], overrideMap);
+
   // 5. Call AI (with 1 retry on transient failures like 504)
   let aiResult: { actions: any[] } = { actions: [] };
   let lastAiErr: any;
@@ -186,7 +360,7 @@ export async function processMessage(params: {
       aiResult = await callAI(
         cfg.ai_api_key,
         cfg.ai_model,
-        cfg.sandbox_prompt + tagsContext,
+        cfg.sandbox_prompt + tagsContext + fieldsContext,
         `Mensaje del cliente: "${content}"`
       );
       lastAiErr = null;
@@ -271,6 +445,18 @@ export async function processMessage(params: {
           }
           actionsTaken.push({ action: "add_tag", tag_name: tagName });
           console.log(`[ai-intent-detector] ✅ add_tag → "${tagName}"`);
+          // Registrar en lead_historial
+          await supabase.from("lead_historial").insert({
+            lead_id,
+            usuario_id: "00000000-0000-0000-0000-000000000000",
+            accion: "automatizacion_ia",
+            detalle: `IA agregó etiqueta "${tag.name}"`,
+            metadata: {
+              action: "add_tag",
+              tag_name: tag.name,
+              actor_nombre: "IA (Automatización)",
+            },
+          });
         } else {
           console.warn(`[ai-intent-detector] ⚠️ Tag "${tagName}" no encontrada en saved_tags`);
           actionsTaken.push({ action: "add_tag", tag_name: tagName, warning: "tag_not_found" });
@@ -289,9 +475,109 @@ export async function processMessage(params: {
           lead.tags = filtered;
           actionsTaken.push({ action: "remove_tag", tag_name: tagName });
           console.log(`[ai-intent-detector] ✅ remove_tag → "${tagName}"`);
+          // Registrar en lead_historial
+          await supabase.from("lead_historial").insert({
+            lead_id,
+            usuario_id: "00000000-0000-0000-0000-000000000000",
+            accion: "automatizacion_ia",
+            detalle: `IA removió etiqueta "${tagName}"`,
+            metadata: {
+              action: "remove_tag",
+              tag_name: tagName,
+              actor_nombre: "IA (Automatización)",
+            },
+          });
         } else {
           console.log(`[ai-intent-detector] ℹ️ remove_tag → "${tagName}" no estaba en el lead`);
         }
+      }
+
+      // ── set_field ───────────────────────────────────────────────────────────
+      if (item.type === "set_field" && item.field_key) {
+        const key: string = item.field_key;
+        const rawValue = item.value;
+
+        const predef = getPredefinedField(key);
+        const custom = (customFieldDefs ?? []).find((f: any) => f.clave === key) as CustomFieldDef | undefined;
+
+        if (!predef && !custom) {
+          console.warn(`[ai-intent-detector] ⚠️ set_field: field_key "${key}" no encontrado`);
+          actionsTaken.push({ action: "set_field", field_key: key, warning: "field_not_found" });
+          continue;
+        }
+
+        const tipo = predef ? predef.tipo : custom!.tipo;
+        const opciones = predef?.opciones ?? (Array.isArray(custom?.opciones) ? custom!.opciones : null);
+
+        // Validar / parsear valor según tipo
+        let parsedValue: any;
+        if (rawValue === null || rawValue === undefined) {
+          actionsTaken.push({ action: "set_field", field_key: key, warning: "empty_value" });
+          continue;
+        }
+
+        if (tipo === "number") {
+          const n = parseFloat(String(rawValue).replace(/[^\d.\-]/g, ""));
+          if (Number.isNaN(n)) {
+            console.warn(`[ai-intent-detector] ⚠️ set_field "${key}" valor no numérico:`, rawValue);
+            actionsTaken.push({ action: "set_field", field_key: key, warning: "invalid_number" });
+            continue;
+          }
+          parsedValue = n;
+        } else if (tipo === "select") {
+          const strVal = String(rawValue).trim();
+          const match = (opciones ?? []).find(
+            (o) => o.toLowerCase() === strVal.toLowerCase(),
+          );
+          if (!match) {
+            console.warn(`[ai-intent-detector] ⚠️ set_field "${key}" opción inválida:`, strVal, "permitidas:", opciones);
+            actionsTaken.push({ action: "set_field", field_key: key, warning: "invalid_option" });
+            continue;
+          }
+          parsedValue = match;
+        } else {
+          parsedValue = String(rawValue).trim();
+          if (!parsedValue) {
+            actionsTaken.push({ action: "set_field", field_key: key, warning: "empty_value" });
+            continue;
+          }
+        }
+
+        // No hacer update si el valor no cambió
+        const currentValue = predef ? lead[key] : lead.custom_fields?.[key];
+        if (currentValue === parsedValue) {
+          console.log(`[ai-intent-detector] ℹ️ set_field "${key}" sin cambios (valor actual = nuevo)`);
+          continue;
+        }
+
+        // Aplicar update
+        if (predef) {
+          await supabase.from("lead").update({ [key]: parsedValue }).eq("id", lead_id);
+          lead[key] = parsedValue;
+        } else {
+          const updatedJsonb = { ...(lead.custom_fields ?? {}), [key]: parsedValue };
+          await supabase.from("lead").update({ custom_fields: updatedJsonb }).eq("id", lead_id);
+          lead.custom_fields = updatedJsonb;
+        }
+
+        const fieldLabel = predef ? predef.label : custom!.nombre;
+        await supabase.from("lead_historial").insert({
+          lead_id,
+          usuario_id: "00000000-0000-0000-0000-000000000000",
+          accion: "automatizacion_ia",
+          detalle: `IA actualizó "${fieldLabel}" → ${parsedValue}`,
+          metadata: {
+            action: "set_field",
+            field_key: key,
+            field_kind: predef ? "predefined" : "custom",
+            previous_value: currentValue ?? null,
+            new_value: parsedValue,
+            actor_nombre: "IA (Automatización)",
+          },
+        });
+
+        actionsTaken.push({ action: "set_field", field_key: key, field_label: fieldLabel, value: parsedValue });
+        console.log(`[ai-intent-detector] ✅ set_field "${key}" → ${parsedValue}`);
       }
 
       // ── notify_team ─────────────────────────────────────────────────────────
@@ -321,7 +607,35 @@ export async function processMessage(params: {
     }
   }
 
-  // 7. Audit log
+  // 7. Registrar en actividad_crm (historial general del admin) cada acción de IA
+  for (const taken of actionsTaken) {
+    if (taken.warning) continue; // Saltar acciones fallidas
+    const detalleMap: Record<string, string> = {
+      move_stage: `IA movió la oportunidad a etapa #${taken.target_stage_id?.slice(0, 8) || '?'}`,
+      add_tag: `IA agregó etiqueta "${taken.tag_name}"`,
+      remove_tag: `IA removió etiqueta "${taken.tag_name}"`,
+      set_field: `IA actualizó campo "${taken.field_label || taken.field_key}" → ${taken.value}`,
+      notify_team: `IA notificó al equipo: ${taken.message || ''}`,
+    };
+    try {
+      await supabase.from("actividad_crm").insert({
+        empresa_id,
+        usuario_id: null,
+        usuario_nombre: "IA (Automatización)",
+        categoria: "leads",
+        accion: `ia_${taken.action}`,
+        detalle: detalleMap[taken.action] || `IA ejecutó acción: ${taken.action}`,
+        entidad_tipo: "lead",
+        entidad_id: lead_id,
+        entidad_nombre: lead.nombre_completo || null,
+        metadata: { ai_action: true, ...taken },
+      });
+    } catch (actErr: any) {
+      console.warn(`[ai-intent-detector] actividad_crm log error:`, actErr.message);
+    }
+  }
+
+  // 8. Audit log
   await supabase
     .from("ai_intent_log")
     .insert({

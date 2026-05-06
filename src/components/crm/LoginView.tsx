@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
-import { CircleNotch, CheckCircle, CaretDown, CaretUp, ShieldCheck } from '@phosphor-icons/react'
+import { CircleNotch, CheckCircle, CaretDown, CaretUp, ShieldCheck, Eye, EyeSlash } from '@phosphor-icons/react'
 import { LoadingScreen } from '@/components/ui/LoadingScreen'
 import { useAuth } from '@/hooks/useAuth'
 
@@ -63,6 +63,7 @@ function LoginView({ onLogin, onSwitchToRegister, onForgotPassword }: LoginViewP
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [isResetting, setIsResetting] = useState(false) // Toggle mode
   const [isSuccess, setIsSuccess] = useState(false) // Success mode
@@ -385,14 +386,24 @@ function LoginView({ onLogin, onSwitchToRegister, onForgotPassword }: LoginViewP
                       ¿Olvidaste tu contraseña?
                     </button>
                   </div>
-                  <Input
-                    id="login-password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    disabled={isLoading}
-                    className="mt-1"
-                  />
+                  <div className="relative mt-1">
+                    <Input
+                      id="login-password"
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      disabled={isLoading}
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus:outline-none"
+                      tabIndex={-1}
+                    >
+                      {showPassword ? <EyeSlash size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
                 </div>
               )}
 

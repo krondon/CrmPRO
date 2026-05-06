@@ -412,7 +412,6 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
         ...prev,
         [lead.stage]: (prev[lead.stage] || 0) + 1
       }))
-      toast.success(`Nueva oportunidad agregada: ${lead.name}`)
     },
     onUpdate: (lead) => {
       const oldLead = leadsRef.current.find(l => l.id === lead.id)
@@ -426,7 +425,6 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
       // Preservar customFields del estado local si el evento realtime no los trae
       const merged = { ...lead, customFields: lead.customFields && Object.keys(lead.customFields).length ? lead.customFields : (oldLead?.customFields ?? {}) }
       setLeads((current) => current.map(l => l.id === lead.id ? merged : l));
-      toast.info(`Oportunidad actualizada: ${lead.name}`);
     },
     onDelete: (leadId) => {
       const leadToDelete = leadsRef.current.find(l => l.id === leadId)
@@ -481,7 +479,15 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
             }
           }))
 
-          if (!cancelled) setTeamMembers(mapped)
+          // Deduplicar miembros por email (o id)
+          const uniqueMap = new Map()
+          for (const m of mapped) {
+            const key = m.email ? m.email.toLowerCase() : m.id
+            if (!uniqueMap.has(key)) {
+              uniqueMap.set(key, m)
+            }
+          }
+          if (!cancelled) setTeamMembers(Array.from(uniqueMap.values()))
         } catch (e) {
           console.error('Error loading team members in PipelineView', e)
         }
