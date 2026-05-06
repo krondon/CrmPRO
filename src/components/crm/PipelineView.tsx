@@ -412,7 +412,6 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
         ...prev,
         [lead.stage]: (prev[lead.stage] || 0) + 1
       }))
-      toast.success(`Nueva oportunidad agregada: ${lead.name}`)
     },
     onUpdate: (lead) => {
       const oldLead = leadsRef.current.find(l => l.id === lead.id)
@@ -423,8 +422,9 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
           [lead.stage]: (prev[lead.stage] || 0) + 1
         }))
       }
-      setLeads((current) => current.map(l => l.id === lead.id ? lead : l));
-      toast.info(`Oportunidad actualizada: ${lead.name}`);
+      // Preservar customFields del estado local si el evento realtime no los trae
+      const merged = { ...lead, customFields: lead.customFields && Object.keys(lead.customFields).length ? lead.customFields : (oldLead?.customFields ?? {}) }
+      setLeads((current) => current.map(l => l.id === lead.id ? merged : l));
     },
     onDelete: (leadId) => {
       const leadToDelete = leadsRef.current.find(l => l.id === leadId)
@@ -479,7 +479,15 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
             }
           }))
 
-          if (!cancelled) setTeamMembers(mapped)
+          // Deduplicar miembros por email (o id)
+          const uniqueMap = new Map()
+          for (const m of mapped) {
+            const key = m.email ? m.email.toLowerCase() : m.id
+            if (!uniqueMap.has(key)) {
+              uniqueMap.set(key, m)
+            }
+          }
+          if (!cancelled) setTeamMembers(Array.from(uniqueMap.values()))
         } catch (e) {
           console.error('Error loading team members in PipelineView', e)
         }
@@ -1155,24 +1163,24 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
                 const assignmentChanged = prevSelected && prevSelected.assignedTo !== updated.assignedTo
                 const newAssignedId = (updated.assignedTo === 'todos' ? NIL_UUID : updated.assignedTo) || NIL_UUID
                 if (assignmentChanged && isAdminOrOwner && newAssignedId && newAssignedId !== NIL_UUID) {
-                  const recipient = teamMembers.find(m => m.id === newAssignedId)
-                  if (recipient?.email) {
-                    try {
-                      await supabase.functions.invoke('send-lead-assigned', {
-                        body: {
-                          leadId: updated.id,
-                          leadName: updated.name,
-                          empresaId: companyId,
-                          empresaNombre: currentCompany?.name,
-                          assignedUserId: recipient?.userId || newAssignedId,
-                          assignedUserEmail: recipient?.email,
-                          assignedByEmail: user?.email,
-                          assignedByNombre: user?.businessName || currentCompany?.name || user?.email
-                        }
-                      })
-                    } catch (e) {
-                      console.error('[PipelineView] Error enviando notificación de asignación', e)
-                    }
+                  const recipient = teamMembers.find(m => m.id === newAssignedId || m.userId === newAssignedId)
+                  // Si no lo encontramos en teamMembers, enviamos igual con el id crudo;
+                  // send-lead-assigned resuelve el email desde auth.admin.getUserById como fallback.
+                  try {
+                    await supabase.functions.invoke('send-lead-assigned', {
+                      body: {
+                        leadId: updated.id,
+                        leadName: updated.name,
+                        empresaId: companyId,
+                        empresaNombre: currentCompany?.name,
+                        assignedUserId: recipient?.userId || newAssignedId,
+                        assignedUserEmail: recipient?.email,
+                        assignedByEmail: user?.email,
+                        assignedByNombre: user?.businessName || currentCompany?.name || user?.email
+                      }
+                    })
+                  } catch (e) {
+                    console.error('[PipelineView] Error enviando notificación de asignación', e)
                   }
                 }
               } catch (error: any) {

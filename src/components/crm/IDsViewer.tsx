@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Copy, CaretDown, CaretRight } from '@phosphor-icons/react'
+import { CopyIcon, CaretDownIcon, CaretRightIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { supabase } from '@/supabase/client'
 
 interface Pipeline {
     id: string
     nombre: string
+    short_id: number | null
     created_at: string
 }
 
@@ -18,6 +19,7 @@ interface Etapa {
     orden: number
     color: string
     pipeline_id: string
+    short_id: number | null
 }
 
 interface IDsViewerProps {
@@ -26,6 +28,7 @@ interface IDsViewerProps {
 }
 
 export function IDsViewer({ empresaId, empresaNombre }: IDsViewerProps) {
+    const [empresaShortId, setEmpresaShortId] = useState<number | null>(null)
     const [pipelines, setPipelines] = useState<Pipeline[]>([])
     const [etapas, setEtapas] = useState<Etapa[]>([])
     const [loading, setLoading] = useState(true)
@@ -37,35 +40,38 @@ export function IDsViewer({ empresaId, empresaNombre }: IDsViewerProps) {
         const fetchData = async () => {
             setLoading(true)
             try {
-                // Obtener pipelines de la empresa
+                // Empresa short_id
+                const { data: empresaData } = await supabase
+                    .from('empresa')
+                    .select('short_id')
+                    .eq('id', empresaId)
+                    .maybeSingle()
+                setEmpresaShortId(empresaData?.short_id ?? null)
+
+                // Pipelines
                 const { data: pipelinesData, error: pipelinesError } = await supabase
                     .from('pipeline')
-                    .select('id, nombre, created_at')
+                    .select('id, nombre, short_id, created_at')
                     .eq('empresa_id', empresaId)
                     .order('created_at', { ascending: true })
 
-                console.log('[IDsViewer] Pipelines encontrados:', pipelinesData?.length || 0)
                 if (pipelinesError) console.error('[IDsViewer] Error pipelines:', pipelinesError)
-
                 setPipelines(pipelinesData || [])
 
-                // Obtener todas las etapas de todos los pipelines
+                // Etapas
                 if (pipelinesData && pipelinesData.length > 0) {
                     const pipelineIds = pipelinesData.map(p => p.id)
-                    console.log('[IDsViewer] Buscando etapas para pipelines:', pipelineIds)
-
-                    // La tabla en Supabase se llama 'etapas' (plural)
                     const { data: etapasData, error: etapasError } = await supabase
                         .from('etapas')
-                        .select('id, nombre, orden, color, pipeline_id')
+                        .select('id, nombre, orden, color, pipeline_id, short_id')
                         .in('pipeline_id', pipelineIds)
                         .order('orden', { ascending: true, nullsFirst: false })
 
-                    console.log('[IDsViewer] Etapas encontradas:', etapasData?.length || 0)
                     if (etapasError) console.error('[IDsViewer] Error etapas:', etapasError)
-
                     setEtapas(etapasData || [])
                 }
+
+
             } catch (error) {
                 console.error('[IDsViewer] Error fetching IDs:', error)
             } finally {
@@ -84,18 +90,14 @@ export function IDsViewer({ empresaId, empresaNombre }: IDsViewerProps) {
     const togglePipeline = (pipelineId: string) => {
         setExpandedPipelines(prev => {
             const next = new Set(prev)
-            if (next.has(pipelineId)) {
-                next.delete(pipelineId)
-            } else {
-                next.add(pipelineId)
-            }
+            if (next.has(pipelineId)) next.delete(pipelineId)
+            else next.add(pipelineId)
             return next
         })
     }
 
-    const getEtapasForPipeline = (pipelineId: string) => {
-        return etapas.filter(e => e.pipeline_id === pipelineId)
-    }
+    const getEtapasForPipeline = (pipelineId: string) =>
+        etapas.filter(e => e.pipeline_id === pipelineId)
 
     if (!empresaId) {
         return (
@@ -115,12 +117,23 @@ export function IDsViewer({ empresaId, empresaNombre }: IDsViewerProps) {
 
     return (
         <div className="space-y-4">
-            {/* Empresa ID */}
+
+            {/* ── Empresa ─────────────────────────────────────────── */}
             <Card>
                 <CardHeader className="pb-3">
                     <CardTitle className="text-lg flex items-center justify-between">
                         <span>🏢 Empresa</span>
-                        <Badge variant="outline">{empresaNombre || 'Empresa Actual'}</Badge>
+                        <div className="flex items-center gap-2">
+                            {empresaShortId != null && (
+                                <Badge
+                                    className="text-xs bg-orange-500/10 text-orange-700 border-orange-300 font-bold cursor-pointer hover:bg-orange-500/20"
+                                    onClick={() => copyToClipboard(String(empresaShortId), 'Short ID Empresa')}
+                                >
+                                    #{empresaShortId}
+                                </Badge>
+                            )}
+                            <Badge variant="outline">{empresaNombre || 'Empresa Actual'}</Badge>
+                        </div>
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -134,13 +147,13 @@ export function IDsViewer({ empresaId, empresaNombre }: IDsViewerProps) {
                             variant="ghost"
                             onClick={() => copyToClipboard(empresaId, 'ID de Empresa')}
                         >
-                            <Copy size={16} />
+                            <CopyIcon size={16} />
                         </Button>
                     </div>
                 </CardContent>
             </Card>
 
-            {/* Pipelines */}
+            {/* ── Pipelines & Etapas ──────────────────────────────── */}
             <Card>
                 <CardHeader className="pb-3">
                     <CardTitle className="text-lg">📊 Pipelines ({pipelines.length})</CardTitle>
@@ -156,12 +169,19 @@ export function IDsViewer({ empresaId, empresaNombre }: IDsViewerProps) {
                                     onClick={() => togglePipeline(pipeline.id)}
                                 >
                                     <div className="flex items-center gap-2">
-                                        {expandedPipelines.has(pipeline.id) ? (
-                                            <CaretDown size={16} />
-                                        ) : (
-                                            <CaretRight size={16} />
-                                        )}
+                                        {expandedPipelines.has(pipeline.id)
+                                            ? <CaretDownIcon size={16} />
+                                            : <CaretRightIcon size={16} />
+                                        }
                                         <span className="font-medium">{pipeline.nombre}</span>
+                                        {pipeline.short_id != null && (
+                                            <Badge
+                                                className="text-xs bg-violet-500/10 text-violet-700 border-violet-300 font-bold cursor-pointer hover:bg-violet-500/20"
+                                                onClick={e => { e.stopPropagation(); copyToClipboard(String(pipeline.short_id), `Short ID Pipeline "${pipeline.nombre}"`) }}
+                                            >
+                                                #{pipeline.short_id}
+                                            </Badge>
+                                        )}
                                         <Badge variant="secondary" className="text-xs">
                                             {getEtapasForPipeline(pipeline.id).length} etapas
                                         </Badge>
@@ -169,12 +189,9 @@ export function IDsViewer({ empresaId, empresaNombre }: IDsViewerProps) {
                                     <Button
                                         size="sm"
                                         variant="ghost"
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            copyToClipboard(pipeline.id, 'ID de Pipeline')
-                                        }}
+                                        onClick={e => { e.stopPropagation(); copyToClipboard(pipeline.id, 'ID de Pipeline') }}
                                     >
-                                        <Copy size={16} />
+                                        <CopyIcon size={16} />
                                     </Button>
                                 </div>
 
@@ -183,37 +200,41 @@ export function IDsViewer({ empresaId, empresaNombre }: IDsViewerProps) {
                                     <code className="text-xs font-mono">{pipeline.id}</code>
                                 </div>
 
-                                {/* Etapas del pipeline */}
                                 {expandedPipelines.has(pipeline.id) && (
                                     <div className="border-t border-border">
                                         <div className="p-3 bg-background">
                                             <p className="text-xs font-medium text-muted-foreground mb-2">Etapas:</p>
                                             <div className="space-y-2">
-                                                {getEtapasForPipeline(pipeline.id).map((etapa) => (
+                                                {getEtapasForPipeline(pipeline.id).map(etapa => (
                                                     <div
                                                         key={etapa.id}
                                                         className="flex items-center justify-between p-2 bg-muted/30 rounded"
                                                     >
                                                         <div className="flex items-center gap-2">
                                                             <div
-                                                                className="w-3 h-3 rounded-full"
+                                                                className="w-3 h-3 rounded-full flex-shrink-0"
                                                                 style={{ backgroundColor: etapa.color || '#3b82f6' }}
                                                             />
                                                             <span className="text-sm">{etapa.nombre}</span>
-                                                            <Badge variant="outline" className="text-xs">
-                                                                orden: {etapa.orden}
-                                                            </Badge>
+                                                            {etapa.short_id != null && (
+                                                                <Badge
+                                                                    className="text-xs bg-emerald-500/10 text-emerald-700 border-emerald-300 font-bold cursor-pointer hover:bg-emerald-500/20"
+                                                                    onClick={() => copyToClipboard(String(etapa.short_id), `Short ID Etapa "${etapa.nombre}"`)}
+                                                                >
+                                                                    #{etapa.short_id}
+                                                                </Badge>
+                                                            )}
                                                         </div>
                                                         <div className="flex items-center gap-2">
                                                             <code className="text-xs font-mono bg-background px-2 py-1 rounded">
-                                                                {etapa.id.slice(0, 8)}...
+                                                                {etapa.id.slice(0, 8)}…
                                                             </code>
                                                             <Button
                                                                 size="sm"
                                                                 variant="ghost"
                                                                 onClick={() => copyToClipboard(etapa.id, `ID de Etapa "${etapa.nombre}"`)}
                                                             >
-                                                                <Copy size={14} />
+                                                                <CopyIcon size={14} />
                                                             </Button>
                                                         </div>
                                                     </div>
@@ -232,6 +253,8 @@ export function IDsViewer({ empresaId, empresaNombre }: IDsViewerProps) {
                     )}
                 </CardContent>
             </Card>
+
+
         </div>
     )
 }

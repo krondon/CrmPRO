@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Plus, MagnifyingGlass, User, X } from '@phosphor-icons/react'
-import { Lead, PipelineType, Stage, TeamMember, ContactDB } from '@/lib/types'
+import { Lead, PipelineType, Stage, TeamMember, ContactDB, CustomFieldDefinition } from '@/lib/types'
 import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
 import { Company } from './CompanyManagement'
@@ -24,6 +24,7 @@ import { SingleLeadForm, BulkImportView } from './leads'
 import { listWhatsappInstancias } from '@/supabase/services/instances'
 import { getNextAssignee } from '@/supabase/helpers/pipeline'
 import type { EmpresaInstanciaDB } from '@/lib/types'
+import { useCustomFields } from '@/hooks/useCustomFields'
 import type { SingleLeadFormData } from './leads/SingleLeadForm'
 import type { PreviewRow } from '@/hooks/useExcelImport'
 
@@ -107,6 +108,13 @@ export function AddLeadDialog({
   const [stageId, setStageId] = useState(defaultStageId || stages[0]?.id || '')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [waInstances, setWaInstances] = useState<Pick<EmpresaInstanciaDB, 'id' | 'label'>[]>([])
+  const { fields: customFieldDefs, addField } = useCustomFields(companyId || '')
+
+  const handleAddCustomField = useCallback(async (
+    def: Omit<import('@/lib/types').CustomFieldDefinition, 'id' | 'created_at' | 'empresa_id' | 'orden'>
+  ) => {
+    return addField({ ...def, empresa_id: companyId || '', orden: customFieldDefs.length })
+  }, [addField, companyId, customFieldDefs.length])
 
   // Contact search state
   const [contactSearch, setContactSearch] = useState('')
@@ -229,7 +237,8 @@ export function AddLeadDialog({
         empresa_id: companyId || '',
         asignado_a: finalAssignedTo,
         prioridad: data.priority,
-        preferred_instance_id: data.preferredInstanceId || null
+        preferred_instance_id: data.preferredInstanceId || null,
+        custom_fields: data.customFields ?? {},
       }
       console.log('[AddLeadDialog] DTO a insertar:', JSON.stringify(leadDTO, null, 2))
       const dbLead = await createLead(leadDTO, effectiveUser?.id, actorNombre)
@@ -240,21 +249,44 @@ export function AddLeadDialog({
         if (assignedId && assignedId !== NIL_UUID) {
           const recipient = teamMembers?.find(m => m.id === assignedId || m.userId === assignedId)
           if (recipient?.email) {
+            // 1. Insertar notificación directamente en BD (garantiza alerta in-app)
             try {
-              await import('@/lib/supabase').then(({ supabase }) => {
-                supabase.functions.invoke('send-lead-assigned', {
-                  body: {
-                    leadId: dbLead.id,
-                    leadName: dbLead.nombre_completo,
-                    empresaId: companyId,
-                    empresaNombre: companyName,
-                    assignedUserId: recipient.userId || assignedId,
-                    assignedUserEmail: recipient.email,
-                    assignedByEmail: effectiveUser?.email,
-                    assignedByNombre: actorNombre
-                  }
-                }).catch(e => console.error('[AddLeadDialog] Error en bg notification:', e))
+              const { supabase: sb } = await import('@/supabase/client')
+              await sb.from('notificaciones').insert({
+                usuario_email: recipient.email,
+                title: `Nueva oportunidad asignada: ${dbLead.nombre_completo}`,
+                message: `${actorNombre || 'El sistema'} te asignó la oportunidad "${dbLead.nombre_completo}"${companyName ? ` en ${companyName}` : ''}`,
+                type: 'lead_assigned',
+                read: false,
+                data: {
+                  lead_id: dbLead.id,
+                  lead_name: dbLead.nombre_completo,
+                  empresa_id: companyId,
+                  empresa_nombre: companyName,
+                  assigned_by_email: effectiveUser?.email,
+                  assigned_by_nombre: actorNombre
+                },
+                created_at: new Date()
               })
+            } catch (e) {
+              console.warn('[AddLeadDialog] Error insertando notificación directa:', e)
+            }
+
+            // 2. Edge function (emails/push, puede fallar silenciosamente)
+            try {
+              const { supabase: sb } = await import('@/supabase/client')
+              sb.functions.invoke('send-lead-assigned', {
+                body: {
+                  leadId: dbLead.id,
+                  leadName: dbLead.nombre_completo,
+                  empresaId: companyId,
+                  empresaNombre: companyName,
+                  assignedUserId: recipient.userId || assignedId,
+                  assignedUserEmail: recipient.email,
+                  assignedByEmail: effectiveUser?.email,
+                  assignedByNombre: actorNombre
+                }
+              }).catch(e => console.error('[AddLeadDialog] Error en bg notification:', e))
             } catch (e) {
               console.error('[AddLeadDialog] Error enviando notificación de asignación', e)
             }
@@ -277,7 +309,8 @@ export function AddLeadDialog({
           assignedTo: dbLead.asignado_a || '',
           tags: [],
           createdAt: new Date(dbLead.created_at),
-          lastContact: new Date(dbLead.created_at)
+          lastContact: new Date(dbLead.created_at),
+          customFields: (dbLead as any).custom_fields ?? {}
         }
         onAdd(newLead)
         toast.success('Oportunidad creada exitosamente')
@@ -543,6 +576,8 @@ export function AddLeadDialog({
               onSubmit={handleManualSubmit}
               isSubmitting={isSubmitting}
               whatsappInstances={waInstances}
+              customFieldDefs={customFieldDefs}
+              onAddCustomField={handleAddCustomField}
               selectedContact={selectedContact}
               prefillData={manualPrefill}
               contactSearch={contactSearch}

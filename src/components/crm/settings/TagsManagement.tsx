@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Tag } from '@/lib/types'
-import { getAllUniqueTags, bulkUpdateTag, bulkDeleteTag, deleteSavedTag } from '@/supabase/services/tags'
+import { getSavedTags, bulkUpdateTag, bulkDeleteTag, deleteSavedTag } from '@/supabase/services/tags'
 import { supabase } from '@/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
-import { Trash, Pencil, Plus, Check, X, Tag as TagIcon, ArrowsClockwise } from '@phosphor-icons/react'
+import { TrashIcon, PencilIcon, PlusIcon, CheckIcon, XIcon, TagIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
@@ -52,7 +52,7 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
     const loadTags = async () => {
         setIsLoading(true)
         try {
-            const data = await getAllUniqueTags(empresaId)
+            const data = await getSavedTags(empresaId)
             setTags(data)
         } catch (error) {
             console.error('Error loading tags:', error)
@@ -153,7 +153,7 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
             const code = error?.code
             const msg = error?.message || ''
             if (code === '23505') {
-                toast.error('Ya existe una etiqueta con ese nombre')
+                toast.error('Ya existe una etiqueta con ese nombre en esta empresa')
             } else if (code === '42501' || msg.includes('policy') || msg.includes('RLS')) {
                 toast.error('Sin permisos para guardar etiquetas. Revisa las políticas RLS de saved_tags en Supabase.')
             } else {
@@ -182,7 +182,7 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
                         variant={showCreateForm ? 'secondary' : 'default'}
                         className="shrink-0 gap-1.5"
                     >
-                        {showCreateForm ? <X size={14} /> : <Plus size={14} weight="bold" />}
+                        {showCreateForm ? <XIcon size={14} /> : <PlusIcon size={14} weight="bold" />}
                         {showCreateForm ? 'Cancelar' : 'Crear etiqueta'}
                     </Button>
                 </div>
@@ -238,7 +238,7 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
                             </div>
                         )}
                         <Button onClick={handleCreate} disabled={isUpdating || !createName.trim()} className="w-full gap-1.5">
-                            <Check size={14} />
+                            <CheckIcon size={14} />
                             {isUpdating ? 'Guardando...' : 'Crear y guardar etiqueta'}
                         </Button>
                     </CardContent>
@@ -307,20 +307,21 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
                                 ) : (
                                     <>
                                         <div className="flex flex-col gap-2 min-w-0">
-                                            <div className="flex items-center">
+                                            <div className="flex items-center gap-2">
                                                 <Badge
                                                     className="px-3 py-1 text-sm font-medium text-white shadow-sm"
                                                     style={{ backgroundColor: tag.color }}
                                                 >
                                                     {tag.name}
                                                 </Badge>
-                                            </div>
-                                            <div 
-                                                className="text-[10px] text-muted-foreground font-mono bg-muted/40 px-2 py-1 rounded truncate select-all cursor-text" 
-                                                title="ID para usar en integraciones y webhooks"
-                                            >
-                                                <span className="font-bold opacity-60 mr-1">ID:</span>
-                                                {tag.id}
+                                                {tag.short_id != null && (
+                                                    <Badge
+                                                        variant="outline"
+                                                        className="text-xs bg-sky-500/10 text-sky-700 border-sky-300 font-bold"
+                                                    >
+                                                        #{tag.short_id}
+                                                    </Badge>
+                                                )}
                                             </div>
                                         </div>
 
@@ -331,7 +332,7 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
                                                 className="h-8 w-8 text-muted-foreground hover:text-primary"
                                                 onClick={() => handleEditStart(tag)}
                                             >
-                                                <Pencil size={16} />
+                                                <PencilIcon size={16} />
                                             </Button>
                                             <Button
                                                 size="icon"
@@ -339,7 +340,7 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
                                                 className="h-8 w-8 text-muted-foreground hover:text-destructive"
                                                 onClick={() => handleDelete(tag)}
                                             >
-                                                <Trash size={16} />
+                                                <TrashIcon size={16} />
                                             </Button>
                                         </div>
                                     </>

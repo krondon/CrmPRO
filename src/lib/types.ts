@@ -8,6 +8,7 @@ export interface Tag {
   id: string
   name: string
   color: string
+  short_id?: number | null
 }
 
 export interface Message {
@@ -119,6 +120,7 @@ export interface Stage {
   order: number
   color: string
   pipelineType: PipelineType
+  short_id?: number | null
   is_sla_enabled?: boolean
   sla_limit_minutes?: number | null
 }
@@ -128,6 +130,7 @@ export interface Pipeline {
   name: string
   type: PipelineType
   stages: Stage[]
+  short_id?: number | null
   assignment_type?: AssignmentType
   order?: number
 }
@@ -284,6 +287,7 @@ export interface CreateLeadDTO {
   membresia?: string
   empresa?: string
   preferred_instance_id?: string | null
+  custom_fields?: Record<string, any>
 }
 
 export interface UpdateLeadDTO {
@@ -303,6 +307,32 @@ export interface UpdateLeadDTO {
   archived_at?: string | null
   stage_entered_at?: string | null
   sla_custom_limit_minutes?: number | null
+  custom_fields?: Record<string, any>
+}
+
+// ============================================================
+// CUSTOM FIELDS
+// ============================================================
+
+export interface CustomFieldDefinition {
+  id: string
+  empresa_id: string
+  nombre: string
+  clave: string
+  tipo: 'text' | 'number' | 'select'
+  opciones?: string[] | null
+  requerido: boolean
+  orden: number
+  /** Descripción inyectada al prompt de la IA para guiar cuándo leer/escribir este campo. */
+  descripcion?: string | null
+  created_at: string
+}
+
+export interface PredefinedFieldDescriptionRow {
+  empresa_id: string
+  field_key: string
+  descripcion: string
+  updated_at: string
 }
 
 // Lead como viene de la BD (snake_case)
@@ -331,6 +361,7 @@ export interface LeadDB {
   preferred_instance_id?: string | null
   stage_entered_at?: string | null
   sla_custom_limit_minutes?: number | null
+  custom_fields?: Record<string, any>
 }
 
 // ============================================================
@@ -585,7 +616,7 @@ export interface LeadHistory {
   lead_id: string
   usuario_id: string
   usuario_nombre?: string // Join helper
-  accion: 'creacion' | 'asignacion' | 'reasignacion' | 'etapa_cambio' | 'prioridad_cambio' | string
+  accion: 'creacion' | 'asignacion' | 'reasignacion' | 'etapa_cambio' | 'prioridad_cambio' | 'automatizacion' | 'automatizacion_ia' | string
   detalle: string
   metadata?: any
   created_at: string
@@ -632,4 +663,52 @@ export interface LandingTokenDB {
   metadata?: Record<string, unknown>
   created_at?: string
   updated_at?: string
+}
+
+// ============================================================
+// AI AUTOMATION
+// ============================================================
+
+export type AiIntentActionType = 'move_stage' | 'add_tag' | 'notify_team'
+
+export interface AiIntentMapping {
+  id: string
+  intent: string
+  action_type: AiIntentActionType
+  action_config: Record<string, any>
+  enabled: boolean
+}
+
+export interface AiAutomationConfig {
+  id: string
+  empresa_id: string
+  nombre: string
+  is_active: boolean
+  activation_time_start: string | null
+  activation_time_end: string | null
+  message_limit: number | null
+  background_time_window: string | null
+  background_message_limit: number | null
+  execution_interval_hours: number | null
+  last_execution_at: string | null
+  sandbox_prompt: string | null
+  ai_api_key: string | null
+  ai_model: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateAiAutomationConfigDTO {
+  empresa_id: string
+  nombre: string
+  is_active: boolean
+  activation_time_start?: string | null
+  activation_time_end?: string | null
+  message_limit?: number | null
+  background_time_window?: string | null
+  background_message_limit?: number | null
+  execution_interval_hours?: number | null
+  sandbox_prompt?: string | null
+  ai_api_key?: string | null
+  ai_model?: string | null
 }

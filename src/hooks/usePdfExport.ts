@@ -54,7 +54,7 @@ export function usePdfExport(): UsePdfExportReturn {
             // Format leads for export
             const formattedLeads = filteredLeads.map(lead => {
                 const stage = stages.find(s => s.id === lead.stage)
-                const assignedMember = teamMembers.find(m => m.id === lead.assignedTo || m.name === lead.assignedTo)
+                const assignedMember = teamMembers.find(m => m.id === lead.assignedTo || m.userId === lead.assignedTo || m.name === lead.assignedTo)
 
                 return formatLeadForExport(
                     lead,
