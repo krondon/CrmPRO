@@ -22,4 +22,6 @@ export default defineConfig({
       '@': resolve(projectRoot, 'src')
     }
   },
+  // @breezystack/lamejs tiene ESM nativo — no necesita optimizeDeps especial
+  // (se deja vacío para no interferir con el pre-bundling de Vite)
 });

@@ -21,6 +21,7 @@
  */
 
 import { useState, useRef, useCallback } from 'react'
+import { webmToMp3 } from '@/lib/audio/webmToMp3'
 
 interface UseAudioRecorderOptions {
     /** Callback opcional cuando hay error */
@@ -40,6 +41,8 @@ interface UseAudioRecorderReturn {
     stopRecording: () => void
     /** Cancelar grabación sin guardar */
     cancelRecording: () => void
+    /** True mientras se convierte el audio (WebM → MP3) antes de entregarlo */
+    isProcessing: boolean
 }
 
 // Formatos de audio preferidos, en orden de prioridad
@@ -64,6 +67,7 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}): UseAudi
 
     const [isRecording, setIsRecording] = useState(false)
     const [recordingTime, setRecordingTime] = useState(0)
+    const [isProcessing, setIsProcessing] = useState(false)
 
     // Refs para mantener referencias estables durante la grabación
     const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -158,14 +162,14 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}): UseAudi
             }
 
             // Evento: grabación detenida
-            mediaRecorder.onstop = () => {
+            mediaRecorder.onstop = async () => {
                 // Limpiar stream
                 if (streamRef.current) {
                     streamRef.current.getTracks().forEach(track => track.stop())
                     streamRef.current = null
                 }
 
-                // Resetear estados
+                // Resetear estados de grabación
                 setRecordingTime(0)
                 setIsRecording(false)
 
@@ -185,20 +189,48 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}): UseAudi
                     return
                 }
 
-                // Extensión según el formato real grabado
+                // Detectar si el formato grabado es compatible con WhatsApp de forma nativa.
+                // Solo OGG/Opus (Firefox) y MP3/MPEG son entregados sin conversión.
+                // audio/mp4 (.m4a) de Chrome puede llegar como documento en WhatsApp → convertir también.
                 const actualMime = mediaRecorder.mimeType || 'audio/webm'
+                const isNativeCompatible =
+                    actualMime.includes('ogg') ||
+                    actualMime.includes('mpeg')
+
+                let finalBlob = audioBlob
                 let ext = 'webm'
                 if (actualMime.includes('ogg')) ext = 'ogg'
-                else if (actualMime.includes('mp4')) ext = 'm4a'
+                // mp4/m4a y webm van a conversión → no necesitan ext aquí
+
+                // Convertir WebM → MP3 si el navegador no grabó en formato compatible
+                if (!isNativeCompatible) {
+                    setIsProcessing(true)
+                    try {
+                        finalBlob = await webmToMp3(audioBlob)
+                        ext = 'mp3'
+                        if (import.meta.env.DEV) {
+                            console.debug('[useAudioRecorder] Converted WebM→MP3', {
+                                original: `${(audioBlob.size / 1024).toFixed(1)} KB (${actualMime})`,
+                                converted: `${(finalBlob.size / 1024).toFixed(1)} KB (audio/mpeg)`
+                            })
+                        }
+                    } catch (convErr) {
+                        setIsProcessing(false)
+                        onError?.(convErr instanceof Error ? convErr : new Error('Error convirtiendo audio a MP3'))
+                        return
+                    } finally {
+                        setIsProcessing(false)
+                    }
+                }
 
                 const audioFile = new File(
-                    [audioBlob],
+                    [finalBlob],
                     `voice-note-${Date.now()}.${ext}`,
-                    { type: actualMime }
+                    { type: finalBlob.type }
                 )
 
                 // Notificar que el audio está listo
-                onAudioReady?.(audioBlob, audioFile)
+                onAudioReady?.(finalBlob, audioFile)
             }
 
             // Iniciar grabación con timeslice de 500ms
@@ -223,6 +255,7 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}): UseAudi
         recordingTime,
         startRecording,
         stopRecording,
-        cancelRecording
+        cancelRecording,
+        isProcessing
     }
 }
