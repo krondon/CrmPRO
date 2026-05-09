@@ -21,6 +21,7 @@ import { updatePipeline, getPipelines } from '@/supabase/helpers/pipeline'
 import { AutomationsPanel } from './settings/AutomationsPanel'
 import { AiAutomationPanel } from './settings/ai-automation/AiAutomationPanel'
 import { CustomFieldsPanel } from './settings/CustomFieldsPanel'
+import { ApiKeysPanel } from './settings/ApiKeysPanel'
 import { useAuth } from '@/hooks/useAuth'
 import { toast } from 'sonner'
 
@@ -185,6 +186,12 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
             <TabsTrigger value="landing-tokens" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
               <Key size={14} weight="duotone" />
               Landing Tokens
+            </TabsTrigger>
+          )}
+          {userRole === 'owner' && (
+            <TabsTrigger value="api-keys" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
+              🤖
+              API Claude
             </TabsTrigger>
           )}
 
@@ -704,6 +711,12 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
           )}
         </TabsContent>
 
+        {/* ── API Keys para Claude ─────────────────────────────── */}
+        <TabsContent value="api-keys" className="space-y-6 mt-8">
+          {currentCompanyId && (
+            <ApiKeysPanel empresaId={currentCompanyId} />
+          )}
+        </TabsContent>
 
       </Tabs>
 

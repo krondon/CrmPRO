@@ -31,6 +31,7 @@ interface AuthContextType {
     setCurrentCompanyId: (id: string) => void
     setCompanies: React.Dispatch<React.SetStateAction<Company[]>>
     login: (email: string, password: string) => Promise<void>
+    loginWithSession: (userId: string, email: string, name: string) => Promise<void>
     register: (email: string, password: string, businessName: string, accountType?: 'owner' | 'employee', userName?: string) => Promise<void>
     logout: () => Promise<void>
     fetchCompanies: () => Promise<Company[]>
@@ -313,6 +314,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             } else {
                 toast.error(e.message || 'Error iniciando sesión')
             }
+            throw e
+        }
+    }
+
+    // Called after a third-party SSO (e.g. Hubmy) has already established the Supabase session
+    const loginWithSession = async (userId: string, email: string, name: string) => {
+        try {
+            let row
+            try {
+                row = await getUsuarioById(userId)
+            } catch {
+                row = await createUsuario({ id: userId, email, nombre: name, account_type: 'owner' })
+            }
+
+            const newUser: User = {
+                id: row.id,
+                email: row.email,
+                businessName: row.nombre,
+                recoveryEmail: row.recovery_email,
+                accountType: row.account_type || 'owner',
+            }
+
+            const empresas = await getEmpresasByUsuario(userId)
+            const uiCompanies = empresas.map((e: any) => ({
+                id: e.id,
+                name: e.nombre_empresa,
+                ownerId: e.usuario_id,
+                createdAt: new Date(e.created_at),
+                role: e.role,
+                logo: e.logo_url || undefined,
+            }))
+
+            if (uiCompanies.length === 0 && newUser.accountType === 'owner') {
+                const empresaCreada = await createEmpresa({ nombre_empresa: name, usuario_id: userId })
+                const nuevaCompany = {
+                    id: empresaCreada.id,
+                    name: empresaCreada.nombre_empresa,
+                    ownerId: empresaCreada.usuario_id,
+                    createdAt: new Date(empresaCreada.created_at),
+                    role: 'owner',
+                }
+                setUser(newUser)
+                setCompanies([nuevaCompany])
+                setCurrentCompanyIdState(nuevaCompany.id)
+            } else {
+                setUser(newUser)
+                setCompanies(uiCompanies)
+                if (uiCompanies.length > 0) setCurrentCompanyIdState(uiCompanies[0].id)
+            }
+        } catch (e: any) {
+            console.error('[LOGIN_WITH_SESSION]', e)
             throw e
         }
     }
@@ -602,6 +654,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setCurrentCompanyId,
         setCompanies,
         login,
+        loginWithSession,
         register,
         logout,
         fetchCompanies,

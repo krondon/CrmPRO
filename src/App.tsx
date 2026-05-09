@@ -17,6 +17,7 @@ import { CreateEmpresaView } from '@/components/crm/CreateEmpresaView'
 import { JoinTeam } from '@/components/crm/JoinTeam'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import { UpdatePasswordView } from '@/components/auth/UpdatePasswordView'
+import { HubmyCallbackView } from '@/components/auth/HubmyCallbackView'
 import { CRMLayout } from '@/components/layout/CRMLayout'
 import { useAuth } from '@/hooks/useAuth'
 import { usePermissions } from '@/hooks/usePermissions'
@@ -72,6 +73,9 @@ function App() {
 
         {/* Password Recovery Route */}
         <Route path="/update-password" element={<UpdatePasswordView />} />
+
+        {/* Hubmy OAuth Callback */}
+        <Route path="/auth/hubmy/callback" element={<HubmyCallbackView />} />
 
         {/* Join Team Route */}
         <Route path="/join" element={<JoinTeamWrapper />} />

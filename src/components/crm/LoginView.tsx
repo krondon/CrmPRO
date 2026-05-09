@@ -498,6 +498,28 @@ function LoginView({ onLogin, onSwitchToRegister, onForgotPassword }: LoginViewP
                 </div>
               )}
 
+              {!isResetting && (
+                <div className="mt-4">
+                  <div className="relative flex items-center">
+                    <div className="flex-grow border-t border-border" />
+                    <span className="mx-3 text-xs text-muted-foreground">o continúa con</span>
+                    <div className="flex-grow border-t border-border" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const state = crypto.randomUUID()
+                      sessionStorage.setItem('hubmy_oauth_state', state)
+                      window.location.href = `https://apidev.hubmy.app/v1/sdk/authorize?app_id=app_01KQZ5J8M509WNKCJCF18NY2DF&state=${state}`
+                    }}
+                    className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-border bg-background hover:bg-muted transition-colors text-sm font-medium"
+                  >
+                    <img src="https://dev.hubmy.app/favicon.ico" alt="Hubmy" className="w-4 h-4" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                    Continuar con Hubmy
+                  </button>
+                </div>
+              )}
+
               <div className="text-center mt-4 space-y-2">
                 {isResetting ? (
                   <button
