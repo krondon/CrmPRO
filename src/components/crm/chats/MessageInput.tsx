@@ -76,7 +76,16 @@ export function MessageInput({
             if (!res.ok || json.error) throw new Error(json.error || 'Error al obtener sugerencia')
             setMessageInput(json.suggestion)
         } catch (e: any) {
-            toast.error(e.message || 'Error al generar sugerencia')
+            const msg: string = e.message || ''
+            if (msg.includes('suscripci') || msg.includes('Hubmy')) {
+                toast('✨ Función exclusiva de Hubmy', {
+                    description: 'Suscríbete a Hubmy para desbloquear el asistente IA en tus chats.',
+                    action: { label: 'Ir a Hubmy', onClick: () => window.open('https://hubmy.app', '_blank') },
+                    duration: 6000,
+                })
+            } else {
+                toast.error(msg || 'Error al generar sugerencia')
+            }
         } finally {
             setIsLoadingAi(false)
         }
