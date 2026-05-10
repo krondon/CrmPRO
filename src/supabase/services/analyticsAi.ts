@@ -43,19 +43,31 @@ export interface AnalyticsResponse {
   label: string
 }
 
+export class HubmySubscriptionError extends Error {
+  constructor() {
+    super('hubmy_subscription_required')
+    this.name = 'HubmySubscriptionError'
+  }
+}
+
 export async function askAnalyticsAI(
   empresaId: string,
   question: string
 ): Promise<AnalyticsResponse> {
-  const { data, error } = await supabase.functions.invoke('ai-analytics-query', {
-    body: { empresa_id: empresaId, question },
+  const { data: { session } } = await supabase.auth.getSession()
+  const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-analytics-query`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session?.access_token ?? ''}`,
+    },
+    body: JSON.stringify({ empresa_id: empresaId, question }),
   })
-  if (error) {
-    const message = (error as any)?.context?.error || (error as any)?.message || 'Error desconocido'
-    throw new Error(message)
-  }
-  if (!data || (data as any).error) {
-    throw new Error((data as any)?.error || 'Respuesta vacía de la IA')
-  }
-  return data as AnalyticsResponse
+
+  const json = await res.json()
+
+  if (res.status === 403) throw new HubmySubscriptionError()
+  if (!res.ok || json.error) throw new Error(json.error || 'Error desconocido')
+  return json as AnalyticsResponse
 }

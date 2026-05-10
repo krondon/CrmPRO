@@ -4,7 +4,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { useEffect, useState, useMemo } from 'react'
 import { getLeads } from '@/supabase/services/leads'
 import { getPipelines } from '@/supabase/helpers/pipeline'
-import { askAnalyticsAI, AnalyticsResponse } from '@/supabase/services/analyticsAi'
+import { askAnalyticsAI, AnalyticsResponse, HubmySubscriptionError } from '@/supabase/services/analyticsAi'
+import { toast } from 'sonner'
 import {
   CurrencyDollar,
   TrendUp,
@@ -172,7 +173,15 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
       const res = await askAnalyticsAI(companyId, question.trim())
       setAiResponse(res)
     } catch (err: any) {
-      setAiError(err?.message || 'No se pudo obtener una respuesta')
+      if (err instanceof HubmySubscriptionError) {
+        toast('✨ Función exclusiva de Hubmy', {
+          description: 'Suscríbete a Hubmy para desbloquear el asistente de analítica IA.',
+          action: { label: 'Ir a Hubmy', onClick: () => window.open('https://hubmy.app', '_blank') },
+          duration: 6000,
+        })
+      } else {
+        setAiError(err?.message || 'No se pudo obtener una respuesta')
+      }
       setAiResponse(null)
     } finally {
       setAiLoading(false)

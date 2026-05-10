@@ -202,7 +202,7 @@ function ChatsViewWrapper() {
   const canDeleteLead = !!(isOwner || isAdmin)
   const canDeleteMessages = isOwner || hasPermission('delete_messages')
   const canManageTags = isOwner || hasPermission('manage_tags')
-  const canUseAi = !!(isOwner || isAdmin)
+  const canUseAi = true
 
 
   return (

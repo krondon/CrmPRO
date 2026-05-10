@@ -34,12 +34,12 @@ Deno.serve(async (req) => {
     if (userErr || !user) return err('Token inválido', 401)
     const userId = user.id
 
-    // 2. Check owner or admin
+    // 2. Verify user belongs to this company
     const { data: empresa } = await db.from('empresa').select('usuario_id, nombre').eq('id', empresa_id).maybeSingle()
     const isOwner = empresa?.usuario_id === userId
     if (!isOwner) {
       const { data: member } = await db.from('empresa_miembros').select('rol').eq('empresa_id', empresa_id).eq('usuario_id', userId).maybeSingle()
-      if (member?.rol?.toLowerCase() !== 'admin') return err('Solo owners o admins pueden usar el agente IA', 403)
+      if (!member) return err('No tienes acceso a esta empresa', 403)
     }
 
     // 3. Check Hubmy subscription

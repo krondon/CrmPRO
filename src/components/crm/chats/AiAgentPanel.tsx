@@ -57,8 +57,8 @@ export function AiAgentPanel({ lead, companyId, onClose, onApplySuggestion, onLe
       const json = await res.json()
 
       if (!res.ok || json.error) {
-        const msg: string = json.error || ''
-        if (msg.includes('suscripci') || msg.includes('Hubmy')) {
+        // Any 403 → subscription upsell (button is only visible to owner/admin)
+        if (res.status === 403) {
           toast('✨ Función exclusiva de Hubmy', {
             description: 'Suscríbete a Hubmy para desbloquear el agente IA en tu CRM.',
             action: { label: 'Ir a Hubmy', onClick: () => window.open('https://hubmy.app', '_blank') },
@@ -67,7 +67,7 @@ export function AiAgentPanel({ lead, companyId, onClose, onApplySuggestion, onLe
           onClose()
           return
         }
-        throw new Error(msg || 'Error al contactar el agente')
+        throw new Error(json.error || 'Error al contactar el agente')
       }
 
       setResponse(json)
@@ -155,7 +155,7 @@ export function AiAgentPanel({ lead, companyId, onClose, onApplySuggestion, onLe
             <button
               key={a.label}
               onClick={() => callAgent(a.query)}
-              className="text-xs px-2.5 py-1 rounded-full border border-violet-200 dark:border-violet-800 text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-900/40 transition-colors"
+              className="text-xs px-2.5 py-1 rounded-full bg-violet-700 text-white hover:bg-violet-800 transition-colors"
             >
               {a.label}
             </button>
