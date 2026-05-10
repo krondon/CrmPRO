@@ -7,6 +7,7 @@ declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY =
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("SERVICE_ROLE_KEY")!;
+const HUBMY_API_KEY = Deno.env.get("HUBMY_API_KEY")!;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -175,6 +176,45 @@ async function callAI(
   }
 }
 
+// ─── Hubmy AI fallback (JSON prompt, no tool calling) ─────────
+async function callHubmyAI(systemPrompt: string, question: string): Promise<any> {
+  const controller = new AbortController();
+  const tid = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const res = await fetch("https://apidev.hubmy.app/v1/api/ai/chat", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${HUBMY_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messages: [
+          {
+            role: "system",
+            content:
+              systemPrompt +
+              `\n\nIMPORTANTE: Responde ÚNICAMENTE con un objeto JSON válido (sin markdown, sin bloques de código, sin texto extra). Usa exactamente este formato:\n{"metric":"<métrica>","filters":{},"label":"<etiqueta>"}`,
+          },
+          { role: "user", content: `Pregunta del usuario: "${question}"` },
+        ],
+      }),
+    });
+    if (!res.ok) throw new Error(`Hubmy AI ${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    const content: string =
+      data.data?.content ||
+      data.choices?.[0]?.message?.content ||
+      data.content ||
+      "";
+    // Strip markdown code fences if present
+    const cleaned = content.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
+    return JSON.parse(cleaned);
+  } finally {
+    clearTimeout(tid);
+  }
+}
+
 // ─── Plan validator ───────────────────────────────────────────
 function validatePlan(plan: any): { ok: true; plan: any } | { ok: false; error: string } {
   if (!plan || typeof plan !== "object") return { ok: false, error: "Plan no recibido" };
@@ -291,7 +331,6 @@ serve(async (req) => {
       .eq("is_active", true);
 
     const cfg = (configs ?? []).find((c: any) => c.ai_api_key && c.ai_model);
-    if (!cfg) return json({ error: "IA no configurada para la empresa" }, 400);
 
     // Cargar pipelines para el system prompt
     const { data: pipelines } = await supabase
@@ -302,32 +341,49 @@ serve(async (req) => {
     const today = new Date().toISOString().slice(0, 10);
     const systemPrompt = buildSystemPrompt(today, pipelines ?? []);
 
-    // Llamar IA (con 1 retry como en ai-intent-detector)
+    // Llamar IA: empresa config primero, Hubmy AI como fallback
     const t0 = Date.now();
     let rawPlan: any = null;
     let lastErr: any = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        rawPlan = await callAI(
-          cfg.ai_api_key,
-          cfg.ai_model,
-          systemPrompt,
-          `Pregunta del usuario: "${question}"`,
-        );
-        lastErr = null;
-        break;
-      } catch (err) {
-        lastErr = err;
-        if (attempt < 1) await new Promise((r) => setTimeout(r, 1500));
+
+    if (cfg) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          rawPlan = await callAI(
+            cfg.ai_api_key,
+            cfg.ai_model,
+            systemPrompt,
+            `Pregunta del usuario: "${question}"`,
+          );
+          lastErr = null;
+          break;
+        } catch (err) {
+          lastErr = err;
+          if (attempt < 1) await new Promise((r) => setTimeout(r, 1500));
+        }
       }
     }
-    if (lastErr) {
+
+    // Hubmy AI fallback (cuando no hay config de empresa o falló)
+    if (!rawPlan && HUBMY_API_KEY) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          rawPlan = await callHubmyAI(systemPrompt, question);
+          lastErr = null;
+          break;
+        } catch (err) {
+          lastErr = err;
+          if (attempt < 1) await new Promise((r) => setTimeout(r, 1500));
+        }
+      }
+    }
+    if (!rawPlan || lastErr) {
       await supabase.from("ai_analytics_query_log").insert({
         empresa_id,
         usuario_id: requesterId,
         question,
         plan: {},
-        error: String((lastErr as any)?.message ?? lastErr),
+        error: String((lastErr as any)?.message ?? lastErr ?? "sin respuesta"),
       });
       return json({ error: "La IA no pudo responder", detail: String((lastErr as any)?.message ?? lastErr) }, 502);
     }
