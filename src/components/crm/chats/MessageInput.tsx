@@ -19,15 +19,19 @@ import {
     Stop,
     Spinner,
     X,
-    DeviceMobile
+    DeviceMobile,
+    Sparkle
 } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { useAudioRecorder } from '@/hooks/useAudioRecorder'
 import { sendMessage, uploadChatAttachment } from '@/supabase/services/mensajes'
 import type { Message } from '@/supabase/services/mensajes'
+import { supabase } from '@/supabase/client'
 
 import { Channel } from '@/lib/types'
+
+const AI_SUGGEST_FN = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/hubmy-ai-suggest`
 
 interface MessageInputProps {
     leadId: string
@@ -35,6 +39,8 @@ interface MessageInputProps {
     disabled?: boolean
     instanceLabel?: string | null
     onMessageSent?: (msg?: Message) => void
+    isAiEnabled?: boolean
+    companyId?: string
 }
 
 export function MessageInput({
@@ -42,12 +48,39 @@ export function MessageInput({
     channel,
     disabled = false,
     instanceLabel,
-    onMessageSent
+    onMessageSent,
+    isAiEnabled = false,
+    companyId
 }: MessageInputProps) {
     const [messageInput, setMessageInput] = useState('')
     const [isUploading, setIsUploading] = useState(false)
+    const [isLoadingAi, setIsLoadingAi] = useState(false)
     const [pendingImages, setPendingImages] = useState<Array<{ file: File; preview: string }>>([])
     const fileInputRef = useRef<HTMLInputElement>(null)
+
+    const handleAiSuggest = async () => {
+        if (!companyId) return
+        setIsLoadingAi(true)
+        try {
+            const { data: { session } } = await supabase.auth.getSession()
+            if (!session) throw new Error('Sin sesión')
+            const res = await fetch(AI_SUGGEST_FN, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${session.access_token}`,
+                },
+                body: JSON.stringify({ lead_id: leadId, empresa_id: companyId }),
+            })
+            const json = await res.json()
+            if (!res.ok || json.error) throw new Error(json.error || 'Error al obtener sugerencia')
+            setMessageInput(json.suggestion)
+        } catch (e: any) {
+            toast.error(e.message || 'Error al generar sugerencia')
+        } finally {
+            setIsLoadingAi(false)
+        }
+    }
 
     // Hook de grabación de audio
     const handleAudioReady = useCallback(async (audioBlob: Blob, audioFile: File) => {
@@ -224,6 +257,20 @@ export function MessageInput({
                     {!isRecording && !messageInput.trim() && (
                         <button type="button" className="text-muted-foreground hover:text-primary transition-colors p-1">
                             <Smiley className="w-5 h-5" />
+                        </button>
+                    )}
+                    {isAiEnabled && !isRecording && (
+                        <button
+                            type="button"
+                            onClick={handleAiSuggest}
+                            disabled={disabled || isUploading || isLoadingAi}
+                            className="text-muted-foreground hover:text-violet-500 transition-colors p-1 shrink-0"
+                            title="Sugerir respuesta con IA"
+                        >
+                            {isLoadingAi
+                                ? <Spinner className="w-5 h-5 animate-spin" />
+                                : <Sparkle className="w-5 h-5" weight="fill" />
+                            }
                         </button>
                     )}
                 </div>

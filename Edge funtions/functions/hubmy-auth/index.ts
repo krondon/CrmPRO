@@ -40,6 +40,7 @@ Deno.serve(async (req) => {
 
     const hu = vJson.data.user
     const hs = vJson.data.session
+    const subscriptionActive = vJson.data.subscription?.active ?? false
     const email = hu.email
     const name  = hu.display_name || hu.name || email
 
@@ -63,13 +64,14 @@ Deno.serve(async (req) => {
       tipo_cuenta: 'owner',
     }, { onConflict: 'id', ignoreDuplicates: true })
 
-    // 4. Link Hubmy user ↔ Supabase user
+    // 4. Link Hubmy user ↔ Supabase user (with subscription status)
     await db.from('hubmy_linked_users').upsert({
       supabase_user_id: supabaseUserId,
       hubmy_user_id:    hu.id,
       hubmy_session_id: hs?.id ?? null,
       hubmy_email:      email,
       hubmy_name:       name,
+      hubmy_subscription_active: subscriptionActive,
       last_active_at:   new Date().toISOString(),
     }, { onConflict: 'hubmy_user_id' })
 
@@ -78,6 +80,7 @@ Deno.serve(async (req) => {
       email,
       name,
       hubmy_user_id: hu.id,
+      subscription_active: subscriptionActive,
     })
 
   } catch (e: any) {

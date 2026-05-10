@@ -202,6 +202,7 @@ function ChatsViewWrapper() {
   const canDeleteLead = !!(isOwner || isAdmin)
   const canDeleteMessages = isOwner || hasPermission('delete_messages')
   const canManageTags = isOwner || hasPermission('manage_tags')
+  const canUseAi = !!(isOwner || isAdmin)
 
 
   return (
@@ -210,6 +211,7 @@ function ChatsViewWrapper() {
       canDeleteLead={canDeleteLead}
       canDeleteMessages={canDeleteMessages}
       canManageTags={canManageTags}
+      canUseAi={canUseAi}
       onNavigateToPipeline={(lead) => {
         sessionStorage.setItem('pendingLeadNavigation', JSON.stringify({
           leadId: lead.id,

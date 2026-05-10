@@ -30,6 +30,7 @@ interface ChatWindowProps {
     canDeleteLead?: boolean
     canDeleteMessages?: boolean
     canManageTags?: boolean
+    isAiEnabled?: boolean
     onBack: () => void // Para móvil
     onArchive: (lead: Lead, state: boolean) => Promise<void>
     onDelete: (lead: Lead) => Promise<void>
@@ -48,6 +49,7 @@ export function ChatWindow({
     canDeleteLead = false,
     canDeleteMessages = true,
     canManageTags = true,
+    isAiEnabled = false,
     onBack,
     onArchive,
     onDelete,
@@ -709,6 +711,8 @@ export function ChatWindow({
                         }
                         updateLeadListOrder(lead.id, msg as any)
                     }}
+                    isAiEnabled={isAiEnabled}
+                    companyId={companyId}
                 />
             </div>
 

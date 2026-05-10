@@ -19,11 +19,12 @@ interface ChatsViewProps {
   canDeleteLead?: boolean
   canDeleteMessages?: boolean
   canManageTags?: boolean
+  canUseAi?: boolean
 }
 
 // NOTA: safeFormatDate ahora viene de useDateFormat hook como safeFormatDate
 
-export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = false, canDeleteMessages = true, canManageTags = true }: ChatsViewProps) {
+export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = false, canDeleteMessages = true, canManageTags = true, canUseAi = false }: ChatsViewProps) {
   // ==========================================
   // Hook de leads paginados (antes era ~250 líneas de código duplicado)
   // ==========================================
@@ -246,6 +247,7 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
         canDeleteLead={canDeleteLead}
         canDeleteMessages={canDeleteMessages}
         canManageTags={canManageTags}
+        isAiEnabled={canUseAi}
         onBack={() => { setSelectedLeadId(null); setSelectedLeadFromSearch(null) }}
         onArchive={handleArchiveToggle}
         onDelete={handleDeleteLead}
