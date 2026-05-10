@@ -17,6 +17,7 @@ import { detectChannel } from '@/hooks/useLeadsList'
 import { getMessages, subscribeToMessages, markMessagesAsRead, deleteMessage, deleteConversation } from '@/supabase/services/mensajes'
 import type { Message as DbMessage } from '@/supabase/services/mensajes'
 import { MessageInput } from './MessageInput'
+import { AiAgentPanel } from './AiAgentPanel'
 import { LeadTags } from './LeadTags'
 import { LeadDetailSheet } from '../LeadDetailSheet'
 import { listWhatsappInstancias } from '@/supabase/services/instances'
@@ -82,6 +83,8 @@ export function ChatWindow({
     const [showChatSearch, setShowChatSearch] = useState(false)
     const [chatSearchTerm, setChatSearchTerm] = useState('')
     const [chatSearchIndex, setChatSearchIndex] = useState(0)
+    const [showAiPanel, setShowAiPanel] = useState(false)
+    const [pendingSuggestion, setPendingSuggestion] = useState<{ text: string; ts: number } | null>(null)
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const chatSearchInputRef = useRef<HTMLInputElement>(null)
@@ -700,6 +703,21 @@ export function ChatWindow({
                     </div>
                 </div>
 
+                {showAiPanel && (
+                    <AiAgentPanel
+                        lead={lead}
+                        companyId={companyId}
+                        onClose={() => setShowAiPanel(false)}
+                        onApplySuggestion={(text) => {
+                            setPendingSuggestion({ text, ts: Date.now() })
+                            setShowAiPanel(false)
+                        }}
+                        onLeadUpdated={() => {
+                            setShowAiPanel(false)
+                            onLeadUpdate?.(lead)
+                        }}
+                    />
+                )}
                 <MessageInput
                     leadId={lead.id}
                     channel={detectChannel(lead)}
@@ -712,7 +730,8 @@ export function ChatWindow({
                         updateLeadListOrder(lead.id, msg as any)
                     }}
                     isAiEnabled={isAiEnabled}
-                    companyId={companyId}
+                    onAiClick={() => setShowAiPanel(prev => !prev)}
+                    suggestion={pendingSuggestion}
                 />
             </div>
 

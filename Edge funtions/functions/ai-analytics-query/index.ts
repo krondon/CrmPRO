@@ -323,6 +323,17 @@ serve(async (req) => {
     const isOwner = empresa.usuario_id === requesterId;
     if (!isOwner && !miembro) return json({ error: "Sin acceso a la empresa" }, 403);
 
+    // Verificar suscripción Hubmy para usar el asistente de analytics
+    const { data: linkedUser } = await supabase
+      .from("hubmy_linked_users")
+      .select("hubmy_subscription_active")
+      .eq("supabase_user_id", requesterId)
+      .maybeSingle();
+
+    if (!linkedUser?.hubmy_subscription_active) {
+      return json({ error: "Se requiere suscripción activa en Hubmy para usar el asistente de analytics" }, 403);
+    }
+
     // Buscar config de IA activa de la empresa (reutilizamos la misma config que ai-intent-detector)
     const { data: configs } = await supabase
       .from("ai_automation_config")

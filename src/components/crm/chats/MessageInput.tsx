@@ -8,7 +8,7 @@
  * - Archivos adjuntos
  */
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -27,11 +27,8 @@ import { toast } from 'sonner'
 import { useAudioRecorder } from '@/hooks/useAudioRecorder'
 import { sendMessage, uploadChatAttachment } from '@/supabase/services/mensajes'
 import type { Message } from '@/supabase/services/mensajes'
-import { supabase } from '@/supabase/client'
 
 import { Channel } from '@/lib/types'
-
-const AI_SUGGEST_FN = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/hubmy-ai-suggest`
 
 interface MessageInputProps {
     leadId: string
@@ -40,7 +37,8 @@ interface MessageInputProps {
     instanceLabel?: string | null
     onMessageSent?: (msg?: Message) => void
     isAiEnabled?: boolean
-    companyId?: string
+    onAiClick?: () => void
+    suggestion?: { text: string; ts: number } | null
 }
 
 export function MessageInput({
@@ -50,46 +48,18 @@ export function MessageInput({
     instanceLabel,
     onMessageSent,
     isAiEnabled = false,
-    companyId
+    onAiClick,
+    suggestion,
 }: MessageInputProps) {
     const [messageInput, setMessageInput] = useState('')
     const [isUploading, setIsUploading] = useState(false)
-    const [isLoadingAi, setIsLoadingAi] = useState(false)
     const [pendingImages, setPendingImages] = useState<Array<{ file: File; preview: string }>>([])
     const fileInputRef = useRef<HTMLInputElement>(null)
 
-    const handleAiSuggest = async () => {
-        if (!companyId) return
-        setIsLoadingAi(true)
-        try {
-            const { data: { session } } = await supabase.auth.getSession()
-            if (!session) throw new Error('Sin sesión')
-            const res = await fetch(AI_SUGGEST_FN, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${session.access_token}`,
-                },
-                body: JSON.stringify({ lead_id: leadId, empresa_id: companyId }),
-            })
-            const json = await res.json()
-            if (!res.ok || json.error) throw new Error(json.error || 'Error al obtener sugerencia')
-            setMessageInput(json.suggestion)
-        } catch (e: any) {
-            const msg: string = e.message || ''
-            if (msg.includes('suscripci') || msg.includes('Hubmy')) {
-                toast('✨ Función exclusiva de Hubmy', {
-                    description: 'Suscríbete a Hubmy para desbloquear el asistente IA en tus chats.',
-                    action: { label: 'Ir a Hubmy', onClick: () => window.open('https://hubmy.app', '_blank') },
-                    duration: 6000,
-                })
-            } else {
-                toast.error(msg || 'Error al generar sugerencia')
-            }
-        } finally {
-            setIsLoadingAi(false)
-        }
-    }
+    // Apply suggestion from AI agent panel
+    useEffect(() => {
+        if (suggestion?.text) setMessageInput(suggestion.text)
+    }, [suggestion])
 
     // Hook de grabación de audio
     const handleAudioReady = useCallback(async (audioBlob: Blob, audioFile: File) => {
@@ -271,15 +241,12 @@ export function MessageInput({
                     {isAiEnabled && !isRecording && (
                         <button
                             type="button"
-                            onClick={handleAiSuggest}
-                            disabled={disabled || isUploading || isLoadingAi}
+                            onClick={onAiClick}
+                            disabled={disabled || isUploading}
                             className="text-muted-foreground hover:text-violet-500 transition-colors p-1 shrink-0"
-                            title="Sugerir respuesta con IA"
+                            title="Agente IA"
                         >
-                            {isLoadingAi
-                                ? <Spinner className="w-5 h-5 animate-spin" />
-                                : <Sparkle className="w-5 h-5" weight="fill" />
-                            }
+                            <Sparkle className="w-5 h-5" weight="fill" />
                         </button>
                     )}
                 </div>
