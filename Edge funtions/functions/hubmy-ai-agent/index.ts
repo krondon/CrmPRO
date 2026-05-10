@@ -35,10 +35,10 @@ Deno.serve(async (req) => {
     const userId = user.id
 
     // 2. Verify user belongs to this company
-    const { data: empresa } = await db.from('empresa').select('usuario_id, nombre').eq('id', empresa_id).maybeSingle()
+    const { data: empresa } = await db.from('empresa').select('usuario_id, nombre_empresa').eq('id', empresa_id).maybeSingle()
     const isOwner = empresa?.usuario_id === userId
     if (!isOwner) {
-      const { data: member } = await db.from('empresa_miembros').select('rol').eq('empresa_id', empresa_id).eq('usuario_id', userId).maybeSingle()
+      const { data: member } = await db.from('empresa_miembros').select('role').eq('empresa_id', empresa_id).eq('usuario_id', userId).maybeSingle()
       if (!member) return err('No tienes acceso a esta empresa', 403)
     }
 
@@ -97,7 +97,7 @@ Deno.serve(async (req) => {
       : '  (sin miembros)'
 
     // 7. Call Hubmy AI with agent prompt
-    const systemPrompt = `Eres un agente inteligente de CRM para la empresa "${empresa?.nombre || empresa_id}". Puedes hacer acciones sobre leads y consultar datos del CRM.
+    const systemPrompt = `Eres un agente inteligente de CRM para la empresa "${empresa?.nombre_empresa || empresa_id}". Puedes hacer acciones sobre leads y consultar datos del CRM.
 
 CONTEXTO ACTUAL:
 ${leadBlock}
