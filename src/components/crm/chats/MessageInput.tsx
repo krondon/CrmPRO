@@ -8,7 +8,7 @@
  * - Archivos adjuntos
  */
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -19,7 +19,8 @@ import {
     Stop,
     Spinner,
     X,
-    DeviceMobile
+    DeviceMobile,
+    Sparkle
 } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -35,6 +36,9 @@ interface MessageInputProps {
     disabled?: boolean
     instanceLabel?: string | null
     onMessageSent?: (msg?: Message) => void
+    isAiEnabled?: boolean
+    onAiClick?: () => void
+    suggestion?: { text: string; ts: number } | null
 }
 
 export function MessageInput({
@@ -42,12 +46,20 @@ export function MessageInput({
     channel,
     disabled = false,
     instanceLabel,
-    onMessageSent
+    onMessageSent,
+    isAiEnabled = false,
+    onAiClick,
+    suggestion,
 }: MessageInputProps) {
     const [messageInput, setMessageInput] = useState('')
     const [isUploading, setIsUploading] = useState(false)
     const [pendingImages, setPendingImages] = useState<Array<{ file: File; preview: string }>>([])
     const fileInputRef = useRef<HTMLInputElement>(null)
+
+    // Apply suggestion from AI agent panel
+    useEffect(() => {
+        if (suggestion?.text) setMessageInput(suggestion.text)
+    }, [suggestion])
 
     // Hook de grabación de audio
     const handleAudioReady = useCallback(async (audioBlob: Blob, audioFile: File) => {
@@ -224,6 +236,17 @@ export function MessageInput({
                     {!isRecording && !messageInput.trim() && (
                         <button type="button" className="text-muted-foreground hover:text-primary transition-colors p-1">
                             <Smiley className="w-5 h-5" />
+                        </button>
+                    )}
+                    {isAiEnabled && !isRecording && (
+                        <button
+                            type="button"
+                            onClick={onAiClick}
+                            disabled={disabled || isUploading}
+                            className="text-muted-foreground hover:text-violet-500 transition-colors p-1 shrink-0"
+                            title="Agente IA"
+                        >
+                            <Sparkle className="w-5 h-5" weight="fill" />
                         </button>
                     )}
                 </div>
