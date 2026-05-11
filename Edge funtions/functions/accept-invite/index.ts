@@ -51,6 +51,23 @@ serve(async (req) => {
       throw new Error("Esta invitación ya fue procesada");
     }
 
+    // Validar que el email del usuario auth coincida con invited_email.
+    // Evita que un usuario con sesión iniciada en otra cuenta acepte una invitación que no es suya.
+    const { data: authUserData, error: authUserErr } = await supabaseAdmin.auth.admin.getUserById(userId);
+    if (authUserErr || !authUserData?.user) {
+      throw new Error("Usuario no encontrado");
+    }
+    const authEmail = (authUserData.user.email || '').trim().toLowerCase();
+    const invitedEmail = (invite.invited_email || '').trim().toLowerCase();
+    if (!authEmail || !invitedEmail || authEmail !== invitedEmail) {
+      return new Response(JSON.stringify({
+        error: `Esta invitación es para ${invite.invited_email}. Inicia sesión con ese correo para aceptarla.`
+      }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Obtener el nombre real del usuario desde la tabla usuarios
     let realUserName = invite.invited_nombre;
     try {

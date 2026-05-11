@@ -723,6 +723,7 @@ export function ChatWindow({
                     channel={detectChannel(lead)}
                     disabled={isLoadingMessages}
                     instanceLabel={activeInstance ? (activeInstance.label || activeInstance.client_id || 'WhatsApp') : null}
+                    empresaId={companyId}
                     onMessageSent={(msg) => {
                         if (msg) {
                             setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg])

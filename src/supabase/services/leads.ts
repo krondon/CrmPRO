@@ -376,6 +376,105 @@ export async function createLead(lead: CreateLeadDTO, actorId?: string, actorNom
 }
 
 /**
+ * Duplica una oportunidad (lead) a otro pipeline / etapa.
+ * Copia los datos comerciales del lead y sus notas. No copia chat, reuniones, ni
+ * metadata de canal (instance_id, channel, external_handle, last_message_at) — eso
+ * deja al duplicado limpio y evita que webhooks reenruten mensajes al lead nuevo.
+ */
+export async function duplicateLead(
+    sourceLeadId: string,
+    targetPipelineId: string,
+    targetStageId: string,
+    actorId?: string,
+    actorNombre?: string
+): Promise<LeadDB> {
+    // 1. Leer el lead origen
+    const { data: sourceRaw, error: sourceErr } = await supabase
+        .from('lead')
+        .select(SHARED_LEAD_COLUMNS)
+        .eq('id', sourceLeadId)
+        .single()
+
+    if (sourceErr || !sourceRaw) {
+        throw new Error(sourceErr?.message || 'No se encontró la oportunidad original')
+    }
+    const source = sourceRaw as any
+
+    // 2. Construir payload sin metadatos de canal/cronología (se regeneran)
+    const payload: Record<string, any> = {
+        nombre_completo: source.nombre_completo,
+        correo_electronico: source.correo_electronico,
+        telefono: source.telefono,
+        empresa: source.empresa,
+        empresa_id: source.empresa_id,
+        ubicacion: source.ubicacion,
+        presupuesto: source.presupuesto,
+        prioridad: source.prioridad,
+        asignado_a: source.asignado_a,
+        evento: source.evento,
+        membresia: source.membresia,
+        tags: source.tags ?? [],
+        custom_fields: source.custom_fields ?? {},
+        pipeline_id: targetPipelineId,
+        etapa_id: targetStageId,
+    }
+
+    // 3. Insertar el duplicado
+    const { data: createdRaw, error: insertErr } = await supabase
+        .from('lead')
+        .insert(payload)
+        .select()
+        .single()
+
+    if (insertErr || !createdRaw) {
+        throw new Error(insertErr?.message || 'No se pudo crear el duplicado')
+    }
+    const created = createdRaw as LeadDB
+
+    // 4. Copiar notas (best-effort, no fallar si hay error)
+    try {
+        const { data: notas } = await supabase
+            .from('nota_lead')
+            .select('contenido, creado_por, creador_nombre, created_at')
+            .eq('lead_id', sourceLeadId)
+
+        if (notas && notas.length > 0) {
+            const notaInserts = notas.map((n: any) => ({
+                lead_id: created.id,
+                contenido: n.contenido,
+                creado_por: n.creado_por,
+                creador_nombre: n.creador_nombre,
+                created_at: n.created_at,
+            }))
+            const { error: notaErr } = await supabase.from('nota_lead').insert(notaInserts)
+            if (notaErr) console.warn('[duplicateLead] No se pudieron copiar las notas:', notaErr)
+        }
+    } catch (e) {
+        console.warn('[duplicateLead] Error copiando notas:', e)
+    }
+
+    // 5. Log de historial en el lead duplicado (best-effort)
+    if (actorId) {
+        try {
+            await createHistoryEntry({
+                lead_id: created.id,
+                usuario_id: actorId,
+                accion: 'creacion',
+                detalle: `Duplicó la oportunidad "${created.nombre_completo}" desde otro pipeline`,
+                metadata: {
+                    actor_nombre: actorNombre,
+                    source_lead_id: sourceLeadId,
+                }
+            })
+        } catch (e) {
+            console.error('[duplicateLead] Error logging history:', e)
+        }
+    }
+
+    return created
+}
+
+/**
  * Crea múltiples leads en una sola operación
  */
 export async function createLeadsBulk(leads: CreateLeadDTO[], actorId?: string, actorNombre?: string): Promise<LeadDB[]> {

@@ -5,11 +5,12 @@ import { usePipelineData } from '@/hooks/usePipelineData'
 import { usePipelineLeadActions } from '@/hooks/usePipelineLeadActions'
 import { useDragDrop } from '@/hooks/useDragDrop'
 import { useStageDragDrop } from '@/hooks/useStageDragDrop'
+import { useLeadClipboard } from '@/hooks/useLeadClipboard'
 import { Lead, Pipeline, PipelineType, TeamMember, Stage } from '@/lib/types'
 // import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Plus, Funnel, Trash, CaretLeft, CaretRight, Download, GearSix, ArrowsClockwise, Shuffle } from '@phosphor-icons/react'
+import { Plus, Funnel, Trash, CaretLeft, CaretRight, Download, GearSix, ArrowsClockwise, Shuffle, ClipboardText, X as XIcon } from '@phosphor-icons/react'
 import { LeadDetailSheet } from './LeadDetailSheet'
 import { AddStageDialog } from './AddStageDialog'
 import { AddLeadDialog } from './AddLeadDialog'
@@ -32,7 +33,7 @@ import {
 import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
 import { deletePipeline, getPipelines, updatePipelinesOrder } from '@/supabase/helpers/pipeline'
-import { deleteLead, getLeads, getLeadsPaged, updateLead, searchLeads } from '@/supabase/services/leads'
+import { deleteLead, getLeads, getLeadsPaged, updateLead, searchLeads, duplicateLead } from '@/supabase/services/leads'
 import { getEquipos } from '@/supabase/services/equipos'
 import { getPersonas } from '@/supabase/services/persona'
 import { getPipelinesForPersona } from '@/supabase/helpers/personaPipeline'
@@ -799,6 +800,69 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
     }
   }
 
+  // ==========================================
+  // COPIAR Y PEGAR OPORTUNIDADES ENTRE PIPELINES
+  // ==========================================
+  const { copiedLead, copy: copyLead, clear: clearClipboard } = useLeadClipboard(companyId)
+  const [isPasting, setIsPasting] = useState(false)
+
+  const handleCopyLead = (lead: Lead) => {
+    copyLead(lead)
+    toast.success(`Copiaste "${lead.name}". Pega en cualquier etapa.`, { duration: 4000 })
+  }
+
+  const handlePasteToStage = async (stageId: string) => {
+    if (!copiedLead || !currentPipeline?.id || isPasting) return
+    setIsPasting(true)
+    try {
+      const created = await duplicateLead(
+        copiedLead.id,
+        currentPipeline.id,
+        stageId,
+        user?.id,
+        user?.businessName || user?.email
+      )
+
+      // Mapear LeadDB → Lead UI
+      const newLead: Lead = {
+        id: created.id,
+        name: created.nombre_completo,
+        email: created.correo_electronico || '',
+        phone: created.telefono || '',
+        company: created.empresa || '',
+        location: created.ubicacion || undefined,
+        evento: created.evento || undefined,
+        membresia: created.membresia || undefined,
+        budget: created.presupuesto || 0,
+        stage: created.etapa_id,
+        pipeline: (created.pipeline_id as any) || currentPipeline.type,
+        priority: created.prioridad as any,
+        assignedTo: created.asignado_a || '',
+        tags: (created as any).tags || [],
+        createdAt: new Date(created.created_at),
+        lastContact: new Date(created.created_at),
+        stageEnteredAt: (created as any).stage_entered_at ? new Date((created as any).stage_entered_at) : undefined,
+        slaCustomLimitMinutes: (created as any).sla_custom_limit_minutes ?? null,
+        customFields: (created as any).custom_fields ?? {},
+      }
+
+      setLeads(prev => [...prev, newLead])
+      setStageCounts(prev => ({
+        ...prev,
+        [stageId]: (prev[stageId] || 0) + 1
+      }))
+
+      const stageName = currentPipeline.stages.find(s => s.id === stageId)?.name || 'la etapa'
+      toast.success(`Pegaste "${newLead.name}" en ${stageName}`)
+      clearClipboard()
+    } catch (err: any) {
+      console.error('[PipelineView] Error duplicando lead:', err)
+      toast.error(err?.message || 'No se pudo pegar la oportunidad')
+    } finally {
+      setIsPasting(false)
+    }
+  }
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="p-4 md:p-6 border-b border-border/50 bg-gradient-to-r from-background via-background to-muted/10">
@@ -1076,6 +1140,26 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
         </div>
       </div>
 
+      {/* Banner de oportunidad copiada — visible mientras hay clipboard activo */}
+      {copiedLead && (
+        <div className="mx-4 md:mx-6 mt-3 mb-1 px-3 py-2 rounded-lg bg-primary/10 border border-primary/30 flex items-center gap-3 text-sm animate-in fade-in slide-in-from-top-2 duration-200">
+          <ClipboardText size={18} weight="duotone" className="text-primary shrink-0" />
+          <span className="flex-1 truncate">
+            Copiaste <strong>"{copiedLead.name}"</strong>. Selecciona la etapa donde quieres pegarla (puedes cambiar de pipeline).
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-muted-foreground hover:text-foreground shrink-0"
+            onClick={clearClipboard}
+            title="Cancelar copia"
+          >
+            <XIcon size={14} className="mr-1" />
+            Cancelar
+          </Button>
+        </div>
+      )}
+
       <PipelineBoard
         currentPipeline={currentPipeline}
         pipelines={pipelines}
@@ -1112,6 +1196,10 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
           setMoveDialogLead(lead)
           setMoveDialogOpen(true)
         }}
+        onCopyLead={handleCopyLead}
+        pasteableLeadName={copiedLead?.name || null}
+        onPasteToStage={handlePasteToStage}
+        isPasting={isPasting}
         t={t}
         // Stage DnD
         onStageDragStart={handleStageDragStart}

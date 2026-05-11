@@ -19,6 +19,7 @@ import { toast } from 'sonner'
 import { getPipelines } from '@/supabase/helpers/pipeline'
 import { getCompanyMeetings, deleteLeadMeeting } from '@/supabase/services/reuniones'
 import { getTasks, updateTask, deleteTask } from '@/supabase/services/tasks'
+import { mapDBToLead } from '@/hooks/useLeadsList'
 
 interface DashboardProps {
   companyId?: string
@@ -57,7 +58,6 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
       getLeads(companyId)
         .then((data) => {
           if (data) {
-            const { mapDBToLead } = require('@/hooks/useLeadsList')
             setLeads(data.map(mapDBToLead))
           }
         })
@@ -85,7 +85,7 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
       // Cargar miembros
       getCompanyMembers(companyId)
         .then(data => setMembers(data || []))
-        .catch(err => console.error('Error fetching members:', err))
+        .catch(err => console.error('Error fetching members:', err?.message, err?.code, err?.details, err))
     }
   }, [companyId])
 

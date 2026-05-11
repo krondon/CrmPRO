@@ -3,7 +3,7 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Plus, Trash, PencilSimple, Check, X, ArrowsClockwise } from '@phosphor-icons/react'
+import { Plus, Trash, PencilSimple, Check, X, ArrowsClockwise, ClipboardText, CircleNotch } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { Lead, Pipeline, PipelineType, TeamMember, Stage } from '@/lib/types'
 import { AddLeadDialog } from '@/components/crm/AddLeadDialog'
@@ -60,6 +60,12 @@ interface PipelineColumnProps {
     onDeleteLead: (leadId: string) => void
     onMoveToStage: (lead: Lead, stageId: string) => void
     onOpenMoveDialog: (lead: Lead) => void
+    onCopyLead?: (lead: Lead) => void
+
+    // Copy/Paste
+    pasteableLeadName?: string | null
+    onPasteToStage?: (stageId: string) => void
+    isPasting?: boolean
 
     // Helpers
     t: any
@@ -103,6 +109,10 @@ export function PipelineColumn({
     onDeleteLead,
     onMoveToStage,
     onOpenMoveDialog,
+    onCopyLead,
+    pasteableLeadName,
+    onPasteToStage,
+    isPasting,
     t
     ,
     onStageDragStart,
@@ -364,6 +374,31 @@ export function PipelineColumn({
                     )}
                 </div>
 
+                {/* Botón "Pegar aquí" visible solo cuando hay una oportunidad copiada */}
+                {pasteableLeadName && onPasteToStage && (
+                    <button
+                        type="button"
+                        onClick={() => onPasteToStage(stage.id)}
+                        disabled={isPasting}
+                        className={cn(
+                            "w-full mb-2 px-3 py-2 rounded-lg border-2 border-dashed border-primary/40 bg-primary/5 text-primary text-xs font-semibold flex items-center justify-center gap-2 hover:bg-primary/10 hover:border-primary transition-colors disabled:opacity-60 disabled:cursor-wait"
+                        )}
+                        title={`Pegar "${pasteableLeadName}" en ${stage.name}`}
+                    >
+                        {isPasting ? (
+                            <>
+                                <CircleNotch size={14} className="animate-spin" />
+                                Pegando...
+                            </>
+                        ) : (
+                            <>
+                                <ClipboardText size={14} weight="duotone" />
+                                Pegar "<span className="truncate max-w-[120px] inline-block align-bottom">{pasteableLeadName}</span>" aquí
+                            </>
+                        )}
+                    </button>
+                )}
+
                 {/* Column Cards Container */}
                 <div className="flex flex-row md:flex-col gap-3 overflow-x-auto md:overflow-x-hidden md:overflow-y-auto min-h-[120px] md:min-h-[200px] md:flex-1 pb-4 px-1 scrollbar-thin scrollbar-thumb-muted-foreground/20 scrollbar-track-transparent">
                     {stageLeads.map(lead => (
@@ -389,6 +424,7 @@ export function PipelineColumn({
                             onDelete={onDeleteLead}
                             onMoveToStage={onMoveToStage}
                             onOpenMoveDialog={onOpenMoveDialog}
+                            onCopy={onCopyLead}
                             t={t}
                         />
                     ))}

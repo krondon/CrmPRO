@@ -10,9 +10,10 @@ import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
 
 import { getPendingInvitations, acceptInvitation, rejectInvitation } from '@/supabase/services/invitations'
-import { aprobarSolicitud, rechazarSolicitud } from '@/supabase/services/solicitudes'
+import { rechazarSolicitud } from '@/supabase/services/solicitudes'
 import { supabase } from '@/supabase/client'
 import { useEffect } from 'react'
+import { ApproveJoinRequestDialog } from './ApproveJoinRequestDialog'
 
 interface Invitation {
     id: string
@@ -55,6 +56,11 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
     const [activeTab, setActiveTab] = useState<'all' | 'leads' | 'team'>('all')
     const [joinRequests, setJoinRequests] = useState<ResponseNotification[]>([])
     const [processingRequest, setProcessingRequest] = useState<string | null>(null)
+    const [approveDialog, setApproveDialog] = useState<{
+        solicitudId: string
+        solicitanteEmail?: string
+        solicitanteName?: string
+    } | null>(null)
 
     const loadInvitations = async () => {
         try {
@@ -285,19 +291,17 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
         }
     }
 
-    const handleApproveJoinRequest = async (notif: ResponseNotification) => {
+    const handleApproveJoinRequest = (notif: ResponseNotification) => {
         const solicitudId = (notif as any).data?.solicitud_id
         if (!solicitudId) return toast.error('ID de solicitud no encontrado')
-        setProcessingRequest(solicitudId)
-        try {
-            await aprobarSolicitud(solicitudId)
-            setJoinRequests(prev => prev.filter(n => (n as any).data?.solicitud_id !== solicitudId))
-            toast.success('Solicitud aprobada. El usuario ya puede acceder al CRM.')
-        } catch (err: any) {
-            toast.error(err.message || 'Error al aprobar solicitud')
-        } finally {
-            setProcessingRequest(null)
-        }
+        const solicitanteEmail = (notif as any).data?.solicitante_email
+        const solicitanteName = notif.message?.split('(')[0]?.trim()
+        setApproveDialog({ solicitudId, solicitanteEmail, solicitanteName })
+    }
+
+    const handleApprovedFromDialog = () => {
+        if (!approveDialog) return
+        setJoinRequests(prev => prev.filter(n => (n as any).data?.solicitud_id !== approveDialog.solicitudId))
     }
 
     const handleRejectJoinRequest = async (notif: ResponseNotification) => {
@@ -386,7 +390,7 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
                                                             <X className="mr-2" size={16} />Rechazar
                                                         </Button>
                                                         <Button onClick={() => handleApproveJoinRequest(notif)} disabled={isProcessing} className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
-                                                            <Check className="mr-2" size={16} />{isProcessing ? 'Procesando...' : 'Aprobar'}
+                                                            <Check className="mr-2" size={16} />{isProcessing ? 'Procesando...' : 'Aprobar y configurar'}
                                                         </Button>
                                                     </div>
                                                 </div>
@@ -701,6 +705,18 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
 
                 {/* Leads Asignados (duplicado eliminado, ahora se muestran arriba) */}
             </div>
+
+            {/* Diálogo de aprobación de solicitud de unión */}
+            {approveDialog && (
+                <ApproveJoinRequestDialog
+                    open={!!approveDialog}
+                    onClose={() => setApproveDialog(null)}
+                    solicitudId={approveDialog.solicitudId}
+                    solicitanteEmail={approveDialog.solicitanteEmail}
+                    solicitanteName={approveDialog.solicitanteName}
+                    onApproved={handleApprovedFromDialog}
+                />
+            )}
         </div>
     )
 }

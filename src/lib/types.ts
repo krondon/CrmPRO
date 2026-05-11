@@ -439,6 +439,35 @@ export interface EmpresaInstanciaDB {
   updated_at?: string
 }
 
+// ----- Meta WhatsApp Cloud API -----
+export interface MetaConfigDB {
+  id: string
+  empresa_id: string
+  label?: string | null
+  phone_number_id: string
+  waba_id: string
+  access_token: string
+  display_phone?: string | null
+  active: boolean
+  created_at?: string
+  updated_at?: string | null
+}
+
+export interface MetaFollowUpTemplateDB {
+  id: string
+  empresa_id: string
+  meta_config_id: string
+  meta_template_name: string
+  meta_template_language: string
+  meta_template_category?: string | null
+  display_label?: string | null
+  body_preview?: string | null
+  has_variables: boolean
+  active: boolean
+  created_at?: string
+  updated_at?: string | null
+}
+
 // ----- Empresa DTOs -----
 export interface CreateEmpresaDTO {
   nombre_empresa: string
@@ -550,6 +579,7 @@ export interface UsuarioDB {
   avatar_url?: string
   recovery_email?: string | null
   account_type: AccountType
+  last_empresa_id?: string | null
   created_at: string
 }
 

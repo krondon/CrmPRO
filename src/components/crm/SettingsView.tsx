@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Plus, Trash, SignOut, Pencil, Check, X, Envelope, ShieldCheck, GearSix, Lightning, Tag, Funnel, Buildings, Plug, ShoppingCart, Key, Rocket, Sliders, Copy } from '@phosphor-icons/react'
+import { Plus, Trash, SignOut, Pencil, Check, X, Envelope, ShieldCheck, GearSix, Lightning, Tag, Funnel, Buildings, Plug, ShoppingCart, Key, Rocket, Sliders, Copy, WhatsappLogo } from '@phosphor-icons/react'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -17,6 +17,7 @@ import { CatalogManagement } from './CatalogManagement'
 
 import { IntegrationsManager } from './settings/IntegrationsManager'
 import { LandingTokensManager } from './settings/LandingTokensManager'
+import { MetaTemplatesManager } from './settings/MetaTemplatesManager'
 import { updatePipeline, getPipelines } from '@/supabase/helpers/pipeline'
 import { AutomationsPanel } from './settings/AutomationsPanel'
 import { AiAutomationPanel } from './settings/ai-automation/AiAutomationPanel'
@@ -181,6 +182,12 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
             <TabsTrigger value="integrations" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
               <Plug size={14} weight="duotone" />
               Integraciones
+            </TabsTrigger>
+          )}
+          {isAdminOrOwner && (
+            <TabsTrigger value="meta-templates" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
+              <WhatsappLogo size={14} weight="duotone" />
+              Plantillas Meta
             </TabsTrigger>
           )}
           {isAdminOrOwner && (
@@ -410,6 +417,27 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
                   </div>
                   <p className="font-bold text-lg">Sin permisos</p>
                   <p className="text-sm text-muted-foreground">No tienes permisos para gestionar integraciones.</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* ── Plantillas Meta ─────────────────────────────────── */}
+        <TabsContent value="meta-templates" className="space-y-6 mt-8">
+          {isAdminOrOwner ? (
+            <PremiumLock feature="advanced_integrations">
+              <MetaTemplatesManager empresaId={currentCompanyId || ''} />
+            </PremiumLock>
+          ) : (
+            <Card className="border-none shadow-sm rounded-2xl">
+              <CardContent className="py-16">
+                <div className="flex flex-col items-center justify-center text-center space-y-3 opacity-60">
+                  <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+                    <WhatsappLogo size={32} className="text-muted-foreground" weight="thin" />
+                  </div>
+                  <p className="font-bold text-lg">Sin permisos</p>
+                  <p className="text-sm text-muted-foreground">No tienes permisos para gestionar plantillas de Meta.</p>
                 </div>
               </CardContent>
             </Card>

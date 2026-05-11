@@ -2,6 +2,19 @@ import { supabase } from '../client'
 import type { SolicitudUnionDB } from '@/lib/types'
 
 /**
+ * Buscar empresa por código corto (codigo_empresa, ej: "ABC12345").
+ * Usado por el flujo "/unirme/:codigo" para resolver el link de unión.
+ */
+export async function buscarEmpresaPorCodigo(codigo: string) {
+    const trimmed = (codigo || '').trim().toUpperCase()
+    if (!trimmed) return null
+    const { data, error } = await supabase
+        .rpc('buscar_empresa_por_codigo', { p_codigo: trimmed })
+    if (error) throw error
+    return data && data.length > 0 ? data[0] : null
+}
+
+/**
  * Buscar empresa por ID (UUID) para el flujo de solicitud de unión
  * Usa RPC con SECURITY DEFINER para acceder a la tabla empresa sin exponer otras filas
  */

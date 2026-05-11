@@ -12,9 +12,11 @@ import { NotificationsView } from '@/components/crm/NotificationsView'
 import { HistorialView } from '@/components/crm/HistorialView'
 import LoginView from '@/components/crm/LoginView'
 import { RegisterView } from '@/components/crm/RegisterView'
-import { JoinCRMView } from '@/components/crm/JoinCRMView'
+import { NoCompanyView } from '@/components/crm/NoCompanyView'
 import { CreateEmpresaView } from '@/components/crm/CreateEmpresaView'
 import { JoinTeam } from '@/components/crm/JoinTeam'
+import { JoinByLinkView } from '@/components/crm/JoinByLinkView'
+import { JoinByInviteView } from '@/components/crm/JoinByInviteView'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import { UpdatePasswordView } from '@/components/auth/UpdatePasswordView'
 import { HubmyCallbackView } from '@/components/auth/HubmyCallbackView'
@@ -58,17 +60,17 @@ function App() {
           )
         } />
         <Route path="/register" element={
-          user ? <Navigate to={user.accountType === 'employee' && companies.length === 0 ? '/join-crm' : '/dashboard'} replace /> : (
+          user ? <Navigate to={user.accountType === 'employee' && companies.length === 0 ? '/no-company' : '/dashboard'} replace /> : (
             <RegisterView
               onRegister={register}
             />
           )
         } />
 
-        {/* Join CRM Route - for employees without a company */}
-        <Route path="/join-crm" element={
+        {/* Pantalla para empleados con sesión pero sin empresa todavía */}
+        <Route path="/no-company" element={
           user ? (
-            <JoinCRMView onLogout={logout} />
+            <NoCompanyView onLogout={logout} />
           ) : <Navigate to="/login" replace />
         } />
 
@@ -78,8 +80,14 @@ function App() {
         {/* Hubmy OAuth Callback */}
         <Route path="/auth/hubmy/callback" element={<HubmyCallbackView />} />
 
-        {/* Join Team Route */}
+        {/* Join Team Route (legacy ?token=) */}
         <Route path="/join" element={<JoinTeamWrapper />} />
+
+        {/* Join by Link Route — link compartible por codigo_empresa */}
+        <Route path="/unirme/:codigo" element={<JoinByLinkView />} />
+
+        {/* Invitación dirigida por email (flujo principal) */}
+        <Route path="/invitacion/:token" element={<JoinByInviteView />} />
 
         {/* Owner without company - show create empresa screen */}
         <Route path="/create-empresa" element={
@@ -93,7 +101,7 @@ function App() {
         {/* Protected CRM Routes - redirect to setup if no company */}
         <Route element={
           user?.accountType === 'employee' && companies.length === 0
-            ? <Navigate to="/join-crm" replace />
+            ? <Navigate to="/no-company" replace />
             : user?.accountType === 'owner' && companies.length === 0
             ? <Navigate to="/create-empresa" replace />
             : <ProtectedRoute><CRMLayout /></ProtectedRoute>
