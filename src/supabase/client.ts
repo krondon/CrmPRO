@@ -1,10 +1,17 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
-const supabaseUrl: string = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey: string = import.meta.env.VITE_SUPABASE_ANON_KEY
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
-if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Missing Supabase environment variables: VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY')
+export const supabase: SupabaseClient | null = (supabaseUrl && supabaseAnonKey)
+    ? createClient(supabaseUrl, supabaseAnonKey)
+    : null
+
+export const isSupabaseConfigured = supabase !== null
+
+export function requireSupabase(): SupabaseClient {
+    if (!supabase) {
+        throw new Error('CrmPRO: Supabase no está configurado. Esta funcionalidad requiere conexión a la nube.')
+    }
+    return supabase
 }
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)

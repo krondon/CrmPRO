@@ -19,6 +19,7 @@ import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import { UpdatePasswordView } from '@/components/auth/UpdatePasswordView'
 import { HubmyCallbackView } from '@/components/auth/HubmyCallbackView'
 import { CRMLayout } from '@/components/layout/CRMLayout'
+import { UpgradeModalProvider, UpgradeFab } from '@/components/premium'
 import { useAuth } from '@/hooks/useAuth'
 import { usePermissions } from '@/hooks/usePermissions'
 import { LoadingScreen } from '@/components/ui/LoadingScreen'
@@ -45,7 +46,7 @@ function App() {
   }
 
   return (
-    <>
+    <UpgradeModalProvider>
       <Routes>
         {/* Auth Routes */}
         <Route path="/login" element={
@@ -187,7 +188,8 @@ function App() {
         <Route path="*" element={<Navigate to={user ? "/dashboard" : "/login"} replace />} />
       </Routes>
       <Toaster />
-    </>
+      <UpgradeFab />
+    </UpgradeModalProvider>
   )
 }
 

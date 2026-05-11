@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { useLeadsRealtime } from '@/hooks/useLeadsRealtime'
 import { usePipelineData } from '@/hooks/usePipelineData'
@@ -324,7 +324,12 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
     canEditLeads,
     currentUserId: user?.id,
     actorNombre: user?.businessName || (user as any)?.nombre || user?.email,
-    companyId
+    companyId,
+    stagesById: useMemo(() => {
+      const map: Record<string, string> = {}
+      pipelines.forEach(p => p.stages.forEach(s => { map[s.id] = s.name }))
+      return map
+    }, [pipelines])
   })
 
   // Drag & Drop de Etapas (reordenar columnas)

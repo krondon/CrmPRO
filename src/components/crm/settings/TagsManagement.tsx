@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Tag } from '@/lib/types'
-import { getSavedTags, bulkUpdateTag, bulkDeleteTag, deleteSavedTag } from '@/supabase/services/tags'
-import { supabase } from '@/supabase/client'
+import { data } from '@/data'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -52,8 +51,8 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
     const loadTags = async () => {
         setIsLoading(true)
         try {
-            const data = await getSavedTags(empresaId)
-            setTags(data)
+            const result = await data.tags.getSavedTags(empresaId)
+            setTags(result)
         } catch (error) {
             console.error('Error loading tags:', error)
             toast.error('Error cargando etiquetas')
@@ -79,7 +78,7 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
 
         setIsUpdating(true)
         try {
-            await bulkUpdateTag(empresaId, editingTag.id, {
+            await data.tags.bulkUpdateTag(empresaId, editingTag.id, {
                 name: newName.trim(),
                 color: newColor
             })
@@ -99,8 +98,8 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
 
         setIsUpdating(true)
         try {
-            await bulkDeleteTag(empresaId, tag.id)
-            await deleteSavedTag(tag.id).catch(() => {})
+            await data.tags.bulkDeleteTag(empresaId, tag.id)
+            await data.tags.deleteSavedTag(tag.id).catch(() => {})
             toast.success('Etiqueta eliminada de todos los chats')
             loadTags()
         } catch (error) {
@@ -126,23 +125,14 @@ export function TagsManagement({ empresaId }: TagsManagementProps) {
 
         setIsUpdating(true)
         try {
-            const newTag = {
+            const newTag: Tag = {
                 id: crypto.randomUUID(),
-                empresa_id: empresaId,
                 name: trimmed,
-                color: createColor
+                color: createColor,
             }
             console.log('[handleCreate] Intentando guardar etiqueta:', newTag)
-            const { data, error } = await supabase
-                .from('saved_tags')
-                .insert(newTag)
-                .select('id, name, color')
-                .single()
-            if (error) {
-                console.error('[handleCreate] Error completo de Supabase:', JSON.stringify(error, null, 2))
-                throw error
-            }
-            console.log('[handleCreate] ✅ Etiqueta guardada:', data)
+            const created = await data.tags.createSavedTag(empresaId, newTag)
+            console.log('[handleCreate] ✅ Etiqueta guardada:', created)
             toast.success(`Etiqueta "${trimmed}" creada y guardada`)
             setCreateName('')
             setCreateColor(PRESET_COLORS[5])

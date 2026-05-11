@@ -616,7 +616,22 @@ export interface LeadHistory {
   lead_id: string
   usuario_id: string
   usuario_nombre?: string // Join helper
-  accion: 'creacion' | 'asignacion' | 'reasignacion' | 'etapa_cambio' | 'prioridad_cambio' | 'automatizacion' | 'automatizacion_ia' | string
+  accion:
+    | 'creacion'
+    | 'asignacion'
+    | 'reasignacion'
+    | 'desasignacion'
+    | 'etapa_cambio'
+    | 'prioridad_cambio'
+    | 'tag_agregada'
+    | 'tag_eliminada'
+    | 'nota_creada'
+    | 'nota_eliminada'
+    | 'reunion_creada'
+    | 'reunion_eliminada'
+    | 'automatizacion'
+    | 'automatizacion_ia'
+    | string
   detalle: string
   metadata?: any
   created_at: string

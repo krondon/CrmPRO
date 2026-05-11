@@ -410,8 +410,8 @@ export async function createLeadsBulk(leads: CreateLeadDTO[], actorId?: string, 
  * Actualiza un lead
  */
 export async function updateLead(id: string, updates: UpdateLeadDTO, actorId?: string, actorNombre?: string): Promise<LeadDB> {
-    // Get current state to compare if it's an assignment change
-    const { data: currentLead } = await supabase.from('lead').select('asignado_a, nombre_completo').eq('id', id).single()
+    // Get current state to compare assignment / priority changes
+    const { data: currentLead } = await supabase.from('lead').select('asignado_a, nombre_completo, prioridad').eq('id', id).single()
 
     const { data, error } = await supabase
         .from('lead')
@@ -422,25 +422,62 @@ export async function updateLead(id: string, updates: UpdateLeadDTO, actorId?: s
 
     if (error) throw error
 
-    // Log assignment change if applicable
+    // Log assignment / unassignment change
+    const NIL_UUID = '00000000-0000-0000-0000-000000000000'
     if (actorId && data && updates.asignado_a !== undefined && updates.asignado_a !== currentLead?.asignado_a) {
         try {
-            const isFirstAssignment = !currentLead?.asignado_a || currentLead?.asignado_a === '00000000-0000-0000-0000-000000000000'
-            const accion = isFirstAssignment ? 'asignacion' : 'reasignacion'
+            const prev = currentLead?.asignado_a
+            const next = updates.asignado_a
+            const prevIsEmpty = !prev || prev === NIL_UUID
+            const nextIsEmpty = !next || next === NIL_UUID
+
+            let accion: string
+            let detalle: string
+            if (nextIsEmpty && !prevIsEmpty) {
+                accion = 'desasignacion'
+                detalle = 'Desasignó la oportunidad'
+            } else if (prevIsEmpty) {
+                accion = 'asignacion'
+                detalle = 'Asignó la oportunidad'
+            } else {
+                accion = 'reasignacion'
+                detalle = 'Reasignó la oportunidad'
+            }
 
             await createHistoryEntry({
                 lead_id: id,
                 usuario_id: actorId,
-                accion: accion,
-                detalle: isFirstAssignment ? 'Asignó la oportunidad' : 'Reasignó la oportunidad',
+                accion,
+                detalle,
                 metadata: {
-                    prev_assigned_to: currentLead?.asignado_a,
-                    new_assigned_to: updates.asignado_a,
+                    prev_assigned_to: prev,
+                    new_assigned_to: next,
                     ...(actorNombre ? { actor_nombre: actorNombre } : {})
                 }
             })
         } catch (e) {
-            console.error('[updateLead] Error logging history:', e)
+            console.error('[updateLead] Error logging history (asignacion):', e)
+        }
+    }
+
+    // Log priority change
+    if (actorId && data && updates.prioridad !== undefined && updates.prioridad !== currentLead?.prioridad) {
+        try {
+            const labelMap: Record<string, string> = { low: 'BAJA', medium: 'MEDIA', high: 'ALTA' }
+            const newLabel = labelMap[updates.prioridad as string] || String(updates.prioridad).toUpperCase()
+            await createHistoryEntry({
+                lead_id: id,
+                usuario_id: actorId,
+                accion: 'prioridad_cambio',
+                detalle: `Cambió prioridad a ${newLabel}`,
+                metadata: {
+                    prev_priority: currentLead?.prioridad,
+                    new_priority: updates.prioridad,
+                    ...(actorNombre ? { actor_nombre: actorNombre } : {})
+                }
+            })
+        } catch (e) {
+            console.error('[updateLead] Error logging history (prioridad):', e)
         }
     }
 

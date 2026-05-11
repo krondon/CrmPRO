@@ -12,6 +12,8 @@ import { Company } from '@/components/crm/CompanyManagement'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { PremiumSwitch, useUpgradeModal } from '@/components/premium'
+import { useEdition } from '@/hooks/useEdition'
 
 interface User {
     id: string
@@ -123,7 +125,18 @@ export function PipelineColumn({
     const [editSlaEnabled, setEditSlaEnabled] = useState(stage.is_sla_enabled || false)
     const [editSlaValue, setEditSlaValue] = useState(initialSlaValue)
     const [editSlaUnit, setEditSlaUnit] = useState<"minutes" | "hours" | "days">(initialSlaUnit)
-    
+
+    const { isLocked } = useEdition()
+    const { open: openUpgrade } = useUpgradeModal()
+    const semaforoLocked = isLocked('semaforo')
+    const handleSemaforoLabelClick = () => {
+        if (semaforoLocked) {
+            openUpgrade({ type: 'feature', feature: 'semaforo' })
+            return
+        }
+        setEditSlaEnabled(!editSlaEnabled)
+    }
+
     const editInputRef = useRef<HTMLInputElement>(null)
 
     const predefinedColors = [
@@ -223,10 +236,10 @@ export function PipelineColumn({
                             </div>
                             <div className="space-y-2 border-t pt-2 mt-2">
                                 <div className="flex items-center justify-between">
-                                    <Label className="cursor-pointer text-xs" onClick={() => setEditSlaEnabled(!editSlaEnabled)}>
+                                    <Label className="cursor-pointer text-xs" onClick={handleSemaforoLabelClick}>
                                         Semaforo de tiempo
                                     </Label>
-                                    <Switch checked={editSlaEnabled} onCheckedChange={setEditSlaEnabled} />
+                                    <PremiumSwitch feature="semaforo" checked={editSlaEnabled} onCheckedChange={setEditSlaEnabled} />
                                 </div>
                                 <p className="text-[10px] text-muted-foreground leading-tight">
                                     Las tarjetas cambiaran de color segun el tiempo que lleven en esta etapa.

@@ -6,11 +6,17 @@ import { es } from 'date-fns/locale'
 import {
     Clock,
     UserPlus,
+    UserMinus,
     ArrowsLeftRight,
     CalendarPlus,
+    CalendarX,
     TrendUp,
     Spinner,
     Tag,
+    TagSimple,
+    Note,
+    NotePencil,
+    Flag,
     Robot
 } from '@phosphor-icons/react'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -51,7 +57,15 @@ export function HistoryTab({ leadId }: HistoryTabProps) {
             case 'creacion': return <CalendarPlus size={18} className="text-emerald-500" weight="fill" />
             case 'asignacion': return <UserPlus size={18} className="text-blue-500" weight="fill" />
             case 'reasignacion': return <ArrowsLeftRight size={18} className="text-purple-500" weight="fill" />
+            case 'desasignacion': return <UserMinus size={18} className="text-rose-500" weight="fill" />
             case 'etapa_cambio': return <TrendUp size={18} className="text-amber-500" weight="fill" />
+            case 'prioridad_cambio': return <Flag size={18} className="text-orange-500" weight="fill" />
+            case 'tag_agregada': return <Tag size={18} className="text-teal-500" weight="fill" />
+            case 'tag_eliminada': return <TagSimple size={18} className="text-rose-400" weight="fill" />
+            case 'nota_creada': return <NotePencil size={18} className="text-sky-500" weight="fill" />
+            case 'nota_eliminada': return <Note size={18} className="text-rose-400" weight="fill" />
+            case 'reunion_creada': return <CalendarPlus size={18} className="text-indigo-500" weight="fill" />
+            case 'reunion_eliminada': return <CalendarX size={18} className="text-rose-500" weight="fill" />
             default: return <Clock size={18} className="text-muted-foreground" />
         }
     }

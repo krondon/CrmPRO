@@ -22,6 +22,7 @@ import { AutomationsPanel } from './settings/AutomationsPanel'
 import { AiAutomationPanel } from './settings/ai-automation/AiAutomationPanel'
 import { CustomFieldsPanel } from './settings/CustomFieldsPanel'
 import { ApiKeysPanel } from './settings/ApiKeysPanel'
+import { PremiumLock } from '@/components/premium'
 import { useAuth } from '@/hooks/useAuth'
 import { toast } from 'sonner'
 
@@ -397,7 +398,9 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
         {/* ── Integraciones ─────────────────────────────────── */}
         <TabsContent value="integrations" className="space-y-6 mt-8">
           {isAdminOrOwner ? (
-            <IntegrationsManager empresaId={currentCompanyId || ''} />
+            <PremiumLock feature="advanced_integrations">
+              <IntegrationsManager empresaId={currentCompanyId || ''} />
+            </PremiumLock>
           ) : (
             <Card className="border-none shadow-sm rounded-2xl">
               <CardContent className="py-16">
@@ -670,10 +673,12 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
         {/* ── Automatizaciones ─────────────────────────────── */}
         <TabsContent value="automations" className="space-y-6 mt-8">
           {isAdminOrOwner && currentCompanyId ? (
-            <AutomationsPanel
-              empresaId={currentCompanyId}
-              pipelines={pipelines || []}
-            />
+            <PremiumLock feature="automations">
+              <AutomationsPanel
+                empresaId={currentCompanyId}
+                pipelines={pipelines || []}
+              />
+            </PremiumLock>
           ) : (
             <Card className="border-none shadow-sm rounded-2xl">
               <CardContent className="py-16">
@@ -692,10 +697,12 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
         {/* ── Automatización IA ─────────────────────────────── */}
         <TabsContent value="ai-automation" className="space-y-6 mt-8">
           {isAdminOrOwner && currentCompanyId ? (
-            <AiAutomationPanel
-              empresaId={currentCompanyId}
-              pipelines={pipelines || []}
-            />
+            <PremiumLock feature="automations">
+              <AiAutomationPanel
+                empresaId={currentCompanyId}
+                pipelines={pipelines || []}
+              />
+            </PremiumLock>
           ) : (
             <Card className="border-none shadow-sm rounded-2xl">
               <CardContent className="py-16">
