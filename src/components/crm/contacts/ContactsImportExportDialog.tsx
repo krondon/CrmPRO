@@ -64,6 +64,17 @@ function normalizeHeader(value: string): string {
         .trim()
 }
 
+/**
+ * Cuando un Excel tiene columnas sin encabezado, xlsx les asigna nombres como
+ * `__EMPTY`, `__EMPTY_1`, etc. En la UI mostramos un label m\u00e1s amigable.
+ */
+function prettyHeaderLabel(header: string, index: number): string {
+    const trimmed = (header || '').trim()
+    if (!trimmed) return `Columna ${index + 1}`
+    if (/^__EMPTY(_\d+)?$/i.test(trimmed)) return `Columna sin nombre ${index + 1}`
+    return trimmed
+}
+
 function suggestField(header: string): ContactImportField {
     const h = normalizeHeader(header)
 
@@ -299,7 +310,7 @@ export function ContactsImportExportDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl max-h-[90vh] flex flex-col p-4 sm:p-6 overflow-hidden">
+            <DialogContent className="w-[calc(100vw-2rem)] max-w-6xl xl:max-w-7xl max-h-[92vh] flex flex-col p-4 sm:p-6 overflow-hidden">
                 <DialogHeader className="flex-none">
                     <DialogTitle>Importar / Exportar Contactos</DialogTitle>
                 </DialogHeader>
@@ -358,12 +369,26 @@ export function ContactsImportExportDialog({
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label>Mapeo de columnas (estilo Odoo)</Label>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
-                                        {parsedExcel.headers.map((header) => (
-                                            <div key={header} className="flex flex-col gap-2 rounded-md border border-border/50 p-2 sm:p-2.5 bg-background">
-                                                <div className="text-sm font-medium truncate" title={header}>{header}</div>
-                                                <div>
+                                    <Label>Mapeo de columnas</Label>
+                                    <p className="text-xs text-muted-foreground">
+                                        Asigna cada columna del Excel a un campo del CRM. Las columnas sin
+                                        encabezado en el archivo aparecen como "Columna sin nombre".
+                                    </p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                                        {parsedExcel.headers.map((header, idx) => {
+                                            const label = prettyHeaderLabel(header, idx)
+                                            const isEmpty = /^__EMPTY(_\d+)?$/i.test((header || '').trim()) || !(header || '').trim()
+                                            return (
+                                                <div
+                                                    key={header}
+                                                    className="flex flex-col gap-2 rounded-lg border border-border/60 p-3 bg-background shadow-sm min-w-0"
+                                                >
+                                                    <div
+                                                        className={`text-sm font-medium truncate ${isEmpty ? 'text-muted-foreground italic' : ''}`}
+                                                        title={label}
+                                                    >
+                                                        {label}
+                                                    </div>
                                                     <Select
                                                         value={columnMapping[header] || 'ignore'}
                                                         onValueChange={(v) => {
@@ -373,7 +398,7 @@ export function ContactsImportExportDialog({
                                                             }))
                                                         }}
                                                     >
-                                                        <SelectTrigger className="h-9">
+                                                        <SelectTrigger className="h-9 w-full">
                                                             <SelectValue />
                                                         </SelectTrigger>
                                                         <SelectContent>
@@ -383,14 +408,14 @@ export function ContactsImportExportDialog({
                                                         </SelectContent>
                                                     </Select>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            )
+                                        })}
                                     </div>
                                 </div>
 
                                 <div className="space-y-2">
                                     <Label>Preview (primeras 10 filas mapeadas)</Label>
-                                    <div className="lg:hidden max-h-[260px] overflow-y-auto border rounded-md p-2 space-y-2 bg-background">
+                                    <div className="lg:hidden max-h-[320px] overflow-y-auto border rounded-md p-2 space-y-2 bg-background">
                                         {mappedPreview.map((row, idx) => (
                                             <div key={idx} className="rounded-md border border-border/60 p-2.5 bg-muted/20">
                                                 <p className="text-sm font-semibold">{row.name || '-'}</p>
@@ -406,30 +431,30 @@ export function ContactsImportExportDialog({
                                     </div>
 
                                     <div className="hidden lg:block border rounded-md overflow-hidden bg-background">
-                                        <div className="max-h-[260px] overflow-auto">
-                                            <Table className="min-w-[760px] relative">
+                                        <div className="max-h-[320px] overflow-auto">
+                                            <Table className="min-w-[860px] relative">
                                                 <TableHeader className="sticky top-0 bg-background shadow-sm z-10">
                                                     <TableRow>
                                                         <TableHead>Nombre</TableHead>
-                                                            <TableHead>Email</TableHead>
-                                                            <TableHead>Telefono</TableHead>
-                                                            <TableHead>Empresa</TableHead>
-                                                            <TableHead>Cargo</TableHead>
-                                                            <TableHead>Ubicacion</TableHead>
+                                                        <TableHead>Email</TableHead>
+                                                        <TableHead>Telefono</TableHead>
+                                                        <TableHead>Empresa</TableHead>
+                                                        <TableHead>Cargo</TableHead>
+                                                        <TableHead>Ubicacion</TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {mappedPreview.map((row, idx) => (
+                                                        <TableRow key={idx}>
+                                                            <TableCell>{row.name || '-'}</TableCell>
+                                                            <TableCell>{row.email || '-'}</TableCell>
+                                                            <TableCell>{row.phone || '-'}</TableCell>
+                                                            <TableCell>{row.company || '-'}</TableCell>
+                                                            <TableCell>{row.position || '-'}</TableCell>
+                                                            <TableCell>{row.location || '-'}</TableCell>
                                                         </TableRow>
-                                                    </TableHeader>
-                                                    <TableBody>
-                                                        {mappedPreview.map((row, idx) => (
-                                                            <TableRow key={idx}>
-                                                                <TableCell>{row.name || '-'}</TableCell>
-                                                                <TableCell>{row.email || '-'}</TableCell>
-                                                                <TableCell>{row.phone || '-'}</TableCell>
-                                                                <TableCell>{row.company || '-'}</TableCell>
-                                                                <TableCell>{row.position || '-'}</TableCell>
-                                                                <TableCell>{row.location || '-'}</TableCell>
-                                                            </TableRow>
-                                                        ))}
-                                                    </TableBody>
+                                                    ))}
+                                                </TableBody>
                                             </Table>
                                         </div>
                                     </div>

@@ -27,6 +27,7 @@ type Equipo = { id: string; nombre_equipo: string; empresa_id: string; created_a
 
 import { Company } from './CompanyManagement'
 import { EditTeamMemberDialog } from './EditTeamMemberDialog'
+import { getPermissionRoleLabel, getJobTitleLabel, isSalesRepJobTitle } from '@/lib/roleLabels'
 
 export function TeamView({ companyId, companies = [], currentUserId, currentUserEmail }: { companyId?: string; companies?: Company[]; currentUserId?: string; currentUserEmail?: string }) {
   if (!companyId) {
@@ -252,9 +253,11 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
 
           const mapped = await Promise.all(personas.map(async p => {
             let memberPipelines: string[] = []
+            let memberPipelineIds: string[] = []
             try {
               const { data: pPipelines } = await getPipelinesForPersona(p.id)
               if (pPipelines) {
+                memberPipelineIds = pPipelines.map((pp: any) => pp.pipeline_id).filter(Boolean)
                 memberPipelines = pPipelines.map((pp: any) => {
                   const found = dbPipelines.find(dbp => dbp.id === pp.pipeline_id)
                   return found ? found.nombre : pp.pipeline_id
@@ -279,6 +282,7 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
               role: p.titulo_trabajo || '',
               teamId: p.equipo_id || undefined,
               pipelines: memberPipelines,
+              pipelineIds: memberPipelineIds,
               permissionRole: memberInfo?.role || 'viewer',
               userId: p.usuario_id
             }
@@ -320,11 +324,51 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
 
   // Si necesitas cargar leads y roles desde la BD, agrega aquí los efectos y servicios
   const NIL_UUID = '00000000-0000-0000-0000-000000000000'
-  const getAssignedLeadsCount = (memberId: string, status?: string) => {
-    const ownLeads = leads.filter(l => l.assignedTo === memberId).length
-    // Si el miembro está pendiente, no contar los leads asignados a "todos"
-    if (status === 'pending') return ownLeads
 
+  /**
+   * Devuelve los leads "activos" para un miembro.
+   *
+   * REGLA: si el miembro es admin O viewer (Lector) con cargo
+   * "Representante de Ventas", solo cuenta los leads que tienen `asignado_a`
+   * igual a él. No incluye los "sin asignar" porque ese vendedor no puede verlos.
+   *
+   * Para otros miembros: leads asignados a él + leads sin asignar de la empresa
+   * (comportamiento previo).
+   */
+  const getLeadsForMember = (member: any): Lead[] => {
+    const ownLeads = leads.filter(l =>
+      l.assignedTo === member.id ||
+      (member.userId && l.assignedTo === member.userId)
+    )
+    if (member.status === 'pending') return ownLeads
+
+    const role = (member.permissionRole || '').toLowerCase()
+    const isRestrictedSalesRep =
+      (role === 'admin' || role === 'viewer') &&
+      isSalesRepJobTitle(member.role)
+
+    if (isRestrictedSalesRep) {
+      // Solo lo que está asignado a él. Nada del "pool".
+      return ownLeads
+    }
+
+    const pooledLeads = leads.filter(l => l.assignedTo === NIL_UUID || l.assignedTo === 'todos')
+
+    const seen = new Set<string>()
+    return [...ownLeads, ...pooledLeads].filter(l => {
+      if (seen.has(l.id)) return false
+      seen.add(l.id)
+      return true
+    })
+  }
+
+  const getAssignedLeadsCount = (memberId: string, status?: string) => {
+    const member = teamMembers.find(m => m.id === memberId) as any
+    if (member) return getLeadsForMember({ ...member, status }).length
+
+    // Fallback (no debería ocurrir): comportamiento original
+    const ownLeads = leads.filter(l => l.assignedTo === memberId).length
+    if (status === 'pending') return ownLeads
     const allLeads = leads.filter(l => l.assignedTo === NIL_UUID || l.assignedTo === 'todos').length
     return ownLeads + allLeads
   }
@@ -843,7 +887,7 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
                         </CardTitle>
                         {member.permissionRole && (
                           <Badge variant="secondary" className="text-[10px] shrink-0 rounded-md px-1.5 py-0 font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-colors uppercase tracking-widest leading-4">
-                            {member.permissionRole === 'admin' ? 'Admin' : 'Viewer'}
+                            {getPermissionRoleLabel(member.permissionRole)}
                           </Badge>
                         )}
                         {(member as any).status === 'pending' && (
@@ -852,7 +896,7 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
                           </Badge>
                         )}
                       </div>
-                      <p className="text-sm font-medium text-muted-foreground truncate">{member.role}</p>
+                      <p className="text-sm font-medium text-muted-foreground truncate">{getJobTitleLabel(member.role)}</p>
                     </div>
                   </div>
                   {isAdminOrOwner && (
@@ -921,11 +965,7 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
                       {getAssignedLeadsCount(member.id, (member as any).status) > 0 && (
                         <AllLeadsDialog
                           memberName={member.name}
-                          leads={(leads || []).filter(l => {
-                            if (l.assignedTo === member.id) return true
-                            if ((member as any).status !== 'pending' && (l.assignedTo === NIL_UUID || l.assignedTo === 'todos')) return true
-                            return false
-                          })}
+                          leads={getLeadsForMember(member as any)}
                           onLeadClick={(leadId) => {
                             // Navegar al detalle del lead
                             console.log('Navegando a la oportunidad:', leadId)
@@ -1023,7 +1063,7 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
                       {member.nombre || member.email}
                     </CardTitle>
                     <Badge variant="secondary" className="text-[10px] shrink-0 rounded-md px-1.5 py-0 font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-colors uppercase tracking-widest leading-4">
-                      {member.role === 'admin' ? 'Admin' : member.role === 'owner' ? 'Propietario' : 'Viewer'}
+                      {getPermissionRoleLabel(member.role)}
                     </Badge>
                   </div>
                   <p className="text-sm font-medium text-muted-foreground truncate">Colaborador</p>

@@ -42,6 +42,15 @@ interface UseLeadsListOptions {
     companyId: string
     /** Si debe cargar automáticamente al montar */
     autoLoad?: boolean
+    /**
+     * Si es true, solo se cargan leads cuyo `asignado_a` esté en
+     * `strictAssignedToIds`. Aplica a admin/viewer + Representante de Ventas.
+     */
+    strictAssignment?: boolean
+    /** IDs aceptados para `asignado_a` cuando `strictAssignment` está activo. */
+    strictAssignedToIds?: string[]
+    /** Si se provee, solo se muestran leads cuyo pipeline esté en esta lista. */
+    allowedPipelineIds?: string[] | null
 }
 
 interface UseLeadsListReturn {
@@ -165,7 +174,30 @@ export function mapDBToLead(d: any): Lead {
  * Hook para carga paginada de leads
  */
 export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
-    const { companyId, autoLoad = true } = options
+    const {
+        companyId,
+        autoLoad = true,
+        strictAssignment = false,
+        strictAssignedToIds,
+        allowedPipelineIds = null
+    } = options
+
+    // Helper local: ¿este lead es visible bajo la regla activa? Se usa para
+    // filtrar resultados de cache, búsqueda y eventos realtime.
+    const isLeadAllowed = useCallback((lead: any): boolean => {
+        if (!strictAssignment) return true
+        const ids = strictAssignedToIds && strictAssignedToIds.length > 0
+            ? strictAssignedToIds
+            : []
+        const assigned = lead.assigned_to || lead.asignado_a || lead.assignedTo || ''
+        if (!assigned || !ids.includes(assigned)) return false
+        if (Array.isArray(allowedPipelineIds)) {
+            const pipelineId = lead.pipeline_id || lead.pipeline || ''
+            if (!allowedPipelineIds.includes(pipelineId)) return false
+        }
+        return true
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [strictAssignment, JSON.stringify(strictAssignedToIds || []), JSON.stringify(allowedPipelineIds || null)])
 
     // Estado principal
     const [leads, setLeads] = useState<Lead[]>([])
@@ -260,11 +292,19 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
                 empresaId: companyId,
                 limit: PAGE_SIZE,
                 offset: 0,
-                archived: chatScope === 'archived'
+                archived: chatScope === 'archived',
+                strictAssignment,
+                strictAssignedToIds,
+                // Si está restringido y se pasa currentUserId al servicio, no aplica
+                // el OR con sin-asignar; nos basta con strictAssignedToIds.
+                currentUserId: strictAssignment ? (strictAssignedToIds?.[0] || undefined) : undefined,
             })
 
             const data = page || []
-            const mapped: Lead[] = data.map(mapDBToLead)
+            const filtered = Array.isArray(allowedPipelineIds)
+                ? data.filter((l: any) => allowedPipelineIds.includes(l.pipeline_id))
+                : data
+            const mapped: Lead[] = filtered.map(mapDBToLead)
 
             // Detectar canales
             const channelMap: Record<string, ChannelType> = {}
@@ -303,7 +343,8 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
             toast.error('Error al cargar los chats: ' + (e?.message || 'Error desconocido'))
             setIsInitialLoading(false)
         }
-    }, [companyId, chatScope, loadUnreadCountsInBatches, loadLastMessagesInBackground])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [companyId, chatScope, loadUnreadCountsInBatches, loadLastMessagesInBackground, strictAssignment, JSON.stringify(strictAssignedToIds || []), JSON.stringify(allowedPipelineIds || null)])
 
     /**
      * Cargar más leads (paginación)
@@ -317,11 +358,17 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
                 empresaId: companyId,
                 limit: PAGE_SIZE,
                 offset,
-                archived: chatScope === 'archived'
+                archived: chatScope === 'archived',
+                strictAssignment,
+                strictAssignedToIds,
+                currentUserId: strictAssignment ? (strictAssignedToIds?.[0] || undefined) : undefined,
             })
 
             const data = page || []
-            const mapped: Lead[] = data.map(mapDBToLead)
+            const filtered = Array.isArray(allowedPipelineIds)
+                ? data.filter((l: any) => allowedPipelineIds.includes(l.pipeline_id))
+                : data
+            const mapped: Lead[] = filtered.map(mapDBToLead)
 
             // Cargar últimos mensajes para los nuevos leads
             const missingIds = mapped.filter(l => !l.lastMessageAt || !l.lastMessage).map(l => l.id)
@@ -374,7 +421,8 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
         } finally {
             setIsFetchingMore(false)
         }
-    }, [hasMore, isFetchingMore, companyId, offset, chatScope, leads, unreadCounts])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hasMore, isFetchingMore, companyId, offset, chatScope, leads, unreadCounts, strictAssignment, JSON.stringify(strictAssignedToIds || []), JSON.stringify(allowedPipelineIds || null)])
 
     /**
      * Cambiar scope (activos/archivados)
@@ -544,7 +592,10 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
                 if (searchRequestIdRef.current !== requestId) return
 
                 const paginatedById = new Map(leads.map((lead) => [lead.id, lead]))
-                const chatMapped = chatLeadRows.map(mapDBToLead)
+                // Filtrar por la regla de restricción usando los datos en bruto (snake_case)
+                // antes de mapear, porque isLeadAllowed acepta ambas convenciones.
+                const filteredChatRows = chatLeadRows.filter((r: any) => isLeadAllowed(r))
+                const chatMapped = filteredChatRows.map(mapDBToLead)
                 const chatsMatches = chatMapped.map((lead) => paginatedById.get(lead.id) ?? lead)
                 const chatsById = new Map(chatsMatches.map((lead) => [lead.id, lead]))
 
@@ -563,7 +614,9 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
                 if (missingIds.length > 0) {
                     const extraRows = await getLeadsByIds(companyId, missingIds, archived)
                     if (searchRequestIdRef.current !== requestId) return
-                    const mappedExtra = extraRows.map(mapDBToLead)
+                    // Filtrar por la regla de restricción antes de mapear.
+                    const filteredExtra = extraRows.filter((r: any) => isLeadAllowed(r))
+                    const mappedExtra = filteredExtra.map(mapDBToLead)
                     extraById = new Map(mappedExtra.map((lead) => [lead.id, lead]))
                 }
 
@@ -638,6 +691,13 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
             return
         }
 
+        // Si la regla de restricción está activa, NO usamos caché global
+        // (la caché es por empresa y puede contener leads de otros vendedores).
+        if (strictAssignment) {
+            void loadLeads()
+            return
+        }
+
         // Intentar usar caché primero
         const cached = getCachedLeads(companyId)
         if (cached && cached.leads.length > 0) {
@@ -661,7 +721,8 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
         } else {
             void loadLeads()
         }
-    }, [companyId, chatScope, autoLoad])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [companyId, chatScope, autoLoad, strictAssignment, JSON.stringify(strictAssignedToIds || []), JSON.stringify(allowedPipelineIds || null)])
 
     // Recargar cuando cambia el scope
     useEffect(() => {

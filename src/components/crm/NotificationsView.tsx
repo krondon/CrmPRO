@@ -14,6 +14,7 @@ import { rechazarSolicitud } from '@/supabase/services/solicitudes'
 import { supabase } from '@/supabase/client'
 import { useEffect } from 'react'
 import { ApproveJoinRequestDialog } from './ApproveJoinRequestDialog'
+import { getJobTitleLabel } from '@/lib/roleLabels'
 
 interface Invitation {
     id: string
@@ -565,7 +566,7 @@ export function NotificationsView({ onInvitationAccepted }: NotificationsViewPro
                                                     <div className="flex items-center gap-2">
                                                         <h3 className="font-semibold text-lg">{invitation.empresa?.nombre_empresa || 'Empresa'}</h3>
                                                         <Badge variant="outline" className="text-xs font-normal">
-                                                            {invitation.invited_titulo_trabajo || 'Miembro'}
+                                                            {invitation.invited_titulo_trabajo ? getJobTitleLabel(invitation.invited_titulo_trabajo) : 'Miembro'}
                                                         </Badge>
                                                     </div>
 

@@ -18,6 +18,7 @@ import {
 } from '@phosphor-icons/react'
 import { getInvitationByToken, acceptInvitation } from '@/supabase/services/invitations'
 import { useAuth } from '@/hooks/useAuth'
+import { getJobTitleLabel } from '@/lib/roleLabels'
 
 export const PENDING_INVITE_TOKEN_KEY = 'pending_invite_token'
 
@@ -275,7 +276,7 @@ export function JoinByInviteView() {
                         <CardTitle>Únete a {invite.empresa_nombre || 'la empresa'}</CardTitle>
                         <CardDescription>
                             Fuiste invitado como{' '}
-                            <strong>{invite.invited_titulo_trabajo || 'miembro'}</strong>
+                            <strong>{invite.invited_titulo_trabajo ? getJobTitleLabel(invite.invited_titulo_trabajo) : 'miembro'}</strong>
                             {invite.equipo_nombre ? <> en el equipo <strong>{invite.equipo_nombre}</strong></> : null}.
                         </CardDescription>
                     </CardHeader>

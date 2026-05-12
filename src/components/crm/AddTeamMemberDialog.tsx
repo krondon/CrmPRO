@@ -302,8 +302,8 @@ export function AddTeamMemberDialog({ onAdd, companyId, onInvitationCreated }: A
                   <SelectValue placeholder="Selecciona un rol" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="viewer">Viewer (Lectura)</SelectItem>
-                  <SelectItem value="admin">Admin (Control Total)</SelectItem>
+                  <SelectItem value="viewer">Lector (Lectura)</SelectItem>
+                  <SelectItem value="admin">Administrador (Control Total)</SelectItem>
                 </SelectContent>
               </Select>
             )}

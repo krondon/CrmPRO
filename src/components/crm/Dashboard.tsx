@@ -20,6 +20,8 @@ import { getPipelines } from '@/supabase/helpers/pipeline'
 import { getCompanyMeetings, deleteLeadMeeting } from '@/supabase/services/reuniones'
 import { getTasks, updateTask, deleteTask } from '@/supabase/services/tasks'
 import { mapDBToLead } from '@/hooks/useLeadsList'
+import { useUserPipelineAccess } from '@/hooks/useUserPipelineAccess'
+import { getPermissionRoleLabel } from '@/lib/roleLabels'
 
 interface DashboardProps {
   companyId?: string
@@ -30,6 +32,10 @@ interface DashboardProps {
 
 export function Dashboard({ companyId, companies = [], onShowNotifications, onNavigateToLead }: DashboardProps) {
   const { user } = useAuth()
+  // Si el usuario es admin con cargo "Representante de Ventas":
+  //   - allowedPipelineIds → solo sus pipelines
+  //   - isRestricted → además solo leads asignados a él (acepta usuario_id o persona.id)
+  const { allowedPipelineIds, isRestricted, assignedToIds } = useUserPipelineAccess()
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
   const [completedTasks, setCompletedTasks] = useState<Task[]>([]) // New state for completed today
@@ -47,6 +53,8 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
 
   useEffect(() => {
     if (companyId) {
+      const allowedSet = Array.isArray(allowedPipelineIds) ? new Set(allowedPipelineIds) : null
+
       // Cargar leads count
       getLeadsCount(companyId)
         .then((count: any) => {
@@ -54,19 +62,37 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
         })
         .catch(err => console.error('Error fetching leads count in Dashboard:', err))
 
-      // Cargar leads para navegación
-      getLeads(companyId)
+      // Cargar leads para navegación. Si el usuario está restringido (admin +
+      // Representante de Ventas), pedir ya solo los que le tocan (strictAssignment)
+      // y luego filtrar por pipelines visibles. assignedToIds incluye usuario_id
+      // y persona.id porque un lead puede estar asignado con cualquiera.
+      getLeads(
+        companyId,
+        isRestricted ? user?.id : undefined,
+        !isRestricted,            // isAdminOrOwner: si está restringido NO; trae solo asignados a él
+        false,                    // includeArchived
+        isRestricted,             // strictAssignment
+        isRestricted ? assignedToIds : undefined
+      )
         .then((data) => {
           if (data) {
-            setLeads(data.map(mapDBToLead))
+            const mapped = data.map(mapDBToLead)
+            const filtered = allowedSet
+              ? mapped.filter(l => allowedSet.has(l.pipeline as unknown as string))
+              : mapped
+            setLeads(filtered)
+            if (allowedSet || isRestricted) setLeadsCount(filtered.length)
           }
         })
         .catch(err => console.error('Error fetching leads in Dashboard:', err))
 
-      // Cargar pipelines para contar
+      // Cargar pipelines para contar (filtrados si aplica)
       getPipelines(companyId)
         .then(({ data }) => {
-          if (data) setPipelinesCount(data.length)
+          if (data) {
+            const visible = allowedSet ? data.filter((p: any) => allowedSet.has(p.id)) : data
+            setPipelinesCount(visible.length)
+          }
         })
         .catch(err => console.error('Error fetching pipelines in Dashboard:', err))
 
@@ -87,7 +113,7 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
         .then(data => setMembers(data || []))
         .catch(err => console.error('Error fetching members:', err?.message, err?.code, err?.details, err))
     }
-  }, [companyId])
+  }, [companyId, JSON.stringify(allowedPipelineIds || null), isRestricted, user?.id, JSON.stringify(assignedToIds)])
 
   const refreshTasks = () => {
     if (companyId) {
@@ -262,9 +288,9 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
                   <p className="text-muted-foreground font-medium text-sm md:text-base opacity-80 flex items-center gap-2">
                     {activeCompany ? (() => {
                       const role = activeCompany.ownerId === user?.id ? 'owner' : (activeCompany as any).role
-                      const displayRole = role === 'admin' ? 'Admin' : (role === 'owner' || role === 'Owner') ? 'Propietario' : 'Lector'
+                      const displayRole = getPermissionRoleLabel(role)
                       const isOwner = displayRole === 'Propietario'
-                      const isAdmin = displayRole === 'Admin'
+                      const isAdmin = displayRole === 'Administrador'
 
                       return (
                         <Badge className={cn(

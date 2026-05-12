@@ -5,6 +5,8 @@ import { useEffect, useState, useMemo } from 'react'
 import { getLeads } from '@/supabase/services/leads'
 import { getPipelines } from '@/supabase/helpers/pipeline'
 import { askAnalyticsAI, AnalyticsResponse, HubmySubscriptionError } from '@/supabase/services/analyticsAi'
+import { useUserPipelineAccess } from '@/hooks/useUserPipelineAccess'
+import { useAuth } from '@/hooks/useAuth'
 import { toast } from 'sonner'
 import {
   CurrencyDollar,
@@ -25,6 +27,10 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
   const [allLeads, setAllLeads] = useState<Lead[]>([])
   const [pipelinesData, setPipelinesData] = useState<{ id: string; name: string; stageNames: Record<string, string> }[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  // Restricción admin + Representante de Ventas → solo sus pipelines y solo
+  // los leads asignados a él (acepta usuario_id o persona.id).
+  const { allowedPipelineIds, isRestricted, assignedToIds } = useUserPipelineAccess()
+  const { user } = useAuth()
 
   const [dateRange, setDateRange] = useState<'30days' | 'quarter'>('30days')
 
@@ -60,20 +66,33 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
     })
 
     Promise.all([
-      getLeads(companyId),
+      getLeads(
+        companyId,
+        isRestricted ? user?.id : undefined,
+        !isRestricted,
+        false,
+        isRestricted,
+        isRestricted ? assignedToIds : undefined
+      ),
       getPipelines(companyId)
     ]).then(([leadsRaw, pipelinesRes]) => {
-      const mapped = (leadsRaw || []).filter(l => !l.archived).map(mapLead)
-      setAllLeads(mapped)
+      const allowedSet = Array.isArray(allowedPipelineIds) ? new Set(allowedPipelineIds) : null
 
-      const pipes = (pipelinesRes.data || []).map((p: any) => ({
+      const allPipes = (pipelinesRes.data || []).map((p: any) => ({
         id: p.id,
         name: p.nombre || 'Sin Nombre',
         stageNames: Object.fromEntries((p.etapas || []).map((s: any) => [s.id, s.nombre]))
       }))
+      const pipes = allowedSet ? allPipes.filter(p => allowedSet.has(p.id)) : allPipes
       setPipelinesData(pipes)
+
+      const mapped = (leadsRaw || []).filter(l => !l.archived).map(mapLead)
+      const filteredLeads = allowedSet
+        ? mapped.filter(l => allowedSet.has(l.pipeline as unknown as string))
+        : mapped
+      setAllLeads(filteredLeads)
     }).finally(() => setIsLoading(false))
-  }, [companyId])
+  }, [companyId, JSON.stringify(allowedPipelineIds || null), isRestricted, user?.id, JSON.stringify(assignedToIds)])
 
   // Compute metrics based on date range
   const metrics = useMemo(() => {

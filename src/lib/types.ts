@@ -623,6 +623,17 @@ export interface GetLeadsPagedOptions {
   empresaId: string
   currentUserId?: string
   isAdminOrOwner?: boolean
+  /**
+   * Si es true, solo devuelve leads cuyo `asignado_a` esté en
+   * `strictAssignedToIds` (o, como fallback, sea `currentUserId`).
+   * No incluye sin asignar / NIL_UUID. Aplica a la regla "admin + Representante de Ventas".
+   */
+  strictAssignment?: boolean
+  /**
+   * IDs aceptados para `asignado_a` en modo estricto. Un lead puede estar
+   * asignado al `usuario_id` o al `persona.id` del miembro — incluir ambos.
+   */
+  strictAssignedToIds?: string[]
   limit?: number
   offset?: number
   pipelineId?: string

@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { createEmpresa, deleteEmpresa, updateEmpresaLogo, updateEmpresa, rotateCodigoEmpresa } from '@/supabase/services/empresa'
 import { ArrowsClockwise, Link as LinkIcon } from '@phosphor-icons/react'
 import { supabase } from '@/supabase/client'
+import { getPermissionRoleLabel } from '@/lib/roleLabels'
 
 export interface Company {
   id: string
@@ -227,8 +228,8 @@ export function CompanyManagement({ currentUserId, currentCompanyId, onCompanyCh
                         <Eye size={12} className="mr-1" />
                         Colaborador
                       </Badge>
-                      <Badge variant="outline" className="h-5 capitalize whitespace-nowrap">
-                        {currentCompany?.role || 'viewer'}
+                      <Badge variant="outline" className="h-5 whitespace-nowrap">
+                        {getPermissionRoleLabel(currentCompany?.role)}
                       </Badge>
                     </div>
                   </div>
@@ -560,8 +561,8 @@ export function CompanyManagement({ currentUserId, currentCompanyId, onCompanyCh
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <h3 className="font-medium">{company.name}</h3>
-                        <Badge variant="outline" className="h-5 capitalize">
-                          {company.role || 'viewer'}
+                        <Badge variant="outline" className="h-5">
+                          {getPermissionRoleLabel(company.role)}
                         </Badge>
                       </div>
                     </div>

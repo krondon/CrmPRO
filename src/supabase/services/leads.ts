@@ -45,7 +45,9 @@ export async function getLeads(
     empresaId: string,
     currentUserId?: string,
     isAdminOrOwner: boolean = false,
-    includeArchived: boolean = false
+    includeArchived: boolean = false,
+    strictAssignment: boolean = false,
+    strictAssignedToIds?: string[]
 ): Promise<LeadDB[]> {
     let allData: LeadDB[] = []
     let page = 0
@@ -63,7 +65,19 @@ export async function getLeads(
             query = query.eq('archived', false)
         }
 
-        if (!isAdminOrOwner && currentUserId) {
+        if (strictAssignment) {
+            // Modo estricto: solo leads asignados a los IDs explícitos del usuario.
+            // `asignado_a` puede ser usuario_id o persona.id según cómo se creó el lead;
+            // por eso aceptamos un array.
+            const ids = (strictAssignedToIds && strictAssignedToIds.length > 0)
+                ? strictAssignedToIds
+                : (currentUserId ? [currentUserId] : [])
+            if (ids.length === 0) {
+                // Sin IDs no hay nada que mostrar.
+                return []
+            }
+            query = query.in('asignado_a', ids)
+        } else if (!isAdminOrOwner && currentUserId) {
             query = query.or(`asignado_a.eq.${currentUserId},asignado_a.eq.00000000-0000-0000-0000-000000000000,asignado_a.is.null`)
         }
 
@@ -125,6 +139,8 @@ export async function getLeadsPaged(options: GetLeadsPagedOptions): Promise<Pagi
         empresaId,
         currentUserId,
         isAdminOrOwner = false,
+        strictAssignment = false,
+        strictAssignedToIds,
         limit = 200,
         offset = 0,
         pipelineId,
@@ -151,7 +167,17 @@ export async function getLeadsPaged(options: GetLeadsPagedOptions): Promise<Pagi
         query = query.eq('etapa_id', stageId)
     }
 
-    if (!isAdminOrOwner && currentUserId) {
+    if (strictAssignment) {
+        // Modo estricto: solo leads cuyo `asignado_a` esté en la lista de IDs del usuario
+        // (acepta tanto su usuario_id como su persona.id).
+        const ids = (strictAssignedToIds && strictAssignedToIds.length > 0)
+            ? strictAssignedToIds
+            : (currentUserId ? [currentUserId] : [])
+        if (ids.length === 0) {
+            return { data: [], count: 0 }
+        }
+        query = query.in('asignado_a', ids)
+    } else if (!isAdminOrOwner && currentUserId) {
         query = query.or(`asignado_a.eq.${currentUserId},asignado_a.eq.00000000-0000-0000-0000-000000000000,asignado_a.is.null`)
     }
 

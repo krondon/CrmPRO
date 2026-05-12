@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils'
 import { useLeadsRealtime } from '@/hooks/useLeadsRealtime'
 import { usePipelineData } from '@/hooks/usePipelineData'
 import { usePipelineLeadActions } from '@/hooks/usePipelineLeadActions'
+import { useUserPipelineAccess } from '@/hooks/useUserPipelineAccess'
 import { useDragDrop } from '@/hooks/useDragDrop'
 import { useStageDragDrop } from '@/hooks/useStageDragDrop'
 import { useLeadClipboard } from '@/hooks/useLeadClipboard'
@@ -73,6 +74,15 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
   }
 
   // ==========================================
+  // HOOK: Restricción de pipelines por rol + cargo
+  // ==========================================
+  // Si el usuario es admin con cargo "Representante de Ventas":
+  //   - allowedPipelineIds limita a sus pipelines asignados
+  //   - isRestricted=true → strictAssignment: solo ve leads cuyo asignado_a coincida
+  //     con su usuario_id o con su persona.id (un lead puede tener cualquiera).
+  const { allowedPipelineIds, isRestricted, assignedToIds } = useUserPipelineAccess()
+
+  // ==========================================
   // HOOK: Datos del pipeline (pipelines, leads, paginación)
   // ==========================================
   const {
@@ -99,7 +109,12 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
   } = usePipelineData({
     companyId,
     userId: user?.id,
-    canViewAllLeads: true // Cambiar según permisos
+    // Si el usuario está restringido (admin + Representante de Ventas) no debe
+    // ver leads que no le fueron asignados, ni siquiera los "sin asignar".
+    canViewAllLeads: !isRestricted,
+    allowedPipelineIds,
+    strictAssignment: isRestricted,
+    strictAssignedToIds: assignedToIds
   })
 
   // Estados UI locales (no manejados por hooks)
@@ -402,10 +417,29 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
     }
   }
 
+  // Predicado: ¿este lead es visible para el usuario actual con la regla activa?
+  // Admin + Representante de Ventas: solo si está asignado a alguno de los IDs
+  // del usuario (usuario_id o persona.id) Y pertenece a un pipeline suyo.
+  const allowedPipelineSet = useMemo(
+    () => Array.isArray(allowedPipelineIds) ? new Set(allowedPipelineIds) : null,
+    [allowedPipelineIds]
+  )
+  const assignedToIdsSet = useMemo(() => new Set(assignedToIds), [assignedToIds])
+  const isLeadVisibleForCurrentUser = (lead: Lead): boolean => {
+    if (!isRestricted) return true
+    if (!user) return false
+    if (!lead.assignedTo || !assignedToIdsSet.has(lead.assignedTo)) return false
+    if (allowedPipelineSet && !allowedPipelineSet.has(lead.pipeline as unknown as string)) return false
+    return true
+  }
+
   // Sincronización en tiempo real de leads
   useLeadsRealtime({
     companyId: companyId || '',
     onInsert: (lead) => {
+      // Si el usuario está restringido y este lead no le pertenece, ignorarlo.
+      if (!isLeadVisibleForCurrentUser(lead)) return
+
       let added = false
       setLeads((current) => {
         // Evitar duplicados
@@ -421,6 +455,29 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
     },
     onUpdate: (lead) => {
       const oldLead = leadsRef.current.find(l => l.id === lead.id)
+
+      // Si el usuario está restringido:
+      //  - Si el lead deja de pertenecerle (reasignado a otro o sacado de su pipeline), removerlo del estado.
+      //  - Si era invisible y ahora le pertenece, agregarlo.
+      if (isRestricted) {
+        const visible = isLeadVisibleForCurrentUser(lead)
+        if (!visible) {
+          if (oldLead) {
+            setStageCounts(prev => ({
+              ...prev,
+              [oldLead.stage]: Math.max(0, (prev[oldLead.stage] || 0) - 1)
+            }))
+            setLeads(current => current.filter(l => l.id !== lead.id))
+          }
+          return
+        }
+        if (!oldLead && visible) {
+          setLeads(current => current.find(l => l.id === lead.id) ? current : [...current, lead])
+          setStageCounts(prev => ({ ...prev, [lead.stage]: (prev[lead.stage] || 0) + 1 }))
+          return
+        }
+      }
+
       if (oldLead && oldLead.stage !== lead.stage) {
         setStageCounts(prev => ({
           ...prev,
@@ -538,12 +595,16 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
   const pipelineLeads = filterByMember === 'all'
     ? allPipelineLeads
     : allPipelineLeads.filter(l => {
-      if (filterByMember === 'me') {
-        if (user && (l.assignedTo === user.id || l.assignedTo === user.businessName || l.assignedTo === user.email)) return true
-        return false
-      }
+      // Un lead "mío" puede estar asignado por usuario_id, persona.id, businessName o email.
+      const isMine = !!user && (
+        l.assignedTo === user.id ||
+        (l.assignedTo && assignedToIdsSet.has(l.assignedTo)) ||
+        l.assignedTo === user.businessName ||
+        l.assignedTo === user.email
+      )
+      if (filterByMember === 'me') return isMine
       if (filterByMember === 'me+todos') {
-        if (user && (l.assignedTo === user.id || l.assignedTo === user.businessName || l.assignedTo === user.email)) return true
+        if (isMine) return true
         if (l.assignedTo === NIL_UUID || l.assignedTo == null) return true
         return false
       }
@@ -563,6 +624,15 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
       setFilterByMember('all')
     }
   }, [activePipeline, teamMembers, filterByMember, eligibleMembers])
+
+  // Si el usuario está restringido (admin + Representante de Ventas),
+  // solo puede filtrar como 'me'. Cualquier otro filtro mostraría leads que
+  // no le pertenecen (y que el backend ni siquiera trajo).
+  useEffect(() => {
+    if (isRestricted && filterByMember !== 'me') {
+      setFilterByMember('me')
+    }
+  }, [isRestricted, filterByMember])
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -1123,11 +1193,11 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
               </div>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos los miembros</SelectItem>
-              {user && <SelectItem value="me">{currentCompany ? `${currentCompany.name} (Yo)` : 'Yo'}</SelectItem>}
-              {user && <SelectItem value="me+todos">Yo + Todos</SelectItem>}
-              <SelectItem value="todos">Solo Todos</SelectItem>
-              {eligibleMembers.map(member => (
+              {!isRestricted && <SelectItem value="all">Todos los miembros</SelectItem>}
+              {user && <SelectItem value="me">{user.businessName ? `${user.businessName} (Yo)` : 'Yo'}</SelectItem>}
+              {!isRestricted && user && <SelectItem value="me+todos">Yo + Todos</SelectItem>}
+              {!isRestricted && <SelectItem value="todos">Solo Todos</SelectItem>}
+              {!isRestricted && eligibleMembers.map(member => (
                 <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>
               ))}
             </SelectContent>
