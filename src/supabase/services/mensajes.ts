@@ -333,32 +333,69 @@ export async function searchMessages(
   const normalizedTerm = searchTerm.trim()
   if (!empresaId || normalizedTerm.length < 2) return []
 
-  const { data, error } = await supabase
-    .from('mensajes')
-    .select('id, lead_id, content, created_at, lead:lead_id!inner(id, empresa_id, archived)')
-    .eq('lead.empresa_id', empresaId)
-    .eq('lead.archived', archived)
-    .ilike('content', `%${normalizedTerm}%`)
-    .not('content', 'is', null)
-    .order('created_at', { ascending: false })
-    .limit(50)
+  // Filtramos primero los leads de la empresa para que el ilike sobre `mensajes`
+  // se restrinja vía lead_id (índice FK) en vez de un scan completo de la tabla.
+  // El embebido `lead!inner` con filtros sobre la relación no se empuja al join
+  // de forma confiable y revienta el statement timeout en empresas grandes.
+  const { data: leadRows, error: leadError } = await supabase
+    .from('lead')
+    .select('id')
+    .eq('empresa_id', empresaId)
+    .eq('archived', archived)
 
-  if (error) throw error
+  if (leadError) throw leadError
+
+  const leadIds = (leadRows ?? [])
+    .map((row) => String((row as { id?: string }).id || ''))
+    .filter(Boolean)
+
+  if (leadIds.length === 0) return []
+
+  // Trocear el IN para evitar URLs gigantes en empresas con miles de leads.
+  const CHUNK_SIZE = 200
+  const chunks: string[][] = []
+  for (let i = 0; i < leadIds.length; i += CHUNK_SIZE) {
+    chunks.push(leadIds.slice(i, i + CHUNK_SIZE))
+  }
+
+  const chunkResults = await Promise.all(
+    chunks.map((chunk) =>
+      supabase
+        .from('mensajes')
+        .select('id, lead_id, content, created_at')
+        .in('lead_id', chunk)
+        .ilike('content', `%${normalizedTerm}%`)
+        .not('content', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(50)
+    )
+  )
+
+  type Row = { id?: string; lead_id?: string; content?: string; created_at?: string }
+  const allRows: Row[] = []
+  for (const result of chunkResults) {
+    if (result.error) throw result.error
+    allRows.push(...((result.data ?? []) as Row[]))
+  }
+
+  allRows.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+  const topRows = allRows.slice(0, 50)
 
   const lowerTerm = normalizedTerm.toLowerCase()
 
-  return (data ?? []).map((row) => {
-    const content = String((row as { content?: string }).content || '')
+  return topRows.map((row) => {
+    const content = String(row.content || '')
     const lowerContent = content.toLowerCase()
     const index = lowerContent.indexOf(lowerTerm)
     const start = index >= 0 ? Math.max(0, index - 30) : 0
     const end = index >= 0 ? Math.min(content.length, index + normalizedTerm.length + 40) : 80
 
     return {
-      leadId: String((row as { lead_id?: string }).lead_id || ''),
-      messageId: String((row as { id?: string }).id || ''),
+      leadId: String(row.lead_id || ''),
+      messageId: String(row.id || ''),
       snippet: content.slice(start, end).trim() || content.slice(0, 80),
-      createdAt: String((row as { created_at?: string }).created_at || ''),
+      createdAt: String(row.created_at || ''),
     }
   })
+  
 }

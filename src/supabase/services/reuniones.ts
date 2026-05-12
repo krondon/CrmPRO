@@ -152,7 +152,7 @@ export async function createLeadMeeting(input: CreateLeadMeetingInput): Promise<
     participantRows = insertedParticipants || []
   }
 
-  // Log de auditoría
+  // Log de auditoría (owner)
   if (input.empresaId) {
     import('./activityLog').then(({ logActivity }) => {
       logActivity({
@@ -168,12 +168,35 @@ export async function createLeadMeeting(input: CreateLeadMeetingInput): Promise<
     })
   }
 
+  // Historial de la oportunidad
+  import('./history').then(({ logLeadEvent }) => {
+    logLeadEvent({
+      leadId: input.leadId,
+      accion: 'reunion_creada',
+      detalle: `Agendó la reunión "${input.title}"`,
+      actorId: createdBy,
+      metadata: {
+        reunion_id: meetingRow.id,
+        titulo: input.title,
+        fecha: isoDate,
+        duracion_minutos: input.duration
+      }
+    })
+  })
+
   return mapLeadMeeting({
     ...meetingRow,
     participantes: participantRows
   })
 }
 export async function deleteLeadMeeting(meetingId: string, empresaId?: string, meetingTitle?: string): Promise<void> {
+  // Obtener lead_id y título ANTES de borrar (para el historial)
+  const { data: meeting } = await supabase
+    .from('lead_reuniones')
+    .select('lead_id, titulo')
+    .eq('id', meetingId)
+    .maybeSingle()
+
   const { error } = await supabase
     .from('lead_reuniones')
     .delete()
@@ -181,17 +204,31 @@ export async function deleteLeadMeeting(meetingId: string, empresaId?: string, m
 
   if (error) throw error
 
+  const titulo = meetingTitle || meeting?.titulo || 'sin título'
+
   if (empresaId) {
     import('./activityLog').then(({ logActivity }) => {
       logActivity({
         empresaId,
         categoria: 'reuniones',
         accion: 'eliminar_reunion',
-        detalle: `Eliminó la reunión "${meetingTitle || 'sin título'}"`,
+        detalle: `Eliminó la reunión "${titulo}"`,
         entidadTipo: 'reunion',
         entidadId: meetingId,
-        entidadNombre: meetingTitle
+        entidadNombre: titulo
       }).catch(e => console.error('[deleteLeadMeeting] log error:', e))
+    })
+  }
+
+  // Historial de la oportunidad
+  if (meeting?.lead_id) {
+    import('./history').then(({ logLeadEvent }) => {
+      logLeadEvent({
+        leadId: meeting.lead_id,
+        accion: 'reunion_eliminada',
+        detalle: `Eliminó la reunión "${titulo}"`,
+        metadata: { reunion_id: meetingId, titulo }
+      })
     })
   }
 }

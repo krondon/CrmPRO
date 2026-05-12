@@ -614,6 +614,7 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
       priority: 'prioridad',
       assignedTo: 'asignado_a',
       pipeline_id: 'pipeline_id',
+      stage: 'etapa_id',
       stage_id: 'etapa_id',
       notes: 'notas',
       source: 'fuente',

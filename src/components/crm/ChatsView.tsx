@@ -4,6 +4,7 @@ import { subscribeToAllMessages, getUnreadMessagesCount, type Message } from '@/
 import { ChatSettingsDialog } from './ChatSettingsDialog'
 import { useLeadsList } from '@/hooks/useLeadsList'
 import { useLeadsRealtime } from '@/hooks/useLeadsRealtime'
+import { useUserPipelineAccess } from '@/hooks/useUserPipelineAccess'
 import { MessageInput, ChatList, ChatWindow } from './chats'
 import { usePersistentState } from '@/hooks/usePersistentState'
 
@@ -19,11 +20,16 @@ interface ChatsViewProps {
   canDeleteLead?: boolean
   canDeleteMessages?: boolean
   canManageTags?: boolean
+  canUseAi?: boolean
 }
 
 // NOTA: safeFormatDate ahora viene de useDateFormat hook como safeFormatDate
 
-export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = false, canDeleteMessages = true, canManageTags = true }: ChatsViewProps) {
+export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = false, canDeleteMessages = true, canManageTags = true, canUseAi = false }: ChatsViewProps) {
+  // Restricción admin/viewer + Representante de Ventas → solo se muestran los
+  // chats anclados a oportunidades asignadas al usuario en sus pipelines.
+  const { allowedPipelineIds, isRestricted, assignedToIds } = useUserPipelineAccess()
+
   // ==========================================
   // Hook de leads paginados (antes era ~250 líneas de código duplicado)
   // ==========================================
@@ -50,7 +56,21 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
     searchLoading,
     searchResults,
     allLeads
-  } = useLeadsList({ companyId })
+  } = useLeadsList({
+    companyId,
+    strictAssignment: isRestricted,
+    strictAssignedToIds: assignedToIds,
+    allowedPipelineIds
+  })
+
+  // Predicado local: ¿este lead/mensaje corresponde a una oportunidad visible
+  // para el usuario actual bajo la regla activa?
+  const isLeadVisibleForCurrentUser = (lead: Pick<Lead, 'assignedTo' | 'pipeline'>): boolean => {
+    if (!isRestricted) return true
+    if (!lead.assignedTo || !assignedToIds.includes(lead.assignedTo)) return false
+    if (Array.isArray(allowedPipelineIds) && !allowedPipelineIds.includes(lead.pipeline as unknown as string)) return false
+    return true
+  }
 
   const [currentUser] = usePersistentState<User | null>('current-user', null)
 
@@ -88,10 +108,20 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
   useLeadsRealtime({
     companyId,
     onUpdate: (updatedLead) => {
-      // Only update if in list
+      // Si está restringido y este lead deja de pertenecerle, retirarlo de la lista.
+      if (isRestricted && !isLeadVisibleForCurrentUser(updatedLead)) {
+        const exists = leadsRef.current.some(l => l.id === updatedLead.id)
+        if (exists) {
+          // Quitar localmente (sin pegarle a BD).
+          handleLeadUpdate({ ...updatedLead, archived: true })
+        }
+        return
+      }
       handleLeadUpdate(updatedLead)
     },
     onInsert: (newLead) => {
+      // Bajo la regla activa, ignorar inserts que no le pertenecen.
+      if (isRestricted && !isLeadVisibleForCurrentUser(newLead)) return
       if (chatScope === 'active' && !newLead.archived) {
         addLead(newLead)
       }
@@ -130,6 +160,11 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
             if (newLeadDB && newLeadDB.empresa_id === companyId && !newLeadDB.archived) {
               const { mapDBToLead } = await import('@/hooks/useLeadsList')
               const newLead = mapDBToLead(newLeadDB)
+
+              // Bajo la regla activa, ignorar leads que no le pertenecen al usuario.
+              if (isRestrictedRef.current && !isLeadVisibleForCurrentUser(newLead)) {
+                return
+              }
 
               newLead.lastMessage = msg.content || ''
               newLead.lastMessageAt = new Date(msg.created_at)
@@ -199,6 +234,8 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
   unreadCountsRef.current = unreadCounts
   const chatScopeRef = useRef(chatScope)
   chatScopeRef.current = chatScope
+  const isRestrictedRef = useRef(isRestricted)
+  isRestrictedRef.current = isRestricted
 
   const selectedLead = allLeads.find(l => l.id === selectedLeadId)
     || leads.find(l => l.id === selectedLeadId)
@@ -246,6 +283,7 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
         canDeleteLead={canDeleteLead}
         canDeleteMessages={canDeleteMessages}
         canManageTags={canManageTags}
+        isAiEnabled={canUseAi}
         onBack={() => { setSelectedLeadId(null); setSelectedLeadFromSearch(null) }}
         onArchive={handleArchiveToggle}
         onDelete={handleDeleteLead}

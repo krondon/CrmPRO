@@ -131,6 +131,42 @@ export async function getPendingInvitationsByCompany(companyId: string) {
   return data
 }
 
+/**
+ * Resuelve datos públicos de una invitación a partir de su token.
+ * Se llama desde la pantalla /invitacion/:token, antes de tener sesión.
+ * Usa Edge Function (service_role) porque la tabla equipo_invitaciones tiene RLS.
+ */
+export async function getInvitationByToken(token: string) {
+  const { data, error } = await supabase.functions.invoke('invite-details', {
+    body: { token }
+  })
+  if (error) {
+    let msg = error.message || 'Invitación no encontrada'
+    try {
+      const ctx = (error as any).context
+      if (ctx && typeof ctx.json === 'function') {
+        const body = await ctx.json()
+        if (body?.error) msg = body.error
+      }
+    } catch (_) { /* ignore */ }
+    throw new Error(msg)
+  }
+  if (!data || data.error) {
+    throw new Error(data?.error || 'Invitación no encontrada')
+  }
+  return data as {
+    empresa_id: string
+    empresa_nombre: string | null
+    empresa_logo: string | null
+    equipo_nombre: string | null
+    invited_email: string
+    invited_nombre: string | null
+    invited_titulo_trabajo: string | null
+    permission_role: string | null
+    status: 'pending' | 'accepted' | 'rejected' | 'cancelled' | string
+  }
+}
+
 export async function acceptInvitation(token: string, userId: string) {
   const { data, error } = await supabase.functions.invoke('accept-invite', {
     body: {

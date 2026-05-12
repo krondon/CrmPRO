@@ -10,10 +10,11 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { MagnifyingGlass, User, X, ArrowsClockwise, Shuffle } from '@phosphor-icons/react'
+import { MagnifyingGlass, User, X, ArrowsClockwise, Shuffle, Plus } from '@phosphor-icons/react'
 import { TeamMember, Stage, EmpresaInstanciaDB, ContactDB, AssignmentType, CustomFieldDefinition } from '@/lib/types'
 import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
+import { toFieldKey } from '@/lib/customFieldUtils'
 
 // Maximum budget limit: 10 million dollars
 const MAX_BUDGET = 10_000_000
@@ -58,6 +59,8 @@ interface SingleLeadFormProps {
     onClearContact?: () => void
     /** Tipo de asignación del pipeline (para mostrar contexto en el dropdown) */
     assignmentType?: AssignmentType
+    /** Callback para crear un nuevo campo personalizado desde el formulario */
+    onAddCustomField?: (def: Omit<CustomFieldDefinition, 'id' | 'created_at' | 'empresa_id' | 'orden'>) => Promise<CustomFieldDefinition>
 }
 
 export function SingleLeadForm({
@@ -77,7 +80,8 @@ export function SingleLeadForm({
     onContactSearchChange,
     onContactSelect,
     onClearContact,
-    assignmentType = 'manual'
+    assignmentType = 'manual',
+    onAddCustomField,
 }: SingleLeadFormProps) {
     const t = useTranslation('es')
 
@@ -103,6 +107,50 @@ export function SingleLeadForm({
         whatsappInstances.length === 1 ? whatsappInstances[0].id : undefined
     )
     const [customFieldValues, setCustomFieldValues] = useState<Record<string, any>>({})
+
+    // Estado del mini-formulario para agregar campo personalizado
+    const [showAddField, setShowAddField] = useState(false)
+    const [newFieldName, setNewFieldName] = useState('')
+    const [newFieldType, setNewFieldType] = useState<'text' | 'number' | 'select'>('text')
+    const [newFieldOptions, setNewFieldOptions] = useState('')
+    const [newFieldRequired, setNewFieldRequired] = useState(false)
+    const [newFieldDescription, setNewFieldDescription] = useState('')
+    const [addingField, setAddingField] = useState(false)
+
+    const resetAddField = () => {
+        setShowAddField(false)
+        setNewFieldName('')
+        setNewFieldType('text')
+        setNewFieldOptions('')
+        setNewFieldRequired(false)
+        setNewFieldDescription('')
+    }
+
+    const handleAddNewField = async () => {
+        if (!newFieldName.trim() || !onAddCustomField) return
+        const clave = toFieldKey(newFieldName.trim())
+        if (!clave) {
+            toast.error('Nombre de campo inválido')
+            return
+        }
+        if (newFieldType === 'select' && !newFieldOptions.trim()) {
+            toast.error('Agrega al menos una opción para el campo de selección')
+            return
+        }
+        setAddingField(true)
+        try {
+            const opciones = newFieldType === 'select'
+                ? newFieldOptions.split(',').map(o => o.trim()).filter(Boolean)
+                : null
+            await onAddCustomField({ nombre: newFieldName.trim(), clave, tipo: newFieldType, opciones, requerido: newFieldRequired, descripcion: newFieldDescription.trim() || null })
+            toast.success(`Campo "${newFieldName.trim()}" agregado`)
+            resetAddField()
+        } catch (e: any) {
+            toast.error(e.message?.includes('unique') ? 'Ya existe un campo con ese nombre' : `Error: ${e.message}`)
+        } finally {
+            setAddingField(false)
+        }
+    }
 
     // Update defaults when they change
     useEffect(() => {
@@ -423,13 +471,103 @@ export function SingleLeadForm({
             </div>
 
             {/* Custom fields */}
-            {customFieldDefs.length > 0 && (
+            {(customFieldDefs.length > 0 || onAddCustomField) && (
                 <>
                     <div className="flex items-center gap-3 text-xs text-muted-foreground pt-1">
                         <div className="flex-1 h-px bg-border" />
                         Campos adicionales
+                        {onAddCustomField && (
+                            <button
+                                type="button"
+                                onClick={() => setShowAddField(v => !v)}
+                                className="flex items-center gap-1 text-primary hover:text-primary/80 font-medium transition-colors"
+                            >
+                                <Plus size={11} weight="bold" />
+                                Agregar
+                            </button>
+                        )}
                         <div className="flex-1 h-px bg-border" />
                     </div>
+
+                    {/* Mini-formulario para crear un campo nuevo */}
+                    {showAddField && onAddCustomField && (
+                        <div className="border rounded-xl p-3 space-y-3 bg-muted/30">
+                            <div className="space-y-1.5">
+                                <Label className="text-xs font-medium">Nombre del campo</Label>
+                                <Input
+                                    placeholder="Ej. Talla, Fecha de nacimiento…"
+                                    value={newFieldName}
+                                    onChange={e => setNewFieldName(e.target.value)}
+                                    className="h-8 text-sm"
+                                    autoFocus
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs font-medium">Tipo</Label>
+                                    <Select value={newFieldType} onValueChange={v => setNewFieldType(v as any)}>
+                                        <SelectTrigger className="h-8 text-sm">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="text">Texto</SelectItem>
+                                            <SelectItem value="number">Número</SelectItem>
+                                            <SelectItem value="select">Opciones</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="flex items-end pb-1.5">
+                                    <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+                                        <input
+                                            type="checkbox"
+                                            checked={newFieldRequired}
+                                            onChange={e => setNewFieldRequired(e.target.checked)}
+                                            className="rounded"
+                                        />
+                                        Requerido
+                                    </label>
+                                </div>
+                            </div>
+                            {newFieldType === 'select' && (
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs font-medium">Opciones (separadas por coma)</Label>
+                                    <Input
+                                        placeholder="Ej. Opción 1, Opción 2, Opción 3"
+                                        value={newFieldOptions}
+                                        onChange={e => setNewFieldOptions(e.target.value)}
+                                        className="h-8 text-sm"
+                                    />
+                                </div>
+                            )}
+                            <div className="space-y-1.5">
+                                <Label className="text-xs font-medium">Descripción para la IA (opcional)</Label>
+                                <textarea
+                                    placeholder="Ej. Cantidad de invitados al evento. Llénalo cuando el cliente mencione un número."
+                                    value={newFieldDescription}
+                                    onChange={e => setNewFieldDescription(e.target.value)}
+                                    rows={2}
+                                    className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                                />
+                                <p className="text-[10px] text-muted-foreground leading-snug">
+                                    Le indica a la IA cuándo llenar este campo a partir de los mensajes del cliente.
+                                </p>
+                            </div>
+                            <div className="flex justify-end gap-2 pt-1">
+                                <Button type="button" variant="ghost" size="sm" onClick={resetAddField}>
+                                    Cancelar
+                                </Button>
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    disabled={!newFieldName.trim() || addingField}
+                                    onClick={handleAddNewField}
+                                >
+                                    {addingField ? 'Agregando…' : 'Agregar campo'}
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+
                     {customFieldDefs.map(def => (
                         <div key={def.clave}>
                             <Label htmlFor={`cf-${def.clave}`}>

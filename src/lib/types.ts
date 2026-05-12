@@ -120,6 +120,7 @@ export interface Stage {
   order: number
   color: string
   pipelineType: PipelineType
+  short_id?: number | null
   is_sla_enabled?: boolean
   sla_limit_minutes?: number | null
 }
@@ -129,6 +130,7 @@ export interface Pipeline {
   name: string
   type: PipelineType
   stages: Stage[]
+  short_id?: number | null
   assignment_type?: AssignmentType
   order?: number
 }
@@ -321,7 +323,16 @@ export interface CustomFieldDefinition {
   opciones?: string[] | null
   requerido: boolean
   orden: number
+  /** Descripción inyectada al prompt de la IA para guiar cuándo leer/escribir este campo. */
+  descripcion?: string | null
   created_at: string
+}
+
+export interface PredefinedFieldDescriptionRow {
+  empresa_id: string
+  field_key: string
+  descripcion: string
+  updated_at: string
 }
 
 // Lead como viene de la BD (snake_case)
@@ -426,6 +437,35 @@ export interface EmpresaInstanciaDB {
   include_first_message?: boolean
   created_at?: string
   updated_at?: string
+}
+
+// ----- Meta WhatsApp Cloud API -----
+export interface MetaConfigDB {
+  id: string
+  empresa_id: string
+  label?: string | null
+  phone_number_id: string
+  waba_id: string
+  access_token: string
+  display_phone?: string | null
+  active: boolean
+  created_at?: string
+  updated_at?: string | null
+}
+
+export interface MetaFollowUpTemplateDB {
+  id: string
+  empresa_id: string
+  meta_config_id: string
+  meta_template_name: string
+  meta_template_language: string
+  meta_template_category?: string | null
+  display_label?: string | null
+  body_preview?: string | null
+  has_variables: boolean
+  active: boolean
+  created_at?: string
+  updated_at?: string | null
 }
 
 // ----- Empresa DTOs -----
@@ -539,6 +579,7 @@ export interface UsuarioDB {
   avatar_url?: string
   recovery_email?: string | null
   account_type: AccountType
+  last_empresa_id?: string | null
   created_at: string
 }
 
@@ -582,6 +623,17 @@ export interface GetLeadsPagedOptions {
   empresaId: string
   currentUserId?: string
   isAdminOrOwner?: boolean
+  /**
+   * Si es true, solo devuelve leads cuyo `asignado_a` esté en
+   * `strictAssignedToIds` (o, como fallback, sea `currentUserId`).
+   * No incluye sin asignar / NIL_UUID. Aplica a la regla "admin + Representante de Ventas".
+   */
+  strictAssignment?: boolean
+  /**
+   * IDs aceptados para `asignado_a` en modo estricto. Un lead puede estar
+   * asignado al `usuario_id` o al `persona.id` del miembro — incluir ambos.
+   */
+  strictAssignedToIds?: string[]
   limit?: number
   offset?: number
   pipelineId?: string
@@ -605,7 +657,22 @@ export interface LeadHistory {
   lead_id: string
   usuario_id: string
   usuario_nombre?: string // Join helper
-  accion: 'creacion' | 'asignacion' | 'reasignacion' | 'etapa_cambio' | 'prioridad_cambio' | string
+  accion:
+    | 'creacion'
+    | 'asignacion'
+    | 'reasignacion'
+    | 'desasignacion'
+    | 'etapa_cambio'
+    | 'prioridad_cambio'
+    | 'tag_agregada'
+    | 'tag_eliminada'
+    | 'nota_creada'
+    | 'nota_eliminada'
+    | 'reunion_creada'
+    | 'reunion_eliminada'
+    | 'automatizacion'
+    | 'automatizacion_ia'
+    | string
   detalle: string
   metadata?: any
   created_at: string
@@ -676,6 +743,10 @@ export interface AiAutomationConfig {
   activation_time_start: string | null
   activation_time_end: string | null
   message_limit: number | null
+  background_time_window: string | null
+  background_message_limit: number | null
+  execution_interval_hours: number | null
+  last_execution_at: string | null
   sandbox_prompt: string | null
   ai_api_key: string | null
   ai_model: string | null
@@ -690,6 +761,9 @@ export interface CreateAiAutomationConfigDTO {
   activation_time_start?: string | null
   activation_time_end?: string | null
   message_limit?: number | null
+  background_time_window?: string | null
+  background_message_limit?: number | null
+  execution_interval_hours?: number | null
   sandbox_prompt?: string | null
   ai_api_key?: string | null
   ai_model?: string | null

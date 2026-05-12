@@ -51,6 +51,12 @@ interface PipelineBoardProps {
     onDeleteLead: (leadId: string) => void
     onMoveToStage: (lead: Lead, stageId: string) => void
     onOpenMoveDialog: (lead: Lead) => void
+    onCopyLead?: (lead: Lead) => void
+
+    // Copy/Paste
+    pasteableLeadName?: string | null
+    onPasteToStage?: (stageId: string) => void
+    isPasting?: boolean
 
     // Helpers
     t: any
@@ -94,6 +100,10 @@ export function PipelineBoard({
     onDeleteLead,
     onMoveToStage,
     onOpenMoveDialog,
+    onCopyLead,
+    pasteableLeadName,
+    onPasteToStage,
+    isPasting,
     t
     ,
     onStageDragStart,
@@ -146,6 +156,10 @@ export function PipelineBoard({
                             onDeleteLead={onDeleteLead}
                             onMoveToStage={onMoveToStage}
                             onOpenMoveDialog={onOpenMoveDialog}
+                            onCopyLead={onCopyLead}
+                            pasteableLeadName={pasteableLeadName}
+                            onPasteToStage={onPasteToStage}
+                            isPasting={isPasting}
                             t={t}
                             // Stage DnD
                             onStageDragStart={onStageDragStart}

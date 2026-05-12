@@ -52,5 +52,21 @@ export function useCustomFields(empresaId: string) {
     setFields(prev => prev.filter(f => !ids.includes(f.id)))
   }
 
-  return { fields, loading, addField, removeField, removeFields, reload: load }
+  const updateField = async (
+    id: string,
+    patch: Partial<Pick<CustomFieldDefinition, 'nombre' | 'descripcion' | 'requerido' | 'opciones' | 'orden'>>
+  ): Promise<CustomFieldDefinition> => {
+    const { data, error } = await supabase
+      .from('empresa_custom_fields')
+      .update(patch)
+      .eq('id', id)
+      .select()
+      .single()
+    if (error) throw error
+    const updated = data as CustomFieldDefinition
+    setFields(prev => prev.map(f => (f.id === id ? updated : f)).sort((a, b) => a.orden - b.orden))
+    return updated
+  }
+
+  return { fields, loading, addField, removeField, removeFields, updateField, reload: load }
 }

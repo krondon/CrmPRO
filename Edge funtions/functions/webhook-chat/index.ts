@@ -1066,6 +1066,13 @@ serve(async (req) => {
 
                 // 🤖 AUTOMATIZACIÓN: trigger message_received (solo mensajes entrantes del lead)
                 if (senderRole === 'lead') {
+                  // Fire-and-forget Hubmy push + haptic notification
+                  fetch(`${SUPABASE_URL}/functions/v1/hubmy-notify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ record: { lead_id: lead.id, sender: senderRole, content } }),
+                  }).catch(() => {});
+
                   try {
                     console.log(`[AutomationEngine] Evaluando trigger "message_received" para lead ${lead.id}`);
 
@@ -1495,6 +1502,12 @@ serve(async (req) => {
                   }
                 });
                 console.log(`✅ [Empresa ${empresa_id}] Mensaje guardado para lead: ${newLeadInstance.id} (Fase 2)`);
+                // Fire-and-forget Hubmy push + haptic notification
+                fetch(`${SUPABASE_URL}/functions/v1/hubmy-notify`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ record: { lead_id: newLeadInstance.id, sender: 'lead', content } }),
+                }).catch(() => {});
               } else {
                 console.log(`[Empresa ${empresa_id}] Saltando guardado de mensaje inicial por configuración.`);
               }

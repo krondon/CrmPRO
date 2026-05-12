@@ -1,8 +1,59 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { supabase } from '@/supabase/client'
 import { login as authLogin, logout as authLogout, register as authRegister, updateEmail as authUpdateEmail } from '@/supabase/auth'
-import { createUsuario, getUsuarioById } from '@/supabase/services/usuarios'
+import { createUsuario, getUsuarioById, updateLastEmpresaId } from '@/supabase/services/usuarios'
 import { createEmpresa, getEmpresasByUsuario, leaveCompany } from '@/supabase/services/empresa'
+import { crearSolicitud } from '@/supabase/services/solicitudes'
+import { acceptInvitation } from '@/supabase/services/invitations'
+
+const PENDING_JOIN_KEY = 'pending_join_empresa_id'
+const PENDING_INVITE_TOKEN_KEY = 'pending_invite_token'
+
+/**
+ * Si hay un token de invitación pendiente en localStorage (puesto por /invitacion/:token),
+ * aceptarla automáticamente para el usuario recién logueado.
+ * Idempotente: errores se loguean pero no rompen el flujo.
+ * Devuelve el empresa_id si se aceptó, o null.
+ */
+async function processPendingInvite(userId: string): Promise<string | null> {
+    const token = localStorage.getItem(PENDING_INVITE_TOKEN_KEY)
+    if (!token) return null
+    try {
+        const result: any = await acceptInvitation(token, userId)
+        localStorage.removeItem(PENDING_INVITE_TOKEN_KEY)
+        return result?.empresa_id || null
+    } catch (err: any) {
+        const msg = (err?.message || '').toLowerCase()
+        // Si la invitación ya fue procesada o el email no coincide, limpiar el token igual
+        // para no quedar en bucle.
+        if (msg.includes('ya fue procesada') || msg.includes('para otro correo') || msg.includes('para ')) {
+            localStorage.removeItem(PENDING_INVITE_TOKEN_KEY)
+        }
+        console.warn('[processPendingInvite] error aceptando invitación', err)
+        return null
+    }
+}
+
+/**
+ * Si existe `pending_join_empresa_id` en localStorage (puesto por /unirme/:codigo),
+ * crear automáticamente la solicitud_union en nombre del usuario recién logueado.
+ * Idempotente: si ya existe solicitud pendiente, ignora silenciosamente.
+ */
+async function processPendingJoin(empresaId: string, nombre: string): Promise<boolean> {
+    if (!empresaId) return false
+    try {
+        await crearSolicitud(empresaId, nombre)
+        return true
+    } catch (err: any) {
+        const msg = err?.message || ''
+        if (msg.toLowerCase().includes('pendiente')) {
+            // Ya hay solicitud previa: limpiar igual el flag
+            return true
+        }
+        console.warn('[processPendingJoin] error creando solicitud', err)
+        return false
+    }
+}
 import { toast } from 'sonner'
 
 export interface User {
@@ -31,6 +82,7 @@ interface AuthContextType {
     setCurrentCompanyId: (id: string) => void
     setCompanies: React.Dispatch<React.SetStateAction<Company[]>>
     login: (email: string, password: string) => Promise<void>
+    loginWithSession: (userId: string, email: string, name: string) => Promise<void>
     register: (email: string, password: string, businessName: string, accountType?: 'owner' | 'employee', userName?: string) => Promise<void>
     logout: () => Promise<void>
     fetchCompanies: () => Promise<Company[]>
@@ -93,8 +145,87 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setStoredValue('current-company-id', currentCompanyId)
     }, [currentCompanyId])
 
+    // Safety net: si por cualquier razón el usuario quedó logueado con un flag
+    // `pending_join_empresa_id` o `pending_invite_token` pendiente sin procesar
+    // (p.ej. auto-login post email-confirm que no pasa por login()), procesarlo aquí.
+    useEffect(() => {
+        if (!user?.id) return
+
+        // 1) Invitación por token (flujo principal de empleados invitados por email)
+        const pendingInviteToken = localStorage.getItem(PENDING_INVITE_TOKEN_KEY)
+        if (pendingInviteToken) {
+            let cancelledInvite = false
+            ;(async () => {
+                const acceptedEmpresaId = await processPendingInvite(user.id)
+                if (cancelledInvite || !acceptedEmpresaId) return
+                try {
+                    const empresas = await getEmpresasByUsuario(user.id)
+                    const uiCompanies = empresas.map((e: any) => ({
+                        id: e.id,
+                        name: e.nombre_empresa,
+                        ownerId: e.usuario_id,
+                        createdAt: new Date(e.created_at),
+                        role: e.role,
+                        logo: e.logo_url || undefined,
+                    }))
+                    setCompanies(uiCompanies)
+                    setCurrentCompanyIdState(acceptedEmpresaId)
+                    updateLastEmpresaId(user.id, acceptedEmpresaId).catch(() => {})
+                } catch (e) {
+                    console.warn('[safety-net] No se pudo refrescar empresas tras invitación', e)
+                }
+                toast.success('¡Te uniste a la empresa!', { duration: 5000 })
+            })()
+            return () => { cancelledInvite = true }
+        }
+
+        // 2) Solicitud por código público /unirme/:codigo (flujo secundario)
+        const pendingEmpresaId = localStorage.getItem(PENDING_JOIN_KEY)
+        if (!pendingEmpresaId) return
+
+        // Ya es miembro: limpiar flag
+        if (companies.some(c => c.id === pendingEmpresaId)) {
+            localStorage.removeItem(PENDING_JOIN_KEY)
+            return
+        }
+
+        let cancelled = false
+        ;(async () => {
+            const ok = await processPendingJoin(pendingEmpresaId, user.businessName || user.email)
+            if (cancelled) return
+            if (ok) {
+                localStorage.removeItem(PENDING_JOIN_KEY)
+                toast.success('Tu solicitud fue enviada. El administrador la revisará.', { duration: 6000 })
+            } else {
+                toast.error('No se pudo enviar tu solicitud automáticamente.', { duration: 8000 })
+            }
+        })()
+        return () => { cancelled = true }
+    }, [user?.id, companies])
+
     const setCurrentCompanyId = (id: string) => {
         setCurrentCompanyIdState(id)
+        // Persistir en backend (fire-and-forget) para que sobreviva a refrescos en otros dispositivos
+        if (user?.id) {
+            updateLastEmpresaId(user.id, id || null).catch(err =>
+                console.warn('[useAuth] no se pudo persistir last_empresa_id', err)
+            )
+        }
+    }
+
+    // Resuelve qué empresa mostrar al cargar la lista, respetando el orden:
+    // 1) currentCompanyId actual si sigue siendo válido (viene de localStorage o de un setCurrent previo)
+    // 2) last_empresa_id del usuario (backend) si está en la lista
+    // 3) primera empresa de la lista
+    const resolveInitialCompanyId = (
+        list: Company[],
+        backendLastId: string | null | undefined,
+        existingCurrentId: string
+    ): string => {
+        if (list.length === 0) return ''
+        if (existingCurrentId && list.some(c => c.id === existingCurrentId)) return existingCurrentId
+        if (backendLastId && list.some(c => c.id === backendLastId)) return backendLastId
+        return list[0].id
     }
 
     // Verificar si está en modo invitado
@@ -171,8 +302,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }))
             setCompanies(uiCompanies)
 
-            if (!currentCompanyId && uiCompanies.length > 0) {
-                setCurrentCompanyIdState(uiCompanies[0].id)
+            // Resolver currentCompanyId respetando elección previa (localStorage) y backend
+            let backendLastId: string | null = null
+            try {
+                const row = await getUsuarioById(user.id)
+                backendLastId = row?.last_empresa_id || null
+            } catch (e) {
+                console.warn('[useAuth.fetchCompanies] no se pudo leer last_empresa_id', e)
+            }
+            const resolved = resolveInitialCompanyId(uiCompanies, backendLastId, currentCompanyId)
+            if (resolved !== currentCompanyId) {
+                setCurrentCompanyIdState(resolved)
+                // Si la elección actual ya no es válida y caímos en otra, sincronizar backend
+                if (resolved && resolved !== backendLastId) {
+                    updateLastEmpresaId(user.id, resolved).catch(err =>
+                        console.warn('[useAuth.fetchCompanies] no se pudo persistir last_empresa_id', err)
+                    )
+                }
             }
             return uiCompanies
         } catch (error) {
@@ -268,38 +414,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 codigoEmpresa: e.codigo_empresa || undefined
             }))
 
-            if (uiCompanies.length === 0 && (!row.account_type || row.account_type === 'owner')) {
-                // Crear empresa automática si es owner sin empresa
-                console.log('[LOGIN] No se encontraron empresas; creando empresa inicial')
-                try {
-                    const empresaCreada = await createEmpresa({ nombre_empresa: row.nombre, usuario_id: authUser.id })
-                    console.log('[LOGIN] Empresa inicial creada en login', empresaCreada)
-                    const nuevaCompany = {
-                        id: empresaCreada.id,
-                        name: empresaCreada.nombre_empresa,
-                        ownerId: empresaCreada.usuario_id,
-                        createdAt: new Date(empresaCreada.created_at),
-                        role: 'owner'
-                    }
-                    // Setear user + companies juntos para evitar render intermedio
-                    setUser(newUser)
-                    setCompanies([nuevaCompany])
-                    setCurrentCompanyIdState(nuevaCompany.id)
-                } catch (err: any) {
-                    console.error('[LOGIN] Error creando empresa inicial en login', err)
-                    // Setear user igualmente para que llegue a /create-empresa
-                    setUser(newUser)
-                    setCompanies([])
-                    toast.error('No se pudo crear tu empresa automáticamente. Crea una desde la pantalla de configuración.', { duration: 7000 })
+            // Setear user + companies juntos en el mismo batch de React
+            setUser(newUser)
+            setCompanies(uiCompanies)
+            if (uiCompanies.length > 0) {
+                const chosen = resolveInitialCompanyId(uiCompanies, row.last_empresa_id, currentCompanyId)
+                setCurrentCompanyIdState(chosen)
+                if (chosen && chosen !== row.last_empresa_id) {
+                    updateLastEmpresaId(newUser.id, chosen).catch(err =>
+                        console.warn('[LOGIN] no se pudo persistir last_empresa_id', err)
+                    )
                 }
             } else {
-                // Setear user + companies juntos en el mismo batch de React
-                setUser(newUser)
-                setCompanies(uiCompanies)
-                if (uiCompanies.length > 0) {
-                    setCurrentCompanyIdState(uiCompanies[0].id)
+                console.log('[LOGIN] Usuario sin empresas — App.tsx redirigirá a /no-company o /create-empresa')
+            }
+
+            // Procesar invitación pendiente si el usuario llegó vía /invitacion/:token
+            const acceptedEmpresaId = await processPendingInvite(authUser.id)
+            if (acceptedEmpresaId) {
+                // Refrescar empresas para incluir la recién aceptada
+                try {
+                    const empresas2 = await getEmpresasByUsuario(authUser.id)
+                    const uiCompanies2 = empresas2.map((e: any) => ({
+                        id: e.id,
+                        name: e.nombre_empresa,
+                        ownerId: e.usuario_id,
+                        createdAt: new Date(e.created_at),
+                        role: e.role,
+                        logo: e.logo_url || undefined,
+                        codigoEmpresa: e.codigo_empresa || undefined
+                    }))
+                    setCompanies(uiCompanies2)
+                    setCurrentCompanyIdState(acceptedEmpresaId)
+                    updateLastEmpresaId(authUser.id, acceptedEmpresaId).catch(() => {})
+                } catch (e) {
+                    console.warn('[LOGIN] No se pudo refrescar empresas tras aceptar invitación', e)
+                }
+                toast.success('¡Te uniste a la empresa!', { duration: 5000 })
+            }
+
+            // Procesar solicitud pendiente si el usuario llegó vía /unirme/:codigo
+            const pendingEmpresaId = localStorage.getItem(PENDING_JOIN_KEY)
+            if (pendingEmpresaId) {
+                const yaEsMiembro = uiCompanies.some(c => c.id === pendingEmpresaId)
+                if (yaEsMiembro) {
+                    localStorage.removeItem(PENDING_JOIN_KEY)
                 } else {
-                    console.log('[LOGIN] Usuario employee sin empresas — redirigir a /join-crm')
+                    const ok = await processPendingJoin(pendingEmpresaId, row.nombre || row.email)
+                    if (ok) {
+                        localStorage.removeItem(PENDING_JOIN_KEY)
+                        toast.success('Tu solicitud fue enviada. El administrador la revisará.', { duration: 6000 })
+                    }
                 }
             }
 
@@ -313,6 +478,88 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             } else {
                 toast.error(e.message || 'Error iniciando sesión')
             }
+            throw e
+        }
+    }
+
+    // Called after a third-party SSO (e.g. Hubmy) has already established the Supabase session
+    const loginWithSession = async (userId: string, email: string, name: string) => {
+        try {
+            let row
+            try {
+                row = await getUsuarioById(userId)
+            } catch {
+                row = await createUsuario({ id: userId, email, nombre: name, account_type: 'owner' })
+            }
+
+            const newUser: User = {
+                id: row.id,
+                email: row.email,
+                businessName: row.nombre,
+                recoveryEmail: row.recovery_email,
+                accountType: row.account_type || 'owner',
+            }
+
+            const empresas = await getEmpresasByUsuario(userId)
+            const uiCompanies = empresas.map((e: any) => ({
+                id: e.id,
+                name: e.nombre_empresa,
+                ownerId: e.usuario_id,
+                createdAt: new Date(e.created_at),
+                role: e.role,
+                logo: e.logo_url || undefined,
+            }))
+
+            setUser(newUser)
+            setCompanies(uiCompanies)
+            if (uiCompanies.length > 0) {
+                const chosen = resolveInitialCompanyId(uiCompanies, row.last_empresa_id, currentCompanyId)
+                setCurrentCompanyIdState(chosen)
+                if (chosen && chosen !== row.last_empresa_id) {
+                    updateLastEmpresaId(newUser.id, chosen).catch(err =>
+                        console.warn('[LOGIN_WITH_SESSION] no se pudo persistir last_empresa_id', err)
+                    )
+                }
+            }
+
+            // Procesar invitación pendiente (caso SSO con /invitacion/:token previo)
+            const acceptedEmpresaId = await processPendingInvite(userId)
+            if (acceptedEmpresaId) {
+                try {
+                    const empresas2 = await getEmpresasByUsuario(userId)
+                    const uiCompanies2 = empresas2.map((e: any) => ({
+                        id: e.id,
+                        name: e.nombre_empresa,
+                        ownerId: e.usuario_id,
+                        createdAt: new Date(e.created_at),
+                        role: e.role,
+                        logo: e.logo_url || undefined,
+                    }))
+                    setCompanies(uiCompanies2)
+                    setCurrentCompanyIdState(acceptedEmpresaId)
+                    updateLastEmpresaId(userId, acceptedEmpresaId).catch(() => {})
+                } catch (e) {
+                    console.warn('[LOGIN_WITH_SESSION] No se pudo refrescar empresas tras invitación', e)
+                }
+                toast.success('¡Te uniste a la empresa!', { duration: 5000 })
+            }
+
+            // Procesar solicitud pendiente (caso SSO con /unirme/:codigo previo)
+            const pendingEmpresaId = localStorage.getItem(PENDING_JOIN_KEY)
+            if (pendingEmpresaId) {
+                const yaEsMiembro = uiCompanies.some(c => c.id === pendingEmpresaId)
+                if (yaEsMiembro) {
+                    localStorage.removeItem(PENDING_JOIN_KEY)
+                } else {
+                    const ok = await processPendingJoin(pendingEmpresaId, row.nombre || row.email)
+                    if (ok) {
+                        localStorage.removeItem(PENDING_JOIN_KEY)
+                        toast.success('Tu solicitud fue enviada. El administrador la revisará.', { duration: 6000 })
+                    }
+                }
+            }
+        } catch (e: any) {
+            console.error('[LOGIN_WITH_SESSION]', e)
             throw e
         }
     }
@@ -374,7 +621,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     accountType: 'employee'
                 }
                 setUser(newUser)
-                // Sin empresa — la UI redirigirá a /join-crm
+
+                // Procesar invitación pendiente si vino vía /invitacion/:token
+                const acceptedEmpresaId = await processPendingInvite(authUser.id)
+                if (acceptedEmpresaId) {
+                    try {
+                        const empresas2 = await getEmpresasByUsuario(authUser.id)
+                        const uiCompanies2 = empresas2.map((e: any) => ({
+                            id: e.id,
+                            name: e.nombre_empresa,
+                            ownerId: e.usuario_id,
+                            createdAt: new Date(e.created_at),
+                            role: e.role,
+                            logo: e.logo_url || undefined,
+                        }))
+                        setCompanies(uiCompanies2)
+                        setCurrentCompanyIdState(acceptedEmpresaId)
+                        updateLastEmpresaId(authUser.id, acceptedEmpresaId).catch(() => {})
+                    } catch (e) {
+                        console.warn('[REGISTER] No se pudo refrescar empresas tras invitación', e)
+                    }
+                    toast.success('¡Te uniste a la empresa!', { duration: 5000 })
+                }
+
+                // Procesar solicitud pendiente si vino vía /unirme/:codigo
+                const pendingEmpresaId = localStorage.getItem(PENDING_JOIN_KEY)
+                if (pendingEmpresaId) {
+                    const ok = await processPendingJoin(pendingEmpresaId, row.nombre || row.email)
+                    if (ok) {
+                        localStorage.removeItem(PENDING_JOIN_KEY)
+                        toast.success('Tu solicitud fue enviada. El administrador la revisará.', { duration: 6000 })
+                    }
+                }
             }
 
             toast.success('¡Cuenta creada exitosamente!')
@@ -602,6 +880,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setCurrentCompanyId,
         setCompanies,
         login,
+        loginWithSession,
         register,
         logout,
         fetchCompanies,

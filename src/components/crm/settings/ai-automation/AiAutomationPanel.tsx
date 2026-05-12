@@ -14,7 +14,7 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command'
-import { RobotIcon, ClockIcon, ChatDotsIcon, KeyIcon, EyeIcon, EyeSlashIcon, BrainIcon, CaretUpDownIcon, CheckIcon } from '@phosphor-icons/react'
+import { RobotIcon, KeyIcon, EyeIcon, EyeSlashIcon, BrainIcon, CaretUpDownIcon, CheckIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { useAiAutomation } from '@/hooks/useAiAutomation'
 import type { Pipeline } from '@/lib/types'
@@ -140,6 +140,40 @@ Ejemplos para este negocio:
 - Si el cliente cancela → mover a etapa #5
 - Si el cliente tiene una queja urgente → notificar al equipo`
 
+function isValidTimeWindow(val: string): boolean {
+  if (!val.trim()) return true
+  const tokens = val.trim().split(/\s+/)
+  return tokens.every(t => /^\d+(?:\.\d+)?[hms]$/i.test(t))
+}
+
+function isValidInterval(val: string): boolean {
+  if (!val.trim()) return true
+  const tokens = val.trim().split(/\s+/)
+  return tokens.every(t => /^\d+(?:\.\d+)?[hm]$/i.test(t))
+}
+
+function parseIntervalToHours(val: string): number | null {
+  if (!val.trim()) return null
+  let totalHours = 0
+  for (const token of val.trim().split(/\s+/)) {
+    const match = token.match(/^(\d+(?:\.\d+)?)(h|m)$/i)
+    if (!match) return null
+    const value = parseFloat(match[1])
+    if (match[2].toLowerCase() === 'h') totalHours += value
+    else totalHours += value / 60
+  }
+  return totalHours > 0 ? totalHours : null
+}
+
+function formatHoursToInterval(hours: number): string {
+  const totalMinutes = Math.round(hours * 60)
+  const h = Math.floor(totalMinutes / 60)
+  const m = totalMinutes % 60
+  if (h > 0 && m > 0) return `${h}h ${m}m`
+  if (h > 0) return `${h}h`
+  return `${m}m`
+}
+
 export function AiAutomationPanel({ empresaId }: AiAutomationPanelProps) {
   const { configs, isLoading, save, toggle } = useAiAutomation(empresaId)
 
@@ -149,9 +183,9 @@ export function AiAutomationPanel({ empresaId }: AiAutomationPanelProps) {
   const [modelOpen, setModelOpen] = useState(false)
 
   const [isActive, setIsActive] = useState(false)
-  const [timeStart, setTimeStart] = useState('')
-  const [timeEnd, setTimeEnd] = useState('')
-  const [messageLimit, setMessageLimit] = useState('')
+  const [backgroundTimeWindow, setBackgroundTimeWindow] = useState('')
+  const [backgroundMessageLimit, setBackgroundMessageLimit] = useState('')
+  const [executionIntervalHours, setExecutionIntervalHours] = useState('')
   const [sandboxPrompt, setSandboxPrompt] = useState('')
   const [aiApiKey, setAiApiKey] = useState('')
   const [aiModel, setAiModel] = useState('')
@@ -161,9 +195,9 @@ export function AiAutomationPanel({ empresaId }: AiAutomationPanelProps) {
   useEffect(() => {
     if (existing) {
       setIsActive(existing.is_active)
-      setTimeStart(existing.activation_time_start ?? '')
-      setTimeEnd(existing.activation_time_end ?? '')
-      setMessageLimit(existing.message_limit != null ? String(existing.message_limit) : '')
+      setBackgroundTimeWindow(existing.background_time_window ?? '')
+      setBackgroundMessageLimit(existing.background_message_limit != null ? String(existing.background_message_limit) : '')
+      setExecutionIntervalHours(existing.execution_interval_hours != null ? formatHoursToInterval(existing.execution_interval_hours) : '')
       setSandboxPrompt(existing.sandbox_prompt ?? '')
       setAiApiKey(existing.ai_api_key ?? '')
       setAiModel(existing.ai_model ?? '')
@@ -183,8 +217,12 @@ export function AiAutomationPanel({ empresaId }: AiAutomationPanelProps) {
       toast.error('Selecciona un modelo de IA')
       return
     }
-    if (timeStart && timeEnd && timeStart >= timeEnd) {
-      toast.error('La hora de inicio debe ser anterior a la hora de fin')
+    if (backgroundTimeWindow && !isValidTimeWindow(backgroundTimeWindow)) {
+      toast.error('Formato de tiempo inválido. Usa: 1h, 30m, 1s o combinaciones como 1h 30m')
+      return
+    }
+    if (executionIntervalHours && !isValidInterval(executionIntervalHours)) {
+      toast.error('Formato de intervalo inválido. Usa: 1h, 30m o combinaciones como 1h 30m')
       return
     }
 
@@ -195,9 +233,9 @@ export function AiAutomationPanel({ empresaId }: AiAutomationPanelProps) {
         empresa_id: empresaId,
         nombre: 'Configuración IA',
         is_active: isActive,
-        activation_time_start: timeStart || null,
-        activation_time_end: timeEnd || null,
-        message_limit: messageLimit ? parseInt(messageLimit, 10) : null,
+        background_time_window: backgroundTimeWindow.trim() || null,
+        background_message_limit: backgroundMessageLimit ? parseInt(backgroundMessageLimit, 10) : null,
+        execution_interval_hours: parseIntervalToHours(executionIntervalHours),
         sandbox_prompt: sandboxPrompt.trim(),
         ai_api_key: aiApiKey.trim(),
         ai_model: aiModel,
@@ -222,208 +260,220 @@ export function AiAutomationPanel({ empresaId }: AiAutomationPanelProps) {
     <div className="space-y-6">
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-violet-500/10 flex items-center justify-center">
-            <RobotIcon size={20} weight="duotone" className="text-violet-600" />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold">Automatización con IA</h2>
-            <p className="text-xs text-muted-foreground">
-              La IA analiza cada mensaje entrante y ejecuta acciones automáticamente
-            </p>
-          </div>
+      <div className="flex items-center gap-3">
+        <div className="h-10 w-10 rounded-xl bg-violet-500/10 flex items-center justify-center">
+          <RobotIcon size={20} weight="duotone" className="text-violet-600" />
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground font-medium">
-            {toggling ? 'Guardando…' : isActive ? 'Activa' : 'Inactiva'}
-          </span>
-          <Switch
-            checked={isActive}
-            disabled={toggling || !existing}
-            onCheckedChange={async (val) => {
-              if (!existing) return
-              setToggling(true)
-              try {
-                await toggle(existing.id, val)
-                setIsActive(val)
-              } catch {
-                toast.error('Error al cambiar el estado')
-              } finally {
-                setToggling(false)
-              }
-            }}
-          />
+        <div>
+          <h2 className="text-xl font-bold">Automatización con IA</h2>
+          <p className="text-xs text-muted-foreground">
+            La IA analiza mensajes entrantes y ejecuta acciones automáticamente en segundo plano
+          </p>
         </div>
       </div>
 
+      {/* Otras Opciones */}
       <Card className="border-none shadow-sm rounded-2xl">
-        <CardContent className="pt-6 space-y-5">
+        <CardContent className="pt-6 space-y-6">
 
-          {/* Horario de activación */}
-          <div className="space-y-2">
-            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-              <ClockIcon size={12} />
-              Horario de activación
-            </Label>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="ai-time-start" className="text-sm font-medium">Hora inicio</Label>
-                <Input
-                  id="ai-time-start"
-                  type="time"
-                  value={timeStart}
-                  onChange={e => setTimeStart(e.target.value)}
-                  className="rounded-xl"
+          <p className="text-sm font-semibold text-foreground">Otras Opciones</p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+
+            {/* Activar IA en segundo plano */}
+            <div className="space-y-2">
+              <p className="text-sm font-semibold leading-snug">Activar IA en segundo plano</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                (Si esta opción se encuentra activa los mensajes serán procesados por la IA en segundo plano)
+              </p>
+              <div className="pt-1">
+                <Switch
+                  checked={isActive}
+                  disabled={toggling || !existing}
+                  onCheckedChange={async (val) => {
+                    if (!existing) return
+                    setToggling(true)
+                    try {
+                      await toggle(existing.id, val)
+                      setIsActive(val)
+                    } catch {
+                      toast.error('Error al cambiar el estado')
+                    } finally {
+                      setToggling(false)
+                    }
+                  }}
                 />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="ai-time-end" className="text-sm font-medium">Hora fin</Label>
-                <Input
-                  id="ai-time-end"
-                  type="time"
-                  value={timeEnd}
-                  onChange={e => setTimeEnd(e.target.value)}
-                  className="rounded-xl"
-                />
+                {!existing && (
+                  <p className="text-xs text-muted-foreground mt-1">Guarda la configuración primero</p>
+                )}
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Deja vacío para que la IA esté activa las 24 horas
-            </p>
-          </div>
 
-          {/* Límite de mensajes */}
-          <div className="space-y-1.5">
-            <Label htmlFor="ai-limit" className="text-sm font-medium flex items-center gap-1.5">
-              <ChatDotsIcon size={14} className="text-muted-foreground" />
-              Límite de mensajes por día
-            </Label>
-            <Input
-              id="ai-limit"
-              type="number"
-              min="1"
-              max="10000"
-              placeholder="Sin límite"
-              value={messageLimit}
-              onChange={e => setMessageLimit(e.target.value)}
-              className="rounded-xl max-w-[200px]"
-            />
-          </div>
-
-          {/* API Key */}
-          <div className="space-y-1.5">
-            <Label htmlFor="ai-key" className="text-sm font-medium flex items-center gap-1.5">
-              <KeyIcon size={14} className="text-muted-foreground" />
-              API Key
-            </Label>
-            <div className="relative">
+            {/* Tiempo para mensajes en segundo plano */}
+            <div className="space-y-2">
+              <p className="text-sm font-semibold leading-snug">Tiempo para mensajes en segundo plano</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                (Indica el tiempo en segundos para que el asistente virtual responda todos los mensajes en el rango de tiempo. Debe estar en el formato 1s o 1m o 1h o 1s 1m)
+              </p>
               <Input
-                id="ai-key"
-                type={showKey ? 'text' : 'password'}
-                placeholder="sk-ant-...  /  sk-or-...  /  sk-..."
-                value={aiApiKey}
-                onChange={e => setAiApiKey(e.target.value)}
-                className="rounded-xl pr-10 font-mono text-sm"
+                placeholder="Ej: 8h"
+                value={backgroundTimeWindow}
+                onChange={e => setBackgroundTimeWindow(e.target.value)}
+                className="rounded-xl"
               />
-              <button
-                type="button"
-                onClick={() => setShowKey(v => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-              >
-                {showKey ? <EyeSlashIcon size={16} /> : <EyeIcon size={16} />}
-              </button>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Anthropic (<code className="font-mono">sk-ant-</code>), OpenAI (<code className="font-mono">sk-</code>) o OpenRouter (<code className="font-mono">sk-or-</code>)
-            </p>
+
+            {/* Limite de mensajes en segundo plano */}
+            <div className="space-y-2">
+              <p className="text-sm font-semibold leading-snug">Limite de mensaje en segundo plano</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                (Indica la cantidad de mensajes que se enviaran del chat para ampliar el contexto de la conversación en segundo plano)
+              </p>
+              <Input
+                type="number"
+                min="1"
+                max="1000"
+                placeholder="Ej: 20"
+                value={backgroundMessageLimit}
+                onChange={e => setBackgroundMessageLimit(e.target.value)}
+                className="rounded-xl"
+              />
+            </div>
+
+            {/* Tiempo de ejecución */}
+            <div className="space-y-2">
+              <p className="text-sm font-semibold leading-snug">Tiempo de ejecución en horas</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                (Indica cada cuánto tiempo ejecuta la IA las tareas en segundo plano. Formato: 1h, 30m, 1h 30m)
+              </p>
+              <Input
+                type="text"
+                placeholder="Ej: 1h, 30m, 1h 30m"
+                value={executionIntervalHours}
+                onChange={e => setExecutionIntervalHours(e.target.value)}
+                className="rounded-xl"
+              />
+            </div>
+
           </div>
 
-          {/* Modelo */}
-          <div className="space-y-1.5">
-            <Label className="text-sm font-medium flex items-center gap-1.5">
-              <BrainIcon size={14} className="text-muted-foreground" />
-              Modelo de IA
-            </Label>
-            <Popover open={modelOpen} onOpenChange={setModelOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  role="combobox"
-                  aria-expanded={modelOpen}
-                  className="w-full justify-between rounded-xl font-normal"
+          <div className="border-t pt-5 space-y-5">
+            <p className="text-sm font-semibold text-foreground">System</p>
+
+            {/* API Key */}
+            <div className="space-y-1.5">
+              <Label htmlFor="ai-key" className="text-sm font-medium flex items-center gap-1.5">
+                <KeyIcon size={14} className="text-muted-foreground" />
+                API Key
+              </Label>
+              <div className="relative">
+                <Input
+                  id="ai-key"
+                  type={showKey ? 'text' : 'password'}
+                  placeholder="sk-ant-...  /  sk-or-...  /  sk-..."
+                  value={aiApiKey}
+                  onChange={e => setAiApiKey(e.target.value)}
+                  className="rounded-xl pr-10 font-mono text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  <span className="truncate">
-                    {aiModel
-                      ? AI_MODELS.flatMap(g => g.models).find(m => m.id === aiModel)?.label ?? aiModel
-                      : 'Selecciona un modelo…'}
-                  </span>
-                  <CaretUpDownIcon size={14} className="ml-2 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                <Command>
-                  <CommandInput placeholder="Buscar modelo…" />
-                  <CommandList className="max-h-72">
-                    <CommandEmpty>No se encontró ningún modelo.</CommandEmpty>
-                    {AI_MODELS.map(group => (
-                      <CommandGroup key={group.group} heading={group.group}>
-                        {group.models.map(m => (
-                          <CommandItem
-                            key={m.id}
-                            value={`${m.label} ${m.id}`}
-                            onSelect={() => {
-                              setAiModel(m.id)
-                              setModelOpen(false)
-                            }}
-                            className="text-sm"
-                          >
-                            <CheckIcon
-                              size={14}
-                              className={`mr-2 shrink-0 ${aiModel === m.id ? 'opacity-100' : 'opacity-0'}`}
-                            />
-                            {m.label}
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    ))}
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-            {aiModel && (
-              <p className="text-xs text-muted-foreground font-mono">{aiModel}</p>
-            )}
-          </div>
+                  {showKey ? <EyeSlashIcon size={16} /> : <EyeIcon size={16} />}
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Anthropic (<code className="font-mono">sk-ant-</code>), OpenAI (<code className="font-mono">sk-</code>) o OpenRouter (<code className="font-mono">sk-or-</code>)
+              </p>
+            </div>
 
-          {/* Sandbox prompt */}
-          <div className="space-y-1.5">
-            <Label htmlFor="ai-sandbox" className="text-sm font-medium">
-              Prompt / Sandbox
-            </Label>
-            <Textarea
-              id="ai-sandbox"
-              rows={10}
-              placeholder={SANDBOX_PLACEHOLDER}
-              value={sandboxPrompt}
-              onChange={e => setSandboxPrompt(e.target.value)}
-              className="rounded-xl text-sm font-mono resize-none leading-relaxed"
-            />
-            <p className="text-xs text-muted-foreground">
-              Instrucciones para la IA. Define qué detectar y qué acción tomar en cada caso.
-            </p>
-          </div>
+            {/* Modelo */}
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium flex items-center gap-1.5">
+                <BrainIcon size={14} className="text-muted-foreground" />
+                Modelo de IA
+              </Label>
+              <Popover open={modelOpen} onOpenChange={setModelOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={modelOpen}
+                    className="w-full justify-between rounded-xl font-normal"
+                  >
+                    <span className="truncate">
+                      {aiModel
+                        ? AI_MODELS.flatMap(g => g.models).find(m => m.id === aiModel)?.label ?? aiModel
+                        : 'Selecciona un modelo…'}
+                    </span>
+                    <CaretUpDownIcon size={14} className="ml-2 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Buscar modelo…" />
+                    <CommandList className="max-h-72">
+                      <CommandEmpty>No se encontró ningún modelo.</CommandEmpty>
+                      {AI_MODELS.map(group => (
+                        <CommandGroup key={group.group} heading={group.group}>
+                          {group.models.map(m => (
+                            <CommandItem
+                              key={m.id}
+                              value={`${m.label} ${m.id}`}
+                              onSelect={() => {
+                                setAiModel(m.id)
+                                setModelOpen(false)
+                              }}
+                              className="text-sm"
+                            >
+                              <CheckIcon
+                                size={14}
+                                className={`mr-2 shrink-0 ${aiModel === m.id ? 'opacity-100' : 'opacity-0'}`}
+                              />
+                              {m.label}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      ))}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              {aiModel && (
+                <p className="text-xs text-muted-foreground font-mono">{aiModel}</p>
+              )}
+            </div>
 
-          {/* Save */}
-          <div className="flex justify-end pt-2">
-            <Button
-              onClick={handleSave}
-              disabled={saving}
-              className="rounded-xl shadow-sm gap-2 min-w-[140px]"
-            >
-              <RobotIcon size={15} weight="fill" />
-              {saving ? 'Guardando…' : existing ? 'Guardar cambios' : 'Activar IA'}
-            </Button>
+            {/* Sandbox prompt */}
+            <div className="space-y-1.5">
+              <Label htmlFor="ai-sandbox" className="text-sm font-medium">
+                Prompt / Sandbox
+              </Label>
+              <Textarea
+                id="ai-sandbox"
+                rows={10}
+                placeholder={SANDBOX_PLACEHOLDER}
+                value={sandboxPrompt}
+                onChange={e => setSandboxPrompt(e.target.value)}
+                className="rounded-xl text-sm font-mono resize-none leading-relaxed"
+              />
+              <p className="text-xs text-muted-foreground">
+                Instrucciones para la IA. Define qué detectar y qué acción tomar en cada caso.
+              </p>
+            </div>
+
+            {/* Save */}
+            <div className="flex justify-end pt-2">
+              <Button
+                onClick={handleSave}
+                disabled={saving}
+                className="rounded-xl shadow-sm gap-2 min-w-[140px]"
+              >
+                <RobotIcon size={15} weight="fill" />
+                {saving ? 'Guardando…' : existing ? 'Guardar cambios' : 'Activar IA'}
+              </Button>
+            </div>
           </div>
 
         </CardContent>
