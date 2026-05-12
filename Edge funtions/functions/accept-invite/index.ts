@@ -100,7 +100,7 @@ serve(async (req) => {
       console.warn('[accept-invite] No se pudo resolver role_id:', e);
     }
 
-    // 3. Insertar en empresa_miembros (Nueva tabla de membresía)
+    // 3. Insertar en empresa_miembros (idempotente: si ya existe, seguimos)
     const memberPayload: Record<string, unknown> = {
       empresa_id: invite.empresa_id,
       usuario_id: userId,
@@ -113,19 +113,26 @@ serve(async (req) => {
       .from('empresa_miembros')
       .insert(memberPayload);
 
+    let alreadyMember = false;
     if (memberError) {
-      console.error("Error creating empresa_miembros:", memberError);
-      // Si ya existe, no fallamos, seguimos
+      if ((memberError as any).code === '23505') {
+        // Ya era miembro — caso esperado al re-aceptar la invitación. No es un error.
+        alreadyMember = true;
+        console.log('[accept-invite] Usuario ya era miembro de la empresa, continuando flujo idempotente.');
+      } else {
+        // Error real de BD: abortar.
+        console.error('[accept-invite] Error real creando empresa_miembros:', memberError);
+        throw memberError;
+      }
     }
 
-    // 3. Insertar en persona (Para compatibilidad con TeamView y asignación de equipos)
-    // Verificamos si ya existe una persona para este usuario en este equipo
+    // 4. Persona en el equipo (también idempotente)
     const { data: existingPersona } = await supabaseAdmin
       .from('persona')
       .select('id')
       .eq('usuario_id', userId)
       .eq('equipo_id', invite.equipo_id)
-      .single();
+      .maybeSingle();
 
     let memberId = existingPersona?.id;
 
@@ -137,14 +144,29 @@ serve(async (req) => {
           email: invite.invited_email,
           titulo_trabajo: invite.invited_titulo_trabajo,
           equipo_id: invite.equipo_id,
-          usuario_id: userId, // Vinculamos al usuario
-          permisos: [] // Permisos por defecto
+          usuario_id: userId,
+          permisos: []
         })
         .select()
         .single();
 
-      if (personaError) throw personaError;
-      memberId = newPersona.id;
+      if (personaError) {
+        // Si la persona también ya existe (race condition / duplicate), tratar como idempotente
+        if ((personaError as any).code === '23505') {
+          console.log('[accept-invite] Persona ya existía, reintentando lookup.');
+          const { data: retryPersona } = await supabaseAdmin
+            .from('persona')
+            .select('id')
+            .eq('usuario_id', userId)
+            .eq('equipo_id', invite.equipo_id)
+            .maybeSingle();
+          memberId = retryPersona?.id;
+        } else {
+          throw personaError;
+        }
+      } else {
+        memberId = newPersona.id;
+      }
     }
 
     // 4. Actualizar estado de la invitación
@@ -158,19 +180,27 @@ serve(async (req) => {
 
     if (updateError) throw updateError;
 
-    // 5. Asignar a pipelines si existen
+    // 5. Asignar a pipelines si existen (filtra los que ya están vinculados para no ensuciar logs)
     if (invite.pipeline_ids && invite.pipeline_ids.length > 0 && memberId) {
-      const pipelineInserts = invite.pipeline_ids.map((pipelineId: string) => ({
-        persona_id: memberId,
-        pipeline_id: pipelineId
-      }));
+      const { data: existingLinks } = await supabaseAdmin
+        .from('persona_pipeline')
+        .select('pipeline_id')
+        .eq('persona_id', memberId)
+        .in('pipeline_id', invite.pipeline_ids);
 
-      const { error: pipelineError } = await supabaseAdmin
-        .from("persona_pipeline")
-        .insert(pipelineInserts);
+      const existingIds = new Set((existingLinks || []).map((r: any) => r.pipeline_id));
+      const toInsert = invite.pipeline_ids
+        .filter((pid: string) => !existingIds.has(pid))
+        .map((pipelineId: string) => ({ persona_id: memberId, pipeline_id: pipelineId }));
 
-      if (pipelineError) {
-        console.error("Error assigning pipelines:", pipelineError);
+      if (toInsert.length > 0) {
+        const { error: pipelineError } = await supabaseAdmin
+          .from('persona_pipeline')
+          .insert(toInsert);
+
+        if (pipelineError) {
+          console.error('[accept-invite] Error assigning pipelines:', pipelineError);
+        }
       }
     }
 
@@ -216,7 +246,7 @@ serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ success: true, memberId }), {
+    return new Response(JSON.stringify({ success: true, memberId, alreadyMember, empresa_id: invite.empresa_id }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 

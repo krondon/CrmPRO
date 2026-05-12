@@ -927,7 +927,19 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
       clearClipboard()
     } catch (err: any) {
       console.error('[PipelineView] Error duplicando lead:', err)
-      toast.error(err?.message || 'No se pudo pegar la oportunidad')
+      const raw = err?.message || ''
+      // Constraint actual de la BD: bloquea mismo teléfono en la misma empresa.
+      // Hasta que se aplique la migración `lead_unique_telefono_per_pipeline.sql`,
+      // explicamos el caso al usuario en vez de mostrar el error de Postgres.
+      if (raw.includes('uq_lead_empresa_telefono')) {
+        toast.error(
+          'Ya existe una oportunidad con este teléfono en otra etapa/pipeline. ' +
+          'Pídele al administrador que aplique la migración lead_unique_telefono_per_pipeline.sql.',
+          { duration: 8000 }
+        )
+      } else {
+        toast.error(raw || 'No se pudo pegar la oportunidad')
+      }
     } finally {
       setIsPasting(false)
     }

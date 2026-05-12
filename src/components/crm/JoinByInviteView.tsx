@@ -37,7 +37,7 @@ interface InviteInfo {
 export function JoinByInviteView() {
     const { token } = useParams<{ token: string }>()
     const navigate = useNavigate()
-    const { user, register, fetchCompanies, setCurrentCompanyId } = useAuth()
+    const { user, register, logout, fetchCompanies, setCurrentCompanyId } = useAuth()
 
     const [invite, setInvite] = useState<InviteInfo | null>(null)
     const [loading, setLoading] = useState(true)
@@ -51,6 +51,7 @@ export function JoinByInviteView() {
     const [registered, setRegistered] = useState(false)
 
     const [accepting, setAccepting] = useState(false)
+    const [switchingAccount, setSwitchingAccount] = useState(false)
 
     // 1) Resolver invitación por token
     useEffect(() => {
@@ -84,6 +85,23 @@ export function JoinByInviteView() {
     //    Se ejecuta sólo cuando el invited_email coincide con el del usuario logueado.
     const userEmailMatches = !!(user && invite && user.email?.toLowerCase() === invite.invited_email.toLowerCase())
     const userEmailMismatch = !!(user && invite && !userEmailMatches)
+
+    // Cerrar la sesión actual del navegador para que el invitado pueda entrar/registrarse
+    // con el correo correcto. Re-aseguramos el token en localStorage porque el logout
+    // limpia varias keys y queremos que el flujo de auto-aceptar siga funcionando.
+    const handleSwitchAccount = async () => {
+        if (!token) return
+        setSwitchingAccount(true)
+        try {
+            localStorage.setItem(PENDING_INVITE_TOKEN_KEY, token)
+            await logout()
+            localStorage.setItem(PENDING_INVITE_TOKEN_KEY, token)
+        } catch (err) {
+            console.warn('[JoinByInviteView] error al cerrar sesión previa', err)
+        } finally {
+            setSwitchingAccount(false)
+        }
+    }
 
     const handleAccept = async () => {
         if (!user || !invite || !token) return
@@ -246,13 +264,24 @@ export function JoinByInviteView() {
                         <CardTitle>Email no coincide</CardTitle>
                         <CardDescription>
                             Esta invitación es para <strong>{invite.invited_email}</strong>, pero
-                            tu sesión actual es <strong>{user!.email}</strong>. Cierra sesión y
-                            entra con el correo invitado para aceptarla.
+                            tu sesión actual es <strong>{user!.email}</strong>. Cierra sesión para
+                            continuar con el correo invitado.
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <Button asChild className="w-full">
-                            <Link to="/login">Iniciar sesión con otra cuenta</Link>
+                        <Button
+                            onClick={handleSwitchAccount}
+                            disabled={switchingAccount}
+                            className="w-full"
+                        >
+                            {switchingAccount ? (
+                                <>
+                                    <CircleNotch size={18} className="animate-spin mr-2" />
+                                    Cerrando sesión...
+                                </>
+                            ) : (
+                                'Cerrar sesión y continuar'
+                            )}
                         </Button>
                     </CardContent>
                 </Card>
