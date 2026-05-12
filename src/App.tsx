@@ -52,7 +52,7 @@ function App() {
       <Routes>
         {/* Auth Routes */}
         <Route path="/login" element={
-          user ? <Navigate to="/dashboard" replace /> : (
+          user && !user.isAnonymous ? <Navigate to="/dashboard" replace /> : (
             <LoginView
               onLogin={login}
               onForgotPassword={resetPassword}
@@ -100,7 +100,9 @@ function App() {
 
         {/* Protected CRM Routes - redirect to setup if no company */}
         <Route element={
-          user?.accountType === 'employee' && companies.length === 0
+          user?.isAnonymous
+            ? <ProtectedRoute><CRMLayout /></ProtectedRoute>
+            : user?.accountType === 'employee' && companies.length === 0
             ? <Navigate to="/no-company" replace />
             : user?.accountType === 'owner' && companies.length === 0
             ? <Navigate to="/create-empresa" replace />

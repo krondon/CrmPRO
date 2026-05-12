@@ -62,6 +62,7 @@ export interface User {
     businessName: string
     recoveryEmail?: string | null
     accountType: 'owner' | 'employee'
+    isAnonymous?: boolean
 }
 
 export interface Company {
@@ -92,6 +93,7 @@ interface AuthContextType {
     updateEmail: (newEmail: string) => Promise<void>
     updateRecoveryEmail: (recoveryEmail: string) => Promise<void>
     upgradeToOwner: (businessName: string) => Promise<void>
+    upgradeAnonymousUser: (email: string, password: string, businessName?: string, userName?: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
@@ -235,18 +237,82 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return currentCompany ? currentCompany.ownerId !== user.id : false
     })()
 
+    // Helper: iniciar sesión anónima nueva
+    const _initAnonymousSession = async () => {
+        const { data, error } = await supabase.auth.signInAnonymously()
+        if (error || !data.user) throw error || new Error('signInAnonymously failed')
+        const anonUser = data.user
+
+        const fallbackEmail = `anon_${anonUser.id.slice(0, 8)}@temp.local`
+        let row: any = { id: anonUser.id, email: fallbackEmail, nombre: 'Invitado' }
+        try { row = await getUsuarioById(anonUser.id) }
+        catch { try { row = await createUsuario({ id: anonUser.id, email: fallbackEmail, nombre: 'Invitado', account_type: 'owner' }) } catch { /* usar fallback */ } }
+
+        let uiCompanies: Company[] = []
+        try {
+            const empresas = await getEmpresasByUsuario(anonUser.id)
+            if (empresas.length > 0) {
+                uiCompanies = empresas.map((e: any) => ({ id: e.id, name: e.nombre_empresa, ownerId: e.usuario_id, createdAt: new Date(e.created_at), role: e.role || 'owner' }))
+            } else {
+                const e = await createEmpresa({ nombre_empresa: 'Mi Empresa', usuario_id: anonUser.id })
+                uiCompanies = [{ id: e.id, name: e.nombre_empresa, ownerId: e.usuario_id, createdAt: new Date(e.created_at), role: 'owner' }]
+            }
+        } catch { /* sin empresa, el CRM funcionará vacío */ }
+
+        setUser({ id: anonUser.id, email: row.email, businessName: row.nombre, accountType: 'owner', isAnonymous: true })
+        setCompanies(uiCompanies)
+        if (uiCompanies.length > 0) setCurrentCompanyIdState(uiCompanies[0].id)
+    }
+
     // Verificar sesión inicial
     useEffect(() => {
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            // Si hay usuario en localStorage pero no hay sesión válida, limpiar estado
-            const storedUser = localStorage.getItem('current-user')
-            if (!session && storedUser && storedUser !== 'null') {
-                console.log('[AUTH] Sesión expirada detectada, limpiando estado del usuario')
-                setUser(null)
-                setCompanies([])
-                setCurrentCompanyIdState('')
-                toast.info('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.', { duration: 5000 })
+        ;(async () => {
+            const { data: { session } } = await supabase.auth.getSession()
+
+            let storedUserParsed: User | null = null
+            try {
+                const raw = localStorage.getItem('current-user')
+                if (raw && raw !== 'null') storedUserParsed = JSON.parse(raw)
+            } catch { /* ignore */ }
+
+            if (!session) {
+                if (storedUserParsed && !storedUserParsed.isAnonymous) {
+                    setUser(null)
+                    setCompanies([])
+                    setCurrentCompanyIdState('')
+                    toast.info('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.', { duration: 5000 })
+                } else {
+                    await _initAnonymousSession()
+                }
+                setIsLoading(false)
+                return
             }
+
+            if (session.user.is_anonymous && (!storedUserParsed || storedUserParsed.id !== session.user.id)) {
+                try {
+                    let row: any
+                    try { row = await getUsuarioById(session.user.id) }
+                    catch { row = await createUsuario({ id: session.user.id, email: `anon_${session.user.id.slice(0, 8)}@temp.local`, nombre: 'Invitado', account_type: 'owner' }) }
+                    let empresas: any[] = []
+                    try { empresas = await getEmpresasByUsuario(session.user.id) } catch { /* ignore */ }
+                    const uiCompanies: Company[] = empresas.length > 0
+                        ? empresas.map((e: any) => ({ id: e.id, name: e.nombre_empresa, ownerId: e.usuario_id, createdAt: new Date(e.created_at), role: e.role || 'owner' }))
+                        : []
+                    if (uiCompanies.length === 0) {
+                        try {
+                            const e = await createEmpresa({ nombre_empresa: 'Mi Empresa', usuario_id: session.user.id })
+                            uiCompanies.push({ id: e.id, name: e.nombre_empresa, ownerId: e.usuario_id, createdAt: new Date(e.created_at), role: 'owner' })
+                        } catch { /* ignore */ }
+                    }
+                    setUser({ id: row.id, email: row.email, businessName: row.nombre, accountType: 'owner', isAnonymous: true })
+                    setCompanies(uiCompanies)
+                    if (uiCompanies.length > 0) setCurrentCompanyIdState(uiCompanies[0].id)
+                } catch (e) { console.error('[AUTH] Error cargando sesión anónima existente:', e) }
+            }
+
+            setIsLoading(false)
+        })().catch((e) => {
+            console.error('[AUTH] Error crítico en init de sesión:', e)
             setIsLoading(false)
         })
 
@@ -270,7 +336,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
 
             // Cuando el usuario confirma el cambio de email desde el link recibido
-            if (event === 'EMAIL_CHANGE' && session?.user?.email) {
+            if ((event as string) === 'EMAIL_CHANGE' && session?.user?.email) {
                 console.log('[AUTH] Email confirmado y actualizado:', session.user.email)
                 setUser(prev => prev ? { ...prev, email: session.user!.email! } : prev)
                 toast.success('¡Correo actualizado correctamente!')
@@ -278,10 +344,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
             // Actualizar usuario si cambia el objeto de sesión (por meta_data etc)
             if (event === 'USER_UPDATED' && session?.user) {
-                setUser(prev => prev ? { ...prev, email: session.user!.email! } : prev)
+                setUser(prev => prev ? {
+                    ...prev,
+                    email: session.user!.email || prev.email,
+                    ...(session.user!.is_anonymous === false ? { isAnonymous: false } : {})
+                } : prev)
             }
-
-            setIsLoading(false)
+            // No llamar setIsLoading(false) aquí — el IIFE de getSession lo maneja
         })
 
         return () => subscription.unsubscribe()
@@ -871,6 +940,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }
 
+    const upgradeAnonymousUser = async (email: string, password: string, businessName?: string, userName?: string) => {
+        if (!user) throw new Error('No autenticado')
+        try {
+            const { error } = await supabase.auth.updateUser({ email, password })
+            if (error) throw error
+            const nombre = userName || businessName || user.businessName || 'Usuario'
+            await supabase.from('usuarios').update({ email, nombre, account_type: 'owner' }).eq('id', user.id)
+            if (businessName && currentCompanyId) {
+                await supabase.from('empresa').update({ nombre_empresa: businessName }).eq('id', currentCompanyId)
+                setCompanies(prev => prev.map(c => c.id === currentCompanyId ? { ...c, name: businessName } : c))
+            }
+            setUser(prev => prev ? { ...prev, email, businessName: nombre, isAnonymous: false } : prev)
+        } catch (e: any) {
+            console.error('[AUTH] Error actualizando usuario anónimo:', e)
+            throw e
+        }
+    }
+
     const value: AuthContextType = {
         user,
         companies,
@@ -889,7 +976,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         resetPasswordByRecoveryEmail,
         updateEmail,
         updateRecoveryEmail,
-        upgradeToOwner
+        upgradeToOwner,
+        upgradeAnonymousUser
     }
 
     return (
