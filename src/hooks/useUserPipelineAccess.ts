@@ -38,6 +38,13 @@ interface UseUserPipelineAccessReturn {
     currentPersonaId: string | null
     /** Lista combinada [user.id, persona.id] sin nulls — útil para `.in()` en queries. */
     assignedToIds: string[]
+    /**
+     * `true` cuando el hook ya determinó si el usuario está restringido o no.
+     * `false` mientras se está calculando (incluido el fetch async de persona).
+     * Las vistas deben esperar a que sea `true` antes de cargar datos para
+     * evitar mostrar todo y luego ocultarlo (race condition).
+     */
+    accessResolved: boolean
 }
 
 export function useUserPipelineAccess(): UseUserPipelineAccessReturn {
@@ -48,13 +55,20 @@ export function useUserPipelineAccess(): UseUserPipelineAccessReturn {
     const [isRestricted, setIsRestricted] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
     const [currentPersonaId, setCurrentPersonaId] = useState<string | null>(null)
+    const [accessResolved, setAccessResolved] = useState(false)
 
     useEffect(() => {
-        // Sin usuario o sin empresa → reset
+        // Cada vez que cambian las dependencias volvemos a "no resuelto" hasta
+        // que la lógica determine definitivamente el estado del usuario.
+        setAccessResolved(false)
+
+        // Sin usuario o sin empresa → reset (no hay nada que resolver aún).
         if (!user?.id || !currentCompanyId) {
             setAllowedPipelineIds(null)
             setIsRestricted(false)
             setCurrentPersonaId(null)
+            // No marcamos como resuelto porque aún no hay sesión/empresa;
+            // las vistas no deberían cargar tampoco sin esos datos.
             return
         }
 
@@ -68,6 +82,7 @@ export function useUserPipelineAccess(): UseUserPipelineAccessReturn {
             setAllowedPipelineIds(null)
             setIsRestricted(false)
             setCurrentPersonaId(null)
+            setAccessResolved(true)
             return
         }
 
@@ -79,12 +94,11 @@ export function useUserPipelineAccess(): UseUserPipelineAccessReturn {
                 setAllowedPipelineIds(null)
                 setIsRestricted(false)
                 setIsLoading(false)
+                setAccessResolved(true)
                 return
             }
             try {
                 // 1) Buscar la persona del usuario en esta empresa para conocer su cargo.
-                //    persona.empresa_id viene a través de equipos.empresa_id, así que filtramos
-                //    por usuario_id y luego validamos con la empresa por miembros.
                 const { data: personas, error: pErr } = await supabase
                     .from('persona')
                     .select('id, titulo_trabajo, equipo_id, equipos:equipo_id(empresa_id)')
@@ -104,7 +118,6 @@ export function useUserPipelineAccess(): UseUserPipelineAccessReturn {
                     return empId === currentCompanyId
                 })
 
-                // Si no tiene persona en esta empresa, no sabemos el cargo → no restringimos.
                 if (!personaForCompany) {
                     setAllowedPipelineIds(null)
                     setIsRestricted(false)
@@ -120,7 +133,7 @@ export function useUserPipelineAccess(): UseUserPipelineAccessReturn {
                     return
                 }
 
-                // 2) Es admin + Representante de Ventas → leer sus pipelines asignados.
+                // 2) Es admin/viewer + Representante de Ventas → leer pipelines asignados.
                 const { data: pipelinesRows, error: ppErr } = await supabase
                     .from('persona_pipeline')
                     .select('pipeline_id')
@@ -144,7 +157,10 @@ export function useUserPipelineAccess(): UseUserPipelineAccessReturn {
                     setIsRestricted(false)
                 }
             } finally {
-                if (!cancelled) setIsLoading(false)
+                if (!cancelled) {
+                    setIsLoading(false)
+                    setAccessResolved(true)
+                }
             }
         })()
 
@@ -152,5 +168,5 @@ export function useUserPipelineAccess(): UseUserPipelineAccessReturn {
     }, [user?.id, currentCompanyId, currentCompany?.ownerId, currentCompany?.role])
 
     const assignedToIds = [user?.id, currentPersonaId].filter((v): v is string => !!v)
-    return { allowedPipelineIds, isRestricted, isLoading, currentPersonaId, assignedToIds }
+    return { allowedPipelineIds, isRestricted, isLoading, currentPersonaId, assignedToIds, accessResolved }
 }

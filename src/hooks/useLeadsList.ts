@@ -51,6 +51,13 @@ interface UseLeadsListOptions {
     strictAssignedToIds?: string[]
     /** Si se provee, solo se muestran leads cuyo pipeline esté en esta lista. */
     allowedPipelineIds?: string[] | null
+    /**
+     * Indica si la lógica de restricción (useUserPipelineAccess) ya terminó.
+     * Si es `false`, el hook NO carga datos para evitar mostrar primero todos
+     * los chats y después esconderlos (race condition).
+     * Por defecto `true` para que componentes que no usan restricción funcionen igual.
+     */
+    accessResolved?: boolean
 }
 
 interface UseLeadsListReturn {
@@ -179,7 +186,8 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
         autoLoad = true,
         strictAssignment = false,
         strictAssignedToIds,
-        allowedPipelineIds = null
+        allowedPipelineIds = null,
+        accessResolved = true
     } = options
 
     // Helper local: ¿este lead es visible bajo la regla activa? Se usa para
@@ -283,6 +291,9 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
      */
     const loadLeads = useCallback(async (forceRefresh = false) => {
         if (!companyId) return
+        // No cargues nada si la restricción aún no se calculó: evita pedir
+        // todos los leads y luego ocultarlos cuando el hook async termine.
+        if (!accessResolved) return
 
         setIsInitialLoading(true)
         setLoadError(null)
@@ -319,8 +330,10 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
             setHasMore(mapped.length >= PAGE_SIZE)
             setIsInitialLoading(false)
 
-            // Guardar en caché si es activos
-            if (chatScope === 'active') {
+            // Guardar en caché solo si es activos Y el usuario NO está restringido.
+            // La caché es global por empresa: si un usuario restringido la sobrescribe
+            // con su set parcial, otros usuarios (owners) verían solo esos leads.
+            if (chatScope === 'active' && !strictAssignment) {
                 setCachedLeads(companyId, {
                     leads: mapped,
                     lastChannelByLead: channelMap,
@@ -344,13 +357,14 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
             setIsInitialLoading(false)
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [companyId, chatScope, loadUnreadCountsInBatches, loadLastMessagesInBackground, strictAssignment, JSON.stringify(strictAssignedToIds || []), JSON.stringify(allowedPipelineIds || null)])
+    }, [companyId, chatScope, loadUnreadCountsInBatches, loadLastMessagesInBackground, strictAssignment, JSON.stringify(strictAssignedToIds || []), JSON.stringify(allowedPipelineIds || null), accessResolved])
 
     /**
      * Cargar más leads (paginación)
      */
     const loadMore = useCallback(async () => {
         if (!hasMore || isFetchingMore) return
+        if (!accessResolved) return
 
         setIsFetchingMore(true)
         try {
@@ -407,8 +421,8 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
             setOffset(newOffset)
             setHasMore(newHasMore)
 
-            // Actualizar caché
-            if (chatScope === 'active') {
+            // Actualizar caché solo si el usuario NO está restringido (ver loadLeads).
+            if (chatScope === 'active' && !strictAssignment) {
                 updateCachedLeads(companyId, {
                     leads: newLeads,
                     unreadCounts: { ...unreadCounts, ...counts },
@@ -422,7 +436,7 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
             setIsFetchingMore(false)
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [hasMore, isFetchingMore, companyId, offset, chatScope, leads, unreadCounts, strictAssignment, JSON.stringify(strictAssignedToIds || []), JSON.stringify(allowedPipelineIds || null)])
+    }, [hasMore, isFetchingMore, companyId, offset, chatScope, leads, unreadCounts, strictAssignment, JSON.stringify(strictAssignedToIds || []), JSON.stringify(allowedPipelineIds || null), accessResolved])
 
     /**
      * Cambiar scope (activos/archivados)
@@ -685,6 +699,13 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
     // Carga inicial (solo si NO hay búsqueda)
     useEffect(() => {
         if (!companyId || !autoLoad) return
+        // Esperamos a que la lógica de restricción haya decidido el estado del
+        // usuario antes de leer caché o pegarle a la BD. Si arrancamos sin saber,
+        // mostraríamos todos los chats y luego los esconderíamos al resolverse.
+        if (!accessResolved) {
+            setIsInitialLoading(true)
+            return
+        }
 
         if (chatScope === 'archived') {
             void loadLeads()
@@ -722,7 +743,7 @@ export function useLeadsList(options: UseLeadsListOptions): UseLeadsListReturn {
             void loadLeads()
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [companyId, chatScope, autoLoad, strictAssignment, JSON.stringify(strictAssignedToIds || []), JSON.stringify(allowedPipelineIds || null)])
+    }, [companyId, chatScope, autoLoad, strictAssignment, JSON.stringify(strictAssignedToIds || []), JSON.stringify(allowedPipelineIds || null), accessResolved])
 
     // Recargar cuando cambia el scope
     useEffect(() => {
