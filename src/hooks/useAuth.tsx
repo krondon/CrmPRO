@@ -151,7 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // `pending_join_empresa_id` o `pending_invite_token` pendiente sin procesar
     // (p.ej. auto-login post email-confirm que no pasa por login()), procesarlo aquí.
     useEffect(() => {
-        if (!user?.id) return
+        if (!user?.id || user?.isAnonymous) return
 
         // 1) Invitación por token (flujo principal de empleados invitados por email)
         const pendingInviteToken = localStorage.getItem(PENDING_INVITE_TOKEN_KEY)
