@@ -91,9 +91,8 @@ export function OnboardingTemplatesDialog({ open, onClose, companyId }: Props) {
           color: s.color,
           orden: i,
           pipeline_id: pipeline.id,
-          empresa_id: companyId,
         }))
-        const { error: stagesErr } = await supabase.from('pipeline_etapas').insert(stages)
+        const { error: stagesErr } = await supabase.from('etapas').insert(stages)
         if (stagesErr) throw stagesErr
       }
 
