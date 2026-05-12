@@ -94,6 +94,7 @@ interface AuthContextType {
     updateRecoveryEmail: (recoveryEmail: string) => Promise<void>
     upgradeToOwner: (businessName: string) => Promise<void>
     upgradeAnonymousUser: (email: string, password: string, businessName?: string, userName?: string) => Promise<void>
+    startAsGuest: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
@@ -277,13 +278,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
             if (!session) {
                 if (storedUserParsed && !storedUserParsed.isAnonymous) {
-                    setUser(null)
-                    setCompanies([])
-                    setCurrentCompanyIdState('')
                     toast.info('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.', { duration: 5000 })
-                } else {
-                    await _initAnonymousSession()
                 }
+                // No session — limpiar estado y mostrar pantalla de bienvenida
+                setUser(null)
+                setCompanies([])
+                setCurrentCompanyIdState('')
                 setIsLoading(false)
                 return
             }
@@ -940,6 +940,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }
 
+    const startAsGuest = async () => {
+        await _initAnonymousSession()
+    }
+
     const upgradeAnonymousUser = async (email: string, password: string, businessName?: string, userName?: string) => {
         if (!user) throw new Error('No autenticado')
         try {
@@ -977,7 +981,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         updateEmail,
         updateRecoveryEmail,
         upgradeToOwner,
-        upgradeAnonymousUser
+        upgradeAnonymousUser,
+        startAsGuest
     }
 
     return (
