@@ -28,7 +28,9 @@ interface ChatsViewProps {
 export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = false, canDeleteMessages = true, canManageTags = true, canUseAi = false }: ChatsViewProps) {
   // Restricción admin/viewer + Representante de Ventas → solo se muestran los
   // chats anclados a oportunidades asignadas al usuario en sus pipelines.
-  const { allowedPipelineIds, isRestricted, assignedToIds } = useUserPipelineAccess()
+  // accessResolved indica si el hook YA terminó su fetch async (sin ese flag
+  // useLeadsList cargaría todos los chats antes de saber si hay restricción).
+  const { allowedPipelineIds, isRestricted, assignedToIds, accessResolved } = useUserPipelineAccess()
 
   // ==========================================
   // Hook de leads paginados (antes era ~250 líneas de código duplicado)
@@ -60,7 +62,8 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
     companyId,
     strictAssignment: isRestricted,
     strictAssignedToIds: assignedToIds,
-    allowedPipelineIds
+    allowedPipelineIds,
+    accessResolved
   })
 
   // Predicado local: ¿este lead/mensaje corresponde a una oportunidad visible
