@@ -8,11 +8,13 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { useTranslation } from '@/lib/i18n'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Company } from './CompanyManagement'
+import { AnonymousBar } from '@/components/auth/AnonymousBar'
 
 interface User {
   id: string
   email: string
   businessName: string
+  isAnonymous?: boolean
 }
 
 interface SidebarProps {
@@ -24,9 +26,10 @@ interface SidebarProps {
   onCompanyChange?: (companyId: string) => void
   companies?: Company[]
   notificationCount?: number
+  isAnonymous?: boolean
 }
 
-export function Sidebar({ currentView, onViewChange, onLogout, user, currentCompanyId, onCompanyChange, companies = [], notificationCount = 0 }: SidebarProps) {
+export function Sidebar({ currentView, onViewChange, onLogout, user, currentCompanyId, onCompanyChange, companies = [], notificationCount = 0, isAnonymous }: SidebarProps) {
   const t = useTranslation('es')
   const location = useLocation()
   const navigate = useNavigate()
@@ -182,6 +185,12 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
 
         <div className="p-4 border-t border-border/50 space-y-1.5 flex-none bg-muted/10">
 
+          {isAnonymous && (
+            <div className="pb-1">
+              <AnonymousBar />
+            </div>
+          )}
+
           <NavLink
             to={getPath('notifications')}
             className={cn(
@@ -204,19 +213,21 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
             )}
           </NavLink>
 
-          <div className="pt-2">
-            {onLogout && (
-              <button
-                onClick={onLogout}
-                className="w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-semibold text-red-500 hover:bg-red-50 hover:text-red-600 transition-all group"
-              >
-                <div className="w-8 h-8 rounded-lg bg-red-50 group-hover:bg-red-100 flex items-center justify-center transition-colors">
-                  <SignOut size={18} weight="bold" />
-                </div>
-                <span>{t.auth.logout}</span>
-              </button>
-            )}
-          </div>
+          {!isAnonymous && (
+            <div className="pt-2">
+              {onLogout && (
+                <button
+                  onClick={onLogout}
+                  className="w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-semibold text-red-500 hover:bg-red-50 hover:text-red-600 transition-all group"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-red-50 group-hover:bg-red-100 flex items-center justify-center transition-colors">
+                    <SignOut size={18} weight="bold" />
+                  </div>
+                  <span>{t.auth.logout}</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

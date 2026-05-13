@@ -18,6 +18,7 @@ import { JoinTeam } from '@/components/crm/JoinTeam'
 import { JoinByLinkView } from '@/components/crm/JoinByLinkView'
 import { JoinByInviteView } from '@/components/crm/JoinByInviteView'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
+import { WelcomeView } from '@/components/auth/WelcomeView'
 import { UpdatePasswordView } from '@/components/auth/UpdatePasswordView'
 import { HubmyCallbackView } from '@/components/auth/HubmyCallbackView'
 import { CRMLayout } from '@/components/layout/CRMLayout'
@@ -51,8 +52,13 @@ function App() {
     <UpgradeModalProvider>
       <Routes>
         {/* Auth Routes */}
+        {/* Welcome — entry point when no session */}
+        <Route path="/welcome" element={
+          user ? <Navigate to="/dashboard" replace /> : <WelcomeView />
+        } />
+
         <Route path="/login" element={
-          user ? <Navigate to="/dashboard" replace /> : (
+          user && !user.isAnonymous ? <Navigate to="/dashboard" replace /> : (
             <LoginView
               onLogin={login}
               onForgotPassword={resetPassword}
@@ -100,7 +106,9 @@ function App() {
 
         {/* Protected CRM Routes - redirect to setup if no company */}
         <Route element={
-          user?.accountType === 'employee' && companies.length === 0
+          user?.isAnonymous
+            ? <ProtectedRoute><CRMLayout /></ProtectedRoute>
+            : user?.accountType === 'employee' && companies.length === 0
             ? <Navigate to="/no-company" replace />
             : user?.accountType === 'owner' && companies.length === 0
             ? <Navigate to="/create-empresa" replace />
@@ -193,7 +201,7 @@ function App() {
         </Route>
 
         {/* Fallback */}
-        <Route path="*" element={<Navigate to={user ? "/dashboard" : "/login"} replace />} />
+        <Route path="*" element={<Navigate to={user ? "/dashboard" : "/welcome"} replace />} />
       </Routes>
       <Toaster />
       <UpgradeFab />
