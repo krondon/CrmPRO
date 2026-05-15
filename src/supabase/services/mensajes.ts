@@ -1,4 +1,5 @@
 import { supabase } from '../client'
+import { getFreshAccessToken } from '../helpers/getFreshAccessToken'
 
 export interface Message {
   id: string
@@ -62,12 +63,7 @@ export async function sendMessage(
 ) {
   // Si es un mensaje del equipo, usamos la Edge Function para que también se envíe a la Super API
   if (sender === 'team') {
-    const { data: sessionData } = await supabase.auth.getSession()
-    const accessToken = sessionData.session?.access_token
-
-    if (!accessToken) {
-      throw new Error('Sesion expirada. Inicia sesion de nuevo para enviar mensajes.')
-    }
+    const accessToken = await getFreshAccessToken()
 
     const edgePayload = {
       lead_id: leadId,
