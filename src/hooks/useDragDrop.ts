@@ -45,6 +45,8 @@ export interface UseDragDropOptions {
     actorNombre?: string
     /** ID de la empresa para log de auditoría */
     companyId?: string
+    /** Mapa stageId → nombre de etapa, para enriquecer entradas de historial */
+    stagesById?: Record<string, string>
 }
 
 export interface UseDragDropReturn {
@@ -64,7 +66,7 @@ export interface UseDragDropReturn {
 // HOOK PRINCIPAL
 // ============================================
 export function useDragDrop(options: UseDragDropOptions): UseDragDropReturn {
-    const { setLeads, setStageCounts, canEditLeads, currentUserId, actorNombre, companyId } = options
+    const { setLeads, setStageCounts, canEditLeads, currentUserId, actorNombre, companyId, stagesById } = options
 
     // Ref para el lead siendo arrastrado (evita re-renders durante drag)
     const draggedLeadRef = useRef<Lead | null>(null)
@@ -107,23 +109,41 @@ export function useDragDrop(options: UseDragDropOptions): UseDragDropReturn {
                 await updateLead(lead.id, { etapa_id: targetStageId, stage_entered_at: new Date().toISOString(), sla_custom_limit_minutes: null }, currentUserId, actorNombre)
                 toast.success('Lead movido a nueva etapa')
 
-                // Log de auditoría (non-blocking)
+                const fromName = stagesById?.[originalStageId]
+                const toName = stagesById?.[targetStageId]
+                const moveDetalle = fromName && toName
+                    ? `Movió de "${fromName}" a "${toName}"`
+                    : 'Movió la oportunidad a una nueva etapa'
+
+                // Log de auditoría global (visible al owner)
                 if (companyId) {
                     import('@/supabase/services/activityLog').then(({ logActivity }) => {
                         logActivity({
                             empresaId: companyId,
                             categoria: 'leads',
                             accion: 'mover_etapa',
-                            detalle: `Movió "${lead.name || 'Oportunidad'}" a nueva etapa`,
+                            detalle: `Movió "${lead.name || 'Oportunidad'}" — ${moveDetalle}`,
                             entidadTipo: 'lead',
                             entidadId: lead.id,
                             entidadNombre: lead.name,
-                            metadata: { from_stage: originalStageId, to_stage: targetStageId },
+                            metadata: { from_stage: originalStageId, to_stage: targetStageId, from_name: fromName, to_name: toName },
                             actorId: currentUserId,
                             actorNombre
                         }).catch(e => console.error('[useDragDrop] log error:', e))
                     })
                 }
+
+                // Historial específico de la oportunidad
+                import('@/supabase/services/history').then(({ logLeadEvent }) => {
+                    logLeadEvent({
+                        leadId: lead.id,
+                        accion: 'etapa_cambio',
+                        detalle: moveDetalle,
+                        actorId: currentUserId,
+                        actorNombre,
+                        metadata: { from_stage: originalStageId, to_stage: targetStageId, from_name: fromName, to_name: toName }
+                    })
+                })
 
                 // 🤖 Automation: fire stage_change trigger (non-blocking)
                 // We pass the lead with the NEW stage so the engine can match rules for that stage

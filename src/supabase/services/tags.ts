@@ -69,6 +69,21 @@ export async function saveTag(empresaId: string, tag: Tag): Promise<Tag> {
 }
 
 /**
+ * Crea una etiqueta guardada con semántica estricta: lanza error si ya existe (no resuelve silenciosamente).
+ * Diferencia con saveTag: éste falla en duplicado para que el consumer muestre mensaje claro al usuario.
+ */
+export async function createSavedTag(empresaId: string, tag: Tag): Promise<Tag> {
+    const { data, error } = await supabase
+        .from('saved_tags')
+        .insert({ id: tag.id, empresa_id: empresaId, name: tag.name, color: tag.color })
+        .select('id, name, color, short_id')
+        .single()
+
+    if (error) throw error
+    return { id: data.id, name: data.name, color: data.color, short_id: data.short_id ?? null }
+}
+
+/**
  * Elimina una etiqueta guardada (solo de la biblioteca, no de los leads)
  */
 export async function deleteSavedTag(tagId: string): Promise<void> {
@@ -213,17 +228,27 @@ export async function addTagToLead(leadId: string, currentTags: Tag[], newTag: T
         await saveTag(empresaId, newTag)
     }
 
-    // Log de auditoría
+    // Log de auditoría (owner)
     import('./activityLog').then(({ logActivity }) => {
         logActivity({
             empresaId,
             categoria: 'tags',
             accion: 'agregar_tag',
-            detalle: `Agregó la etiqueta "${newTag.text}" a una oportunidad`,
+            detalle: `Agregó la etiqueta "${newTag.name}" a una oportunidad`,
             entidadTipo: 'lead',
             entidadId: leadId,
-            entidadNombre: newTag.text
+            entidadNombre: newTag.name
         }).catch(e => console.error('[addTagToLead] log error:', e))
+    })
+
+    // Historial de la oportunidad
+    import('./history').then(({ logLeadEvent }) => {
+        logLeadEvent({
+            leadId,
+            accion: 'tag_agregada',
+            detalle: `Agregó la etiqueta "${newTag.name}"`,
+            metadata: { tag_id: newTag.id, tag_name: newTag.name, tag_color: (newTag as any).color }
+        })
     })
 
     return updatedTags
@@ -243,18 +268,30 @@ export async function removeTagFromLead(leadId: string, currentTags: Tag[], tagI
 
     if (error) throw error
 
-    // Log de auditoría
+    // Log de auditoría (owner)
     if (empresaId && removedTag) {
         import('./activityLog').then(({ logActivity }) => {
             logActivity({
                 empresaId,
                 categoria: 'tags',
                 accion: 'eliminar_tag',
-                detalle: `Eliminó la etiqueta "${removedTag.text}" de una oportunidad`,
+                detalle: `Eliminó la etiqueta "${removedTag.name}" de una oportunidad`,
                 entidadTipo: 'lead',
                 entidadId: leadId,
-                entidadNombre: removedTag.text
+                entidadNombre: removedTag.name
             }).catch(e => console.error('[removeTagFromLead] log error:', e))
+        })
+    }
+
+    // Historial de la oportunidad
+    if (removedTag) {
+        import('./history').then(({ logLeadEvent }) => {
+            logLeadEvent({
+                leadId,
+                accion: 'tag_eliminada',
+                detalle: `Eliminó la etiqueta "${removedTag.name}"`,
+                metadata: { tag_id: removedTag.id, tag_name: removedTag.name, tag_color: (removedTag as any).color }
+            })
         })
     }
 

@@ -45,7 +45,9 @@ export async function getLeads(
     empresaId: string,
     currentUserId?: string,
     isAdminOrOwner: boolean = false,
-    includeArchived: boolean = false
+    includeArchived: boolean = false,
+    strictAssignment: boolean = false,
+    strictAssignedToIds?: string[]
 ): Promise<LeadDB[]> {
     let allData: LeadDB[] = []
     let page = 0
@@ -63,7 +65,19 @@ export async function getLeads(
             query = query.eq('archived', false)
         }
 
-        if (!isAdminOrOwner && currentUserId) {
+        if (strictAssignment) {
+            // Modo estricto: solo leads asignados a los IDs explícitos del usuario.
+            // `asignado_a` puede ser usuario_id o persona.id según cómo se creó el lead;
+            // por eso aceptamos un array.
+            const ids = (strictAssignedToIds && strictAssignedToIds.length > 0)
+                ? strictAssignedToIds
+                : (currentUserId ? [currentUserId] : [])
+            if (ids.length === 0) {
+                // Sin IDs no hay nada que mostrar.
+                return []
+            }
+            query = query.in('asignado_a', ids)
+        } else if (!isAdminOrOwner && currentUserId) {
             query = query.or(`asignado_a.eq.${currentUserId},asignado_a.eq.00000000-0000-0000-0000-000000000000,asignado_a.is.null`)
         }
 
@@ -125,6 +139,8 @@ export async function getLeadsPaged(options: GetLeadsPagedOptions): Promise<Pagi
         empresaId,
         currentUserId,
         isAdminOrOwner = false,
+        strictAssignment = false,
+        strictAssignedToIds,
         limit = 200,
         offset = 0,
         pipelineId,
@@ -151,7 +167,17 @@ export async function getLeadsPaged(options: GetLeadsPagedOptions): Promise<Pagi
         query = query.eq('etapa_id', stageId)
     }
 
-    if (!isAdminOrOwner && currentUserId) {
+    if (strictAssignment) {
+        // Modo estricto: solo leads cuyo `asignado_a` esté en la lista de IDs del usuario
+        // (acepta tanto su usuario_id como su persona.id).
+        const ids = (strictAssignedToIds && strictAssignedToIds.length > 0)
+            ? strictAssignedToIds
+            : (currentUserId ? [currentUserId] : [])
+        if (ids.length === 0) {
+            return { data: [], count: 0 }
+        }
+        query = query.in('asignado_a', ids)
+    } else if (!isAdminOrOwner && currentUserId) {
         query = query.or(`asignado_a.eq.${currentUserId},asignado_a.eq.00000000-0000-0000-0000-000000000000,asignado_a.is.null`)
     }
 
@@ -376,6 +402,105 @@ export async function createLead(lead: CreateLeadDTO, actorId?: string, actorNom
 }
 
 /**
+ * Duplica una oportunidad (lead) a otro pipeline / etapa.
+ * Copia los datos comerciales del lead y sus notas. No copia chat, reuniones, ni
+ * metadata de canal (instance_id, channel, external_handle, last_message_at) — eso
+ * deja al duplicado limpio y evita que webhooks reenruten mensajes al lead nuevo.
+ */
+export async function duplicateLead(
+    sourceLeadId: string,
+    targetPipelineId: string,
+    targetStageId: string,
+    actorId?: string,
+    actorNombre?: string
+): Promise<LeadDB> {
+    // 1. Leer el lead origen
+    const { data: sourceRaw, error: sourceErr } = await supabase
+        .from('lead')
+        .select(SHARED_LEAD_COLUMNS)
+        .eq('id', sourceLeadId)
+        .single()
+
+    if (sourceErr || !sourceRaw) {
+        throw new Error(sourceErr?.message || 'No se encontró la oportunidad original')
+    }
+    const source = sourceRaw as any
+
+    // 2. Construir payload sin metadatos de canal/cronología (se regeneran)
+    const payload: Record<string, any> = {
+        nombre_completo: source.nombre_completo,
+        correo_electronico: source.correo_electronico,
+        telefono: source.telefono,
+        empresa: source.empresa,
+        empresa_id: source.empresa_id,
+        ubicacion: source.ubicacion,
+        presupuesto: source.presupuesto,
+        prioridad: source.prioridad,
+        asignado_a: source.asignado_a,
+        evento: source.evento,
+        membresia: source.membresia,
+        tags: source.tags ?? [],
+        custom_fields: source.custom_fields ?? {},
+        pipeline_id: targetPipelineId,
+        etapa_id: targetStageId,
+    }
+
+    // 3. Insertar el duplicado
+    const { data: createdRaw, error: insertErr } = await supabase
+        .from('lead')
+        .insert(payload)
+        .select()
+        .single()
+
+    if (insertErr || !createdRaw) {
+        throw new Error(insertErr?.message || 'No se pudo crear el duplicado')
+    }
+    const created = createdRaw as LeadDB
+
+    // 4. Copiar notas (best-effort, no fallar si hay error)
+    try {
+        const { data: notas } = await supabase
+            .from('nota_lead')
+            .select('contenido, creado_por, creador_nombre, created_at')
+            .eq('lead_id', sourceLeadId)
+
+        if (notas && notas.length > 0) {
+            const notaInserts = notas.map((n: any) => ({
+                lead_id: created.id,
+                contenido: n.contenido,
+                creado_por: n.creado_por,
+                creador_nombre: n.creador_nombre,
+                created_at: n.created_at,
+            }))
+            const { error: notaErr } = await supabase.from('nota_lead').insert(notaInserts)
+            if (notaErr) console.warn('[duplicateLead] No se pudieron copiar las notas:', notaErr)
+        }
+    } catch (e) {
+        console.warn('[duplicateLead] Error copiando notas:', e)
+    }
+
+    // 5. Log de historial en el lead duplicado (best-effort)
+    if (actorId) {
+        try {
+            await createHistoryEntry({
+                lead_id: created.id,
+                usuario_id: actorId,
+                accion: 'creacion',
+                detalle: `Duplicó la oportunidad "${created.nombre_completo}" desde otro pipeline`,
+                metadata: {
+                    actor_nombre: actorNombre,
+                    source_lead_id: sourceLeadId,
+                }
+            })
+        } catch (e) {
+            console.error('[duplicateLead] Error logging history:', e)
+        }
+    }
+
+    return created
+}
+
+/**
  * Crea múltiples leads en una sola operación
  */
 export async function createLeadsBulk(leads: CreateLeadDTO[], actorId?: string, actorNombre?: string): Promise<LeadDB[]> {
@@ -410,8 +535,8 @@ export async function createLeadsBulk(leads: CreateLeadDTO[], actorId?: string, 
  * Actualiza un lead
  */
 export async function updateLead(id: string, updates: UpdateLeadDTO, actorId?: string, actorNombre?: string): Promise<LeadDB> {
-    // Get current state to compare if it's an assignment change
-    const { data: currentLead } = await supabase.from('lead').select('asignado_a, nombre_completo').eq('id', id).single()
+    // Get current state to compare assignment / priority changes
+    const { data: currentLead } = await supabase.from('lead').select('asignado_a, nombre_completo, prioridad').eq('id', id).single()
 
     const { data, error } = await supabase
         .from('lead')
@@ -422,25 +547,62 @@ export async function updateLead(id: string, updates: UpdateLeadDTO, actorId?: s
 
     if (error) throw error
 
-    // Log assignment change if applicable
+    // Log assignment / unassignment change
+    const NIL_UUID = '00000000-0000-0000-0000-000000000000'
     if (actorId && data && updates.asignado_a !== undefined && updates.asignado_a !== currentLead?.asignado_a) {
         try {
-            const isFirstAssignment = !currentLead?.asignado_a || currentLead?.asignado_a === '00000000-0000-0000-0000-000000000000'
-            const accion = isFirstAssignment ? 'asignacion' : 'reasignacion'
+            const prev = currentLead?.asignado_a
+            const next = updates.asignado_a
+            const prevIsEmpty = !prev || prev === NIL_UUID
+            const nextIsEmpty = !next || next === NIL_UUID
+
+            let accion: string
+            let detalle: string
+            if (nextIsEmpty && !prevIsEmpty) {
+                accion = 'desasignacion'
+                detalle = 'Desasignó la oportunidad'
+            } else if (prevIsEmpty) {
+                accion = 'asignacion'
+                detalle = 'Asignó la oportunidad'
+            } else {
+                accion = 'reasignacion'
+                detalle = 'Reasignó la oportunidad'
+            }
 
             await createHistoryEntry({
                 lead_id: id,
                 usuario_id: actorId,
-                accion: accion,
-                detalle: isFirstAssignment ? 'Asignó la oportunidad' : 'Reasignó la oportunidad',
+                accion,
+                detalle,
                 metadata: {
-                    prev_assigned_to: currentLead?.asignado_a,
-                    new_assigned_to: updates.asignado_a,
+                    prev_assigned_to: prev,
+                    new_assigned_to: next,
                     ...(actorNombre ? { actor_nombre: actorNombre } : {})
                 }
             })
         } catch (e) {
-            console.error('[updateLead] Error logging history:', e)
+            console.error('[updateLead] Error logging history (asignacion):', e)
+        }
+    }
+
+    // Log priority change
+    if (actorId && data && updates.prioridad !== undefined && updates.prioridad !== currentLead?.prioridad) {
+        try {
+            const labelMap: Record<string, string> = { low: 'BAJA', medium: 'MEDIA', high: 'ALTA' }
+            const newLabel = labelMap[updates.prioridad as string] || String(updates.prioridad).toUpperCase()
+            await createHistoryEntry({
+                lead_id: id,
+                usuario_id: actorId,
+                accion: 'prioridad_cambio',
+                detalle: `Cambió prioridad a ${newLabel}`,
+                metadata: {
+                    prev_priority: currentLead?.prioridad,
+                    new_priority: updates.prioridad,
+                    ...(actorNombre ? { actor_nombre: actorNombre } : {})
+                }
+            })
+        } catch (e) {
+            console.error('[updateLead] Error logging history (prioridad):', e)
         }
     }
 

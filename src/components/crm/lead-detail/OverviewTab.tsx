@@ -6,12 +6,15 @@
  * Extraído de LeadDetailSheet para mantener el código organizado.
  */
 
+import { useEffect, useState } from 'react'
 import { Lead, Message, Channel, TeamMember, EmpresaInstanciaDB, CustomFieldDefinition } from '@/lib/types'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { InlineEdit } from '../InlineEdit'
 import { safeFormatDate } from '@/hooks/useDateFormat'
+import { getEtapas } from '@/supabase/services/etapas'
+import type { EtapaDB } from '@/lib/types'
 import {
     WhatsappLogo,
     TelegramLogo,
@@ -30,7 +33,8 @@ import {
     ChatCircleDots,
     Tag as TagIcon,
     MapPin,
-    Timer
+    Timer,
+    Funnel
 } from '@phosphor-icons/react'
 
 import { HistoryTab } from './HistoryTab'
@@ -103,6 +107,30 @@ export function OverviewTab({
     const preferredInstance = instances.find(i => i.id === lead.preferred_instance_id) || null
     const PlatformIcon = preferredInstance ? (platformIcons[preferredInstance.plataforma] || DeviceMobile) : null
 
+    const [stages, setStages] = useState<EtapaDB[]>([])
+    const pipelineId = (lead.pipeline as string) || ''
+
+    useEffect(() => {
+        let mounted = true
+        if (!pipelineId) {
+            setStages([])
+            return
+        }
+        getEtapas(pipelineId)
+            .then(list => {
+                if (!mounted) return
+                const sorted = [...list].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
+                setStages(sorted)
+            })
+            .catch(err => {
+                console.error('[OverviewTab] error loading stages', err)
+                if (mounted) setStages([])
+            })
+        return () => { mounted = false }
+    }, [pipelineId])
+
+    const currentStage = stages.find(s => s.id === lead.stage)
+
     return (
         <div className="flex-1 px-6 sm:px-8 py-6 sm:py-8 space-y-8 overflow-y-auto">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-6">
@@ -129,6 +157,45 @@ export function OverviewTab({
                             </SelectContent>
                         </Select>
                     </div>
+                </div>
+
+                <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 text-muted-foreground/60">
+                        <Funnel size={14} weight="bold" />
+                        <Label className="text-[10px] uppercase font-black tracking-widest">Etapa</Label>
+                    </div>
+                    <Select
+                        value={lead.stage || ''}
+                        onValueChange={(value) => onUpdateField('stage' as keyof Lead, value)}
+                        disabled={!canEdit || stages.length === 0}
+                    >
+                        <SelectTrigger className="w-full h-11 bg-background border-border/40 hover:border-primary/30 transition-all rounded-xl shadow-sm pl-4">
+                            <SelectValue placeholder={stages.length === 0 ? 'Sin pipeline' : 'Seleccionar etapa'}>
+                                {currentStage && (
+                                    <div className="flex items-center gap-2">
+                                        <div
+                                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                                            style={{ backgroundColor: currentStage.color || '#3b82f6' }}
+                                        />
+                                        <span className="font-bold text-sm truncate">{currentStage.nombre}</span>
+                                    </div>
+                                )}
+                            </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent className="rounded-xl border-border/40 shadow-xl">
+                            {stages.map(s => (
+                                <SelectItem key={s.id} value={s.id} className="text-sm font-medium">
+                                    <div className="flex items-center gap-2">
+                                        <div
+                                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                                            style={{ backgroundColor: s.color || '#3b82f6' }}
+                                        />
+                                        {s.nombre}
+                                    </div>
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                 </div>
 
                 <div className="space-y-1.5">
@@ -245,7 +312,7 @@ export function OverviewTab({
                             <div className="flex items-center gap-2 text-muted-foreground/60">
                                 <Label className="text-[10px] uppercase font-black tracking-widest">{def.nombre}</Label>
                             </div>
-                            <div className="h-11 flex items-center px-4 rounded-xl bg-background border border-border/40 hover:border-primary/30 transition-all shadow-sm">
+                            <div className="min-h-11 flex items-center px-4 py-2.5 rounded-xl bg-background border border-border/40 hover:border-primary/30 transition-all shadow-sm">
                                 {def.tipo === 'select' ? (
                                     <Select
                                         value={String(lead.customFields?.[def.clave] ?? '__none__')}

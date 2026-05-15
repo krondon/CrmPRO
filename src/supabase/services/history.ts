@@ -19,6 +19,41 @@ export async function createHistoryEntry(entry: CreateLeadHistoryDTO): Promise<L
 }
 
 /**
+ * Registra un evento en el historial de una oportunidad.
+ * Fire-and-forget: nunca lanza error. Resuelve usuario_id desde auth si no se pasa.
+ */
+export async function logLeadEvent(params: {
+    leadId: string
+    accion: string
+    detalle: string
+    actorId?: string | null
+    actorNombre?: string | null
+    metadata?: Record<string, any>
+}): Promise<void> {
+    try {
+        let userId = params.actorId ?? undefined
+        if (!userId) {
+            const { data: { user } } = await supabase.auth.getUser()
+            userId = user?.id
+        }
+        if (!userId) return
+
+        const metadata: Record<string, any> = { ...(params.metadata || {}) }
+        if (params.actorNombre) metadata.actor_nombre = params.actorNombre
+
+        await supabase.from('lead_historial').insert({
+            lead_id: params.leadId,
+            usuario_id: userId,
+            accion: params.accion,
+            detalle: params.detalle,
+            metadata: Object.keys(metadata).length ? metadata : null
+        })
+    } catch (e) {
+        console.error('[logLeadEvent] non-blocking error:', e)
+    }
+}
+
+/**
  * Obtiene el historial de una oportunidad con los nombres de los usuarios
  */
 export async function getLeadHistory(leadId: string): Promise<LeadHistory[]> {

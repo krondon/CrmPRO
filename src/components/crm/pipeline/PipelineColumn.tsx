@@ -3,7 +3,7 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Plus, Trash, PencilSimple, Check, X, ArrowsClockwise } from '@phosphor-icons/react'
+import { Plus, Trash, PencilSimple, Check, X, ArrowsClockwise, ClipboardText, CircleNotch } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { Lead, Pipeline, PipelineType, TeamMember, Stage } from '@/lib/types'
 import { AddLeadDialog } from '@/components/crm/AddLeadDialog'
@@ -12,6 +12,8 @@ import { Company } from '@/components/crm/CompanyManagement'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { PremiumSwitch, useUpgradeModal } from '@/components/premium'
+import { useEdition } from '@/hooks/useEdition'
 
 interface User {
     id: string
@@ -58,6 +60,12 @@ interface PipelineColumnProps {
     onDeleteLead: (leadId: string) => void
     onMoveToStage: (lead: Lead, stageId: string) => void
     onOpenMoveDialog: (lead: Lead) => void
+    onCopyLead?: (lead: Lead) => void
+
+    // Copy/Paste
+    pasteableLeadName?: string | null
+    onPasteToStage?: (stageId: string) => void
+    isPasting?: boolean
 
     // Helpers
     t: any
@@ -101,6 +109,10 @@ export function PipelineColumn({
     onDeleteLead,
     onMoveToStage,
     onOpenMoveDialog,
+    onCopyLead,
+    pasteableLeadName,
+    onPasteToStage,
+    isPasting,
     t
     ,
     onStageDragStart,
@@ -123,7 +135,18 @@ export function PipelineColumn({
     const [editSlaEnabled, setEditSlaEnabled] = useState(stage.is_sla_enabled || false)
     const [editSlaValue, setEditSlaValue] = useState(initialSlaValue)
     const [editSlaUnit, setEditSlaUnit] = useState<"minutes" | "hours" | "days">(initialSlaUnit)
-    
+
+    const { isLocked } = useEdition()
+    const { open: openUpgrade } = useUpgradeModal()
+    const semaforoLocked = isLocked('semaforo')
+    const handleSemaforoLabelClick = () => {
+        if (semaforoLocked) {
+            openUpgrade({ type: 'feature', feature: 'semaforo' })
+            return
+        }
+        setEditSlaEnabled(!editSlaEnabled)
+    }
+
     const editInputRef = useRef<HTMLInputElement>(null)
 
     const predefinedColors = [
@@ -223,10 +246,10 @@ export function PipelineColumn({
                             </div>
                             <div className="space-y-2 border-t pt-2 mt-2">
                                 <div className="flex items-center justify-between">
-                                    <Label className="cursor-pointer text-xs" onClick={() => setEditSlaEnabled(!editSlaEnabled)}>
+                                    <Label className="cursor-pointer text-xs" onClick={handleSemaforoLabelClick}>
                                         Semaforo de tiempo
                                     </Label>
-                                    <Switch checked={editSlaEnabled} onCheckedChange={setEditSlaEnabled} />
+                                    <PremiumSwitch feature="semaforo" checked={editSlaEnabled} onCheckedChange={setEditSlaEnabled} />
                                 </div>
                                 <p className="text-[10px] text-muted-foreground leading-tight">
                                     Las tarjetas cambiaran de color segun el tiempo que lleven en esta etapa.
@@ -351,6 +374,31 @@ export function PipelineColumn({
                     )}
                 </div>
 
+                {/* Botón "Pegar aquí" visible solo cuando hay una oportunidad copiada */}
+                {pasteableLeadName && onPasteToStage && (
+                    <button
+                        type="button"
+                        onClick={() => onPasteToStage(stage.id)}
+                        disabled={isPasting}
+                        className={cn(
+                            "w-full mb-2 px-3 py-2 rounded-lg border-2 border-dashed border-primary/40 bg-primary/5 text-primary text-xs font-semibold flex items-center justify-center gap-2 hover:bg-primary/10 hover:border-primary transition-colors disabled:opacity-60 disabled:cursor-wait"
+                        )}
+                        title={`Pegar "${pasteableLeadName}" en ${stage.name}`}
+                    >
+                        {isPasting ? (
+                            <>
+                                <CircleNotch size={14} className="animate-spin" />
+                                Pegando...
+                            </>
+                        ) : (
+                            <>
+                                <ClipboardText size={14} weight="duotone" />
+                                Pegar "<span className="truncate max-w-[120px] inline-block align-bottom">{pasteableLeadName}</span>" aquí
+                            </>
+                        )}
+                    </button>
+                )}
+
                 {/* Column Cards Container */}
                 <div className="flex flex-row md:flex-col gap-3 overflow-x-auto md:overflow-x-hidden md:overflow-y-auto min-h-[120px] md:min-h-[200px] md:flex-1 pb-4 px-1 scrollbar-thin scrollbar-thumb-muted-foreground/20 scrollbar-track-transparent">
                     {stageLeads.map(lead => (
@@ -376,6 +424,7 @@ export function PipelineColumn({
                             onDelete={onDeleteLead}
                             onMoveToStage={onMoveToStage}
                             onOpenMoveDialog={onOpenMoveDialog}
+                            onCopy={onCopyLead}
                             t={t}
                         />
                     ))}

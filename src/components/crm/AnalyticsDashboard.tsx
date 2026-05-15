@@ -4,6 +4,10 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { useEffect, useState, useMemo } from 'react'
 import { getLeads } from '@/supabase/services/leads'
 import { getPipelines } from '@/supabase/helpers/pipeline'
+import { askAnalyticsAI, AnalyticsResponse, HubmySubscriptionError } from '@/supabase/services/analyticsAi'
+import { useUserPipelineAccess } from '@/hooks/useUserPipelineAccess'
+import { useAuth } from '@/hooks/useAuth'
+import { toast } from 'sonner'
 import {
   CurrencyDollar,
   TrendUp,
@@ -12,7 +16,10 @@ import {
   ChartBar,
   ChartPieSlice,
   CaretUp,
-  CaretDown
+  CaretDown,
+  Sparkle,
+  X,
+  Spinner
 } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 
@@ -20,8 +27,17 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
   const [allLeads, setAllLeads] = useState<Lead[]>([])
   const [pipelinesData, setPipelinesData] = useState<{ id: string; name: string; stageNames: Record<string, string> }[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  // Restricción admin + Representante de Ventas → solo sus pipelines y solo
+  // los leads asignados a él (acepta usuario_id o persona.id).
+  const { allowedPipelineIds, isRestricted, assignedToIds } = useUserPipelineAccess()
+  const { user } = useAuth()
 
   const [dateRange, setDateRange] = useState<'30days' | 'quarter'>('30days')
+
+  // ── Estado de la consulta IA ───────────────────────────────────
+  const [aiResponse, setAiResponse] = useState<AnalyticsResponse | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
 
   // Fetch ALL leads and pipelines for this company
   useEffect(() => {
@@ -50,20 +66,33 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
     })
 
     Promise.all([
-      getLeads(companyId),
+      getLeads(
+        companyId,
+        isRestricted ? user?.id : undefined,
+        !isRestricted,
+        false,
+        isRestricted,
+        isRestricted ? assignedToIds : undefined
+      ),
       getPipelines(companyId)
     ]).then(([leadsRaw, pipelinesRes]) => {
-      const mapped = (leadsRaw || []).filter(l => !l.archived).map(mapLead)
-      setAllLeads(mapped)
+      const allowedSet = Array.isArray(allowedPipelineIds) ? new Set(allowedPipelineIds) : null
 
-      const pipes = (pipelinesRes.data || []).map((p: any) => ({
+      const allPipes = (pipelinesRes.data || []).map((p: any) => ({
         id: p.id,
         name: p.nombre || 'Sin Nombre',
         stageNames: Object.fromEntries((p.etapas || []).map((s: any) => [s.id, s.nombre]))
       }))
+      const pipes = allowedSet ? allPipes.filter(p => allowedSet.has(p.id)) : allPipes
       setPipelinesData(pipes)
+
+      const mapped = (leadsRaw || []).filter(l => !l.archived).map(mapLead)
+      const filteredLeads = allowedSet
+        ? mapped.filter(l => allowedSet.has(l.pipeline as unknown as string))
+        : mapped
+      setAllLeads(filteredLeads)
     }).finally(() => setIsLoading(false))
-  }, [companyId])
+  }, [companyId, JSON.stringify(allowedPipelineIds || null), isRestricted, user?.id, JSON.stringify(assignedToIds)])
 
   // Compute metrics based on date range
   const metrics = useMemo(() => {
@@ -155,6 +184,34 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
     return null;
   };
 
+  const handleAskAI = async (question: string) => {
+    if (!companyId || !question.trim()) return
+    setAiLoading(true)
+    setAiError(null)
+    try {
+      const res = await askAnalyticsAI(companyId, question.trim())
+      setAiResponse(res)
+    } catch (err: any) {
+      if (err instanceof HubmySubscriptionError) {
+        toast('✨ Función exclusiva de Hubmy', {
+          description: 'Suscríbete a Hubmy para desbloquear el asistente de analítica IA.',
+          action: { label: 'Ir a Hubmy', onClick: () => window.open('https://hubmy.app', '_blank') },
+          duration: 6000,
+        })
+      } else {
+        setAiError(err?.message || 'No se pudo obtener una respuesta')
+      }
+      setAiResponse(null)
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  const clearAi = () => {
+    setAiResponse(null)
+    setAiError(null)
+  }
+
   return (
     <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 pb-32 md:pb-8 space-y-8 bg-background/50">
       {/* Header Section */}
@@ -173,6 +230,15 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
           <button className="px-4 py-1.5 hover:bg-muted rounded-xl text-xs font-bold text-muted-foreground transition-all" onClick={() => setDateRange('quarter')} style={dateRange === 'quarter' ? { backgroundColor: 'var(--primary)', color: 'white' } : {}}>Este trimestre</button>
         </div>
       </div>
+
+      {/* AI Search Bar */}
+      <AnalyticsAIBar
+        onAsk={handleAskAI}
+        loading={aiLoading}
+        error={aiError}
+        active={aiResponse}
+        onClear={clearAi}
+      />
 
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -323,6 +389,158 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
       </div>
     </div>
   )
+}
+
+const AI_SUGGESTIONS = [
+  '¿Cuánto vendí el mes pasado?',
+  'Top 5 vendedores este trimestre',
+  'Leads sin actividad en 7 días',
+  'Distribución por prioridad',
+  'Tasa de conversión del año'
+]
+
+function AnalyticsAIBar({
+  onAsk,
+  loading,
+  error,
+  active,
+  onClear
+}: {
+  onAsk: (q: string) => void
+  loading: boolean
+  error: string | null
+  active: AnalyticsResponse | null
+  onClear: () => void
+}) {
+  const [q, setQ] = useState('')
+
+  const submit = (e?: React.FormEvent) => {
+    e?.preventDefault()
+    if (!q.trim() || loading) return
+    onAsk(q)
+  }
+
+  return (
+    <Card className="border-none shadow-sm rounded-2xl overflow-hidden bg-gradient-to-br from-primary/5 via-background to-primary/5">
+      <CardContent className="p-4 sm:p-6 space-y-3">
+        <form onSubmit={submit} className="flex items-center gap-2">
+          <div className="flex-1 flex items-center gap-3 bg-background border border-border/60 rounded-xl px-4 py-3 shadow-sm focus-within:border-primary/60 transition-colors">
+            <Sparkle size={18} weight="fill" className="text-primary shrink-0" />
+            <input
+              type="text"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Pregúntale a la IA: ej. cuánto vendí el mes pasado…"
+              className="flex-1 bg-transparent border-none outline-none text-sm font-medium placeholder:text-muted-foreground/70"
+              disabled={loading}
+            />
+            {loading && <Spinner size={18} className="text-primary animate-spin shrink-0" />}
+          </div>
+          <button
+            type="submit"
+            disabled={!q.trim() || loading}
+            className="px-5 py-3 bg-primary hover:bg-primary/90 text-white text-sm font-bold rounded-xl shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Preguntar
+          </button>
+        </form>
+
+        <div className="flex flex-wrap gap-2">
+          {AI_SUGGESTIONS.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => { setQ(s); onAsk(s) }}
+              disabled={loading}
+              className="px-3 py-1.5 text-xs font-bold bg-background border border-border/50 rounded-full text-muted-foreground hover:text-primary hover:border-primary/40 transition-all disabled:opacity-40"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+
+        {error && (
+          <div className="text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+            {error}
+          </div>
+        )}
+
+        {active && (
+          <AIResultPanel response={active} onClear={onClear} />
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function AIResultPanel({ response, onClear }: { response: AnalyticsResponse; onClear: () => void }) {
+  const { data, label } = response
+
+  return (
+    <div className="bg-background border border-primary/20 rounded-xl p-4 space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Sparkle size={16} weight="fill" className="text-primary" />
+          <span className="text-xs font-black uppercase tracking-widest text-primary">{label}</span>
+        </div>
+        <button
+          type="button"
+          onClick={onClear}
+          className="p-1 rounded-md hover:bg-muted transition-colors"
+          aria-label="Cerrar resultado"
+        >
+          <X size={14} weight="bold" className="text-muted-foreground" />
+        </button>
+      </div>
+
+      {data.kind === 'kpi' && (
+        <div className="flex items-baseline gap-3">
+          <span className="text-4xl font-black text-foreground">
+            {formatKpiValue(response)}
+          </span>
+          {typeof data.count === 'number' && (
+            <span className="text-sm font-bold text-muted-foreground">
+              {data.count} {data.count === 1 ? 'registro' : 'registros'}
+            </span>
+          )}
+        </div>
+      )}
+
+      {data.kind === 'series' && (
+        <div className="space-y-1.5">
+          {data.rows.length === 0 && (
+            <p className="text-sm text-muted-foreground font-medium">Sin datos para mostrar.</p>
+          )}
+          {data.rows.map((row, idx) => {
+            const max = Math.max(...data.rows.map(r => r.value), 1)
+            const pct = (row.value / max) * 100
+            return (
+              <div key={`${row.label}-${idx}`} className="flex items-center gap-3">
+                <span className="text-xs font-bold text-muted-foreground w-32 truncate">{row.label}</span>
+                <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                  <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${pct}%` }} />
+                </div>
+                <span className="text-xs font-black text-foreground w-12 text-right">{row.value}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function formatKpiValue(response: AnalyticsResponse): string {
+  if (response.data.kind !== 'kpi') return ''
+  const { value } = response.data
+  const metric = response.plan.metric
+  if (metric === 'closed_revenue' || metric === 'pipeline_value') {
+    return `$${Number(value).toLocaleString()}`
+  }
+  if (metric === 'conversion_rate') {
+    return `${value}%`
+  }
+  return Number(value).toLocaleString()
 }
 
 function KpiCard({ title, value, subtitle, icon, gradient, themeColor, trend, trendUp, bgIcon: BgIcon }: any) {

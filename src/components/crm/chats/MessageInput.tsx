@@ -8,9 +8,10 @@
  * - Archivos adjuntos
  */
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
     PaperPlaneRight,
     Paperclip,
@@ -19,13 +20,18 @@ import {
     Stop,
     Spinner,
     X,
-    DeviceMobile
+    DeviceMobile,
+    Sparkle,
+    FileText,
+    WhatsappLogo
 } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { useAudioRecorder } from '@/hooks/useAudioRecorder'
 import { sendMessage, uploadChatAttachment } from '@/supabase/services/mensajes'
 import type { Message } from '@/supabase/services/mensajes'
+import { listFollowUpTemplates, sendMetaTemplate } from '@/supabase/services/metaTemplates'
+import type { MetaFollowUpTemplateDB } from '@/lib/types'
 
 import { Channel } from '@/lib/types'
 
@@ -34,7 +40,11 @@ interface MessageInputProps {
     channel: 'whatsapp' | 'instagram' | 'facebook'
     disabled?: boolean
     instanceLabel?: string | null
+    empresaId?: string
     onMessageSent?: (msg?: Message) => void
+    isAiEnabled?: boolean
+    onAiClick?: () => void
+    suggestion?: { text: string; ts: number } | null
 }
 
 export function MessageInput({
@@ -42,12 +52,58 @@ export function MessageInput({
     channel,
     disabled = false,
     instanceLabel,
-    onMessageSent
+    empresaId,
+    onMessageSent,
+    isAiEnabled = false,
+    onAiClick,
+    suggestion,
 }: MessageInputProps) {
     const [messageInput, setMessageInput] = useState('')
     const [isUploading, setIsUploading] = useState(false)
     const [pendingImages, setPendingImages] = useState<Array<{ file: File; preview: string }>>([])
     const fileInputRef = useRef<HTMLInputElement>(null)
+
+    // Plantillas Meta (solo WhatsApp)
+    const [metaTemplates, setMetaTemplates] = useState<MetaFollowUpTemplateDB[]>([])
+    const [templatesLoaded, setTemplatesLoaded] = useState(false)
+    const [sendingTemplateId, setSendingTemplateId] = useState<string | null>(null)
+    const [templatePopoverOpen, setTemplatePopoverOpen] = useState(false)
+
+    const loadTemplates = useCallback(async () => {
+        if (!empresaId || channel !== 'whatsapp' || templatesLoaded) return
+        try {
+            const list = await listFollowUpTemplates(empresaId)
+            setMetaTemplates(list.filter(t => t.active))
+        } catch (err) {
+            console.error('[MessageInput] error loading templates', err)
+        } finally {
+            setTemplatesLoaded(true)
+        }
+    }, [empresaId, channel, templatesLoaded])
+
+    const handleSendTemplate = async (template: MetaFollowUpTemplateDB) => {
+        setSendingTemplateId(template.id)
+        try {
+            const res = await sendMetaTemplate({ lead_id: leadId, template_id: template.id })
+            if (!res.ok) {
+                toast.error(res.error || 'No se pudo enviar la plantilla')
+                return
+            }
+            toast.success(`Plantilla "${template.display_label || template.meta_template_name}" enviada`)
+            setTemplatePopoverOpen(false)
+            onMessageSent?.()
+        } catch (err: any) {
+            console.error('[MessageInput] sendTemplate error', err)
+            toast.error(err?.message || 'Error enviando plantilla')
+        } finally {
+            setSendingTemplateId(null)
+        }
+    }
+
+    // Apply suggestion from AI agent panel
+    useEffect(() => {
+        if (suggestion?.text) setMessageInput(suggestion.text)
+    }, [suggestion])
 
     // Hook de grabación de audio
     const handleAudioReady = useCallback(async (audioBlob: Blob, audioFile: File) => {
@@ -212,6 +268,83 @@ export function MessageInput({
                     <Paperclip className="w-5 h-5" />
                 </button>
 
+                {channel === 'whatsapp' && empresaId && (
+                    <Popover
+                        open={templatePopoverOpen}
+                        onOpenChange={(o) => {
+                            setTemplatePopoverOpen(o)
+                            if (o) loadTemplates()
+                        }}
+                    >
+                        <PopoverTrigger asChild>
+                            <button
+                                type="button"
+                                className="text-muted-foreground hover:text-green-600 transition-colors p-2 rounded-full hover:bg-muted min-h-11 min-w-11 flex items-center justify-center"
+                                disabled={disabled || isUploading}
+                                title="Enviar plantilla de WhatsApp"
+                            >
+                                <FileText className="w-5 h-5" weight="duotone" />
+                            </button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                            align="start"
+                            side="top"
+                            className="w-80 p-0 rounded-2xl overflow-hidden"
+                        >
+                            <div className="px-4 py-3 border-b border-border/40 bg-green-500/5">
+                                <div className="flex items-center gap-2">
+                                    <WhatsappLogo size={16} weight="duotone" className="text-green-600" />
+                                    <span className="text-sm font-bold">Plantillas Meta</span>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground mt-0.5">
+                                    Envía una plantilla aprobada a este lead.
+                                </p>
+                            </div>
+                            <div className="max-h-72 overflow-y-auto p-2">
+                                {!templatesLoaded ? (
+                                    <p className="text-xs text-muted-foreground text-center py-6">Cargando…</p>
+                                ) : metaTemplates.length === 0 ? (
+                                    <div className="text-center py-6 px-3 space-y-1">
+                                        <p className="text-xs font-semibold">Sin plantillas activas</p>
+                                        <p className="text-[11px] text-muted-foreground">
+                                            Configura plantillas en Configuración → Plantillas Meta.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    metaTemplates.map((t) => (
+                                        <button
+                                            key={t.id}
+                                            type="button"
+                                            disabled={sendingTemplateId !== null}
+                                            onClick={() => handleSendTemplate(t)}
+                                            className="w-full text-left p-2.5 rounded-xl hover:bg-muted/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed group"
+                                        >
+                                            <div className="flex items-center justify-between gap-2 mb-1">
+                                                <span className="text-sm font-bold truncate">
+                                                    {t.display_label || t.meta_template_name}
+                                                </span>
+                                                <span className="text-[9px] uppercase font-mono text-muted-foreground shrink-0">
+                                                    {t.meta_template_language}
+                                                </span>
+                                            </div>
+                                            {t.body_preview && (
+                                                <p className="text-[11px] text-muted-foreground line-clamp-2 whitespace-pre-wrap">
+                                                    {t.body_preview}
+                                                </p>
+                                            )}
+                                            {sendingTemplateId === t.id && (
+                                                <p className="text-[10px] text-green-600 font-semibold mt-1 flex items-center gap-1">
+                                                    <Spinner size={10} className="animate-spin" /> Enviando…
+                                                </p>
+                                            )}
+                                        </button>
+                                    ))
+                                )}
+                            </div>
+                        </PopoverContent>
+                    </Popover>
+                )}
+
                 <div className="flex-1 flex items-center gap-2 bg-muted/50 border border-border/50 rounded-full px-4 py-2.5 focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all min-h-11">
                     <Input
                         placeholder={isRecording ? "Grabando audio..." : "Escribe un mensaje..."}
@@ -224,6 +357,17 @@ export function MessageInput({
                     {!isRecording && !messageInput.trim() && (
                         <button type="button" className="text-muted-foreground hover:text-primary transition-colors p-1">
                             <Smiley className="w-5 h-5" />
+                        </button>
+                    )}
+                    {isAiEnabled && !isRecording && (
+                        <button
+                            type="button"
+                            onClick={onAiClick}
+                            disabled={disabled || isUploading}
+                            className="text-muted-foreground hover:text-violet-500 transition-colors p-1 shrink-0"
+                            title="Agente IA"
+                        >
+                            <Sparkle className="w-5 h-5" weight="fill" />
                         </button>
                     )}
                 </div>

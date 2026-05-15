@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { TeamMember } from '@/lib/types'
 import { MagnifyingGlass, User, Envelope, Briefcase, Users } from '@phosphor-icons/react'
+import { getPermissionRoleLabel, getJobTitleLabel } from '@/lib/roleLabels'
 
 type Equipo = { id: string; nombre_equipo: string; empresa_id: string; created_at: string }
 
@@ -138,7 +139,7 @@ export function MemberSearchDialog({ members, equipos, onSelectMember, onFilterB
                                                         )}
                                                         {member.permissionRole && (
                                                             <Badge variant="secondary" className="text-xs">
-                                                                {member.permissionRole === 'admin' ? 'Admin' : 'Viewer'}
+                                                                {getPermissionRoleLabel(member.permissionRole)}
                                                             </Badge>
                                                         )}
                                                     </div>
@@ -148,10 +149,11 @@ export function MemberSearchDialog({ members, equipos, onSelectMember, onFilterB
                                                         <span className="truncate">{member.email}</span>
                                                     </div>
 
+                                                    {/* Mostramos el cargo (titulo_trabajo) en su forma traducida */}
                                                     {member.role && (
                                                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                                             <Briefcase size={14} className="shrink-0" />
-                                                            <span className="truncate">{member.role}</span>
+                                                            <span className="truncate">{getJobTitleLabel(member.role)}</span>
                                                         </div>
                                                     )}
                                                 </div>

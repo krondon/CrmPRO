@@ -52,6 +52,21 @@ export async function updateUsuario(id: string, updates: Partial<Omit<UsuarioDB,
 }
 
 /**
+ * Persiste la última empresa seleccionada por el usuario.
+ * Fire-and-forget: errores se loguean pero no se propagan.
+ */
+export async function updateLastEmpresaId(userId: string, empresaId: string | null): Promise<void> {
+    if (!userId) return
+    const { error } = await supabase
+        .from('usuarios')
+        .update({ last_empresa_id: empresaId || null })
+        .eq('id', userId)
+    if (error) {
+        console.warn('[usuarios.updateLastEmpresaId]', error)
+    }
+}
+
+/**
  * Actualiza el correo alternativo de un usuario
  */
 export async function updateRecoveryEmail(id: string, recoveryEmail: string | null): Promise<UsuarioDB> {

@@ -134,7 +134,7 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
                           <span className="font-medium">{c.name}</span>
                           {c.ownerId !== user?.id && (
                             <Badge variant="secondary" className="text-[9px] h-4 bg-primary/10 text-primary border-none uppercase font-extrabold px-1.5 leading-none tracking-tighter">
-                              {c.role === 'admin' ? 'Admin' : c.role === 'owner' ? 'Owner' : 'Colaborador'}
+                              {c.role === 'admin' ? 'Administrador' : c.role === 'owner' ? 'Propietario' : 'Colaborador'}
                             </Badge>
                           )}
                         </div>
@@ -332,7 +332,7 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
                     'text-[9px] border-none uppercase font-extrabold px-1.5 h-4 tracking-tighter shrink-0',
                     currentCompanyId === c.id ? 'bg-white/20 text-white' : 'bg-primary/10 text-primary'
                   )}>
-                    {c.role === 'admin' ? 'Admin' : c.role === 'owner' ? 'Owner' : 'Colaborador'}
+                    {c.role === 'admin' ? 'Administrador' : c.role === 'owner' ? 'Propietario' : 'Colaborador'}
                   </Badge>
                 )}
               </button>

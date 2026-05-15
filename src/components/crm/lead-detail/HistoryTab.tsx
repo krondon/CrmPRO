@@ -6,11 +6,18 @@ import { es } from 'date-fns/locale'
 import {
     Clock,
     UserPlus,
+    UserMinus,
     ArrowsLeftRight,
     CalendarPlus,
+    CalendarX,
     TrendUp,
     Spinner,
-    Tag
+    Tag,
+    TagSimple,
+    Note,
+    NotePencil,
+    Flag,
+    Robot
 } from '@phosphor-icons/react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
@@ -41,12 +48,24 @@ export function HistoryTab({ leadId }: HistoryTabProps) {
         }
     }, [leadId])
 
+    const isAiAction = (accion: string) =>
+        accion === 'automatizacion_ia' || accion === 'automatizacion'
+
     const getIcon = (accion: string) => {
+        if (isAiAction(accion)) return <Robot size={18} className="text-violet-500" weight="fill" />
         switch (accion) {
             case 'creacion': return <CalendarPlus size={18} className="text-emerald-500" weight="fill" />
             case 'asignacion': return <UserPlus size={18} className="text-blue-500" weight="fill" />
             case 'reasignacion': return <ArrowsLeftRight size={18} className="text-purple-500" weight="fill" />
+            case 'desasignacion': return <UserMinus size={18} className="text-rose-500" weight="fill" />
             case 'etapa_cambio': return <TrendUp size={18} className="text-amber-500" weight="fill" />
+            case 'prioridad_cambio': return <Flag size={18} className="text-orange-500" weight="fill" />
+            case 'tag_agregada': return <Tag size={18} className="text-teal-500" weight="fill" />
+            case 'tag_eliminada': return <TagSimple size={18} className="text-rose-400" weight="fill" />
+            case 'nota_creada': return <NotePencil size={18} className="text-sky-500" weight="fill" />
+            case 'nota_eliminada': return <Note size={18} className="text-rose-400" weight="fill" />
+            case 'reunion_creada': return <CalendarPlus size={18} className="text-indigo-500" weight="fill" />
+            case 'reunion_eliminada': return <CalendarX size={18} className="text-rose-500" weight="fill" />
             default: return <Clock size={18} className="text-muted-foreground" />
         }
     }
@@ -77,42 +96,59 @@ export function HistoryTab({ leadId }: HistoryTabProps) {
     return (
         <ScrollArea className="h-full pr-4">
             <div className="relative space-y-8 before:absolute before:inset-0 before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-border/50 before:to-transparent pb-10">
-                {history.map((entry, idx) => (
-                    <div key={entry.id} className="relative flex items-start gap-6 group">
-                        {/* Timeline Circle & Icon */}
-                        <div className="relative z-10 flex items-center justify-center w-10 h-10 rounded-full bg-background border-2 border-border shadow-sm group-hover:border-primary/30 group-hover:shadow-md transition-all shrink-0">
-                            {getIcon(entry.accion)}
-                        </div>
-
-                        {/* Content */}
-                        <div className="flex-1 space-y-1.5 pt-1.5 min-w-0">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                <h4 className="text-sm font-bold text-foreground tracking-tight">
-                                    {entry.detalle}
-                                </h4>
-                                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 bg-muted/30 px-2 py-0.5 rounded-full border border-border/20">
-                                    {format(new Date(entry.created_at), "HH:mm '·' dd MMM", { locale: es })}
-                                </span>
+                {history.map((entry, idx) => {
+                    const ai = isAiAction(entry.accion)
+                    return (
+                        <div key={entry.id} className="relative flex items-start gap-6 group">
+                            {/* Timeline Circle & Icon */}
+                            <div className={cn(
+                                "relative z-10 flex items-center justify-center w-10 h-10 rounded-full bg-background border-2 shadow-sm group-hover:shadow-md transition-all shrink-0",
+                                ai
+                                    ? "border-violet-300 ring-2 ring-violet-500/10"
+                                    : "border-border group-hover:border-primary/30"
+                            )}>
+                                {getIcon(entry.accion)}
                             </div>
 
-                            <div className="flex items-center gap-2">
-                                <span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-primary/40" />
-                                    Por: <span className="text-foreground/80 font-bold">{entry.usuario_nombre}</span>
-                                </span>
-                            </div>
-
-                            {entry.metadata && (entry.accion === 'asignacion' || entry.accion === 'reasignacion') && (
-                                <div className="mt-2 p-2 rounded-lg bg-primary/5 border border-primary/10 inline-block">
-                                    <p className="text-[10px] font-bold text-primary/70 uppercase tracking-wider">
-                                        ID Destino: {entry.metadata.new_assigned_to?.slice(0, 8)}...
-                                    </p>
+                            {/* Content */}
+                            <div className="flex-1 space-y-1.5 pt-1.5 min-w-0">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        <h4 className="text-sm font-bold text-foreground tracking-tight">
+                                            {entry.detalle}
+                                        </h4>
+                                        {ai && (
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-violet-500/10 border border-violet-200/50 text-[9px] font-black uppercase tracking-widest text-violet-600 shrink-0">
+                                                <Robot size={10} weight="fill" />
+                                                IA
+                                            </span>
+                                        )}
+                                    </div>
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 bg-muted/30 px-2 py-0.5 rounded-full border border-border/20">
+                                        {format(new Date(entry.created_at), "HH:mm '·' dd MMM", { locale: es })}
+                                    </span>
                                 </div>
-                            )}
+
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                                        <span className={cn("w-1.5 h-1.5 rounded-full", ai ? "bg-violet-400" : "bg-primary/40")} />
+                                        Por: <span className="text-foreground/80 font-bold">{entry.usuario_nombre}</span>
+                                    </span>
+                                </div>
+
+                                {entry.metadata && (entry.accion === 'asignacion' || entry.accion === 'reasignacion') && (
+                                    <div className="mt-2 p-2 rounded-lg bg-primary/5 border border-primary/10 inline-block">
+                                        <p className="text-[10px] font-bold text-primary/70 uppercase tracking-wider">
+                                            ID Destino: {entry.metadata.new_assigned_to?.slice(0, 8)}...
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                    </div>
-                ))}
+                    )
+                })}
             </div>
         </ScrollArea>
     )
 }
+

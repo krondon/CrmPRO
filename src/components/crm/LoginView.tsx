@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
-import { CircleNotch, CheckCircle, CaretDown, CaretUp, ShieldCheck } from '@phosphor-icons/react'
+import { CircleNotch, CheckCircle, CaretDown, CaretUp, ShieldCheck, Eye, EyeSlash } from '@phosphor-icons/react'
 import { LoadingScreen } from '@/components/ui/LoadingScreen'
 import { useAuth } from '@/hooks/useAuth'
 
@@ -63,6 +63,7 @@ function LoginView({ onLogin, onSwitchToRegister, onForgotPassword }: LoginViewP
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [isResetting, setIsResetting] = useState(false) // Toggle mode
   const [isSuccess, setIsSuccess] = useState(false) // Success mode
@@ -385,14 +386,24 @@ function LoginView({ onLogin, onSwitchToRegister, onForgotPassword }: LoginViewP
                       ¿Olvidaste tu contraseña?
                     </button>
                   </div>
-                  <Input
-                    id="login-password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    disabled={isLoading}
-                    className="mt-1"
-                  />
+                  <div className="relative mt-1">
+                    <Input
+                      id="login-password"
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      disabled={isLoading}
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus:outline-none"
+                      tabIndex={-1}
+                    >
+                      {showPassword ? <EyeSlash size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -484,6 +495,28 @@ function LoginView({ onLogin, onSwitchToRegister, onForgotPassword }: LoginViewP
               {errorMessage && (
                 <div className="p-3 bg-destructive/10 border border-destructive/20 text-destructive text-sm rounded-md text-center font-medium">
                   {errorMessage}
+                </div>
+              )}
+
+              {!isResetting && (
+                <div className="mt-4">
+                  <div className="relative flex items-center">
+                    <div className="flex-grow border-t border-border" />
+                    <span className="mx-3 text-xs text-muted-foreground">o continúa con</span>
+                    <div className="flex-grow border-t border-border" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const state = crypto.randomUUID()
+                      sessionStorage.setItem('hubmy_oauth_state', state)
+                      window.location.href = `https://apidev.hubmy.app/v1/sdk/authorize?app_id=app_01KQZ5J8M509WNKCJCF18NY2DF&state=${state}`
+                    }}
+                    className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-border bg-background hover:bg-muted transition-colors text-sm font-medium"
+                  >
+                    <img src="https://dev.hubmy.app/favicon.ico" alt="Hubmy" className="w-4 h-4" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                    Continuar con Hubmy
+                  </button>
                 </div>
               )}
 

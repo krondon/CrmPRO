@@ -43,6 +43,22 @@ export interface UsePipelineDataOptions {
     companyId: string
     userId?: string
     canViewAllLeads?: boolean
+    /**
+     * Si se provee, restringe la lista de pipelines visibles a estos IDs.
+     * `null` o `undefined` → sin restricción (comportamiento por defecto).
+     * `[]` → el usuario no tiene pipelines asignados (no ve ninguno).
+     */
+    allowedPipelineIds?: string[] | null
+    /**
+     * Si es true, los leads se filtran a SOLO los asignados al usuario actual
+     * (no incluye sin asignar / NIL_UUID). Aplica a admin + Representante de Ventas.
+     */
+    strictAssignment?: boolean
+    /**
+     * IDs aceptados para `asignado_a` en modo estricto. Un lead puede tener su
+     * `usuario_id` o su `persona.id` — incluir ambos para no perderse leads.
+     */
+    strictAssignedToIds?: string[]
 }
 
 /** Return type del hook con setters expuestos para inyección */
@@ -113,7 +129,7 @@ function mapDbLeadToLead(l: any): Lead {
 // HOOK PRINCIPAL
 // ============================================
 export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDataReturn {
-    const { companyId, userId, canViewAllLeads = true } = options
+    const { companyId, userId, canViewAllLeads = true, allowedPipelineIds = null, strictAssignment = false, strictAssignedToIds } = options
 
     // Estados principales
     const [leads, setLeads] = useState<Lead[]>([])
@@ -176,7 +192,7 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
                     // Deduplicar por ID y nombre
                     const seenIds = new Set<string>()
                     const seenNames = new Set<string>()
-                    const uniquePipelines = dbPipelines.filter(p => {
+                    let uniquePipelines = dbPipelines.filter(p => {
                         if (seenIds.has(p.id)) return false
                         const normalizedName = p.name.toLowerCase().trim()
                         if (seenNames.has(normalizedName)) return false
@@ -190,6 +206,14 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
                         // Fallback to name sorting if no order or same order
                         return a.name.localeCompare(b.name)
                     })
+
+                    // Filtro central de visibilidad: si el caller pasó allowedPipelineIds,
+                    // solo se muestran esos. Aplica a admins con cargo "Representante de Ventas"
+                    // (resuelto en useUserPipelineAccess).
+                    if (Array.isArray(allowedPipelineIds)) {
+                        const allowed = new Set(allowedPipelineIds)
+                        uniquePipelines = uniquePipelines.filter(p => allowed.has(p.id))
+                    }
 
                     setPipelinesState(uniquePipelines)
 
@@ -208,7 +232,9 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
 
         loadPipelines()
         return () => { cancelled = true }
-    }, [companyId])
+        // allowedPipelineIds afecta el filtro de visibilidad de pipelines.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [companyId, JSON.stringify(allowedPipelineIds || null)])
 
     // ==========================================
     // EFECTO: Cargar leads iniciales por stage
@@ -232,6 +258,8 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
                     empresaId: companyId,
                     currentUserId: userId,
                     isAdminOrOwner: canViewAllLeads,
+                    strictAssignment,
+                    strictAssignedToIds,
                     limit: BASE_STAGE_LIMIT,
                     offset: 0,
                     pipelineId: currentPipelineObj.id,
@@ -288,6 +316,8 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
                     empresaId: companyId,
                     currentUserId: userId,
                     isAdminOrOwner: canViewAllLeads,
+                    strictAssignment,
+                    strictAssignedToIds,
                     limit: 1,
                     offset: 0,
                     pipelineId: currentPipelineObj.id,
@@ -305,7 +335,7 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
             .catch(err => console.error('[usePipelineData] Error loading leads:', err))
 
         return () => { cancelled = true }
-    }, [companyId, activePipeline, pipelines, canViewAllLeads, userId])
+    }, [companyId, activePipeline, pipelines, canViewAllLeads, userId, strictAssignment, JSON.stringify(strictAssignedToIds || [])])
 
     // ==========================================
     // EFECTO: Cargar mensajes no leídos
@@ -357,6 +387,8 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
                 empresaId: companyId,
                 currentUserId: userId,
                 isAdminOrOwner: canViewAllLeads,
+                strictAssignment,
+                strictAssignedToIds,
                 limit: STAGE_PAGE_SIZE,
                 offset: current.offset,
                 pipelineId: currentPipelineObj.id,
@@ -386,7 +418,7 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
         } catch (err) {
             console.error('[usePipelineData] Error loading more:', err)
         }
-    }, [companyId, pipelines, activePipeline, stagePages, userId, canViewAllLeads])
+    }, [companyId, pipelines, activePipeline, stagePages, userId, canViewAllLeads, strictAssignment, JSON.stringify(strictAssignedToIds || [])])
 
     // ==========================================
     // FUNCIÓN: Cargar más leads de TODAS las stages
@@ -408,6 +440,8 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
                     empresaId: companyId,
                     currentUserId: userId,
                     isAdminOrOwner: canViewAllLeads,
+                    strictAssignment,
+                    strictAssignedToIds,
                     limit: STAGE_PAGE_SIZE,
                     offset: current.offset,
                     pipelineId: currentPipelineObj.id,
@@ -445,7 +479,7 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
         } finally {
             setIsLoadingMore(false)
         }
-    }, [companyId, pipelines, activePipeline, stagePages, isLoadingMore, userId, canViewAllLeads])
+    }, [companyId, pipelines, activePipeline, stagePages, isLoadingMore, userId, canViewAllLeads, strictAssignment, JSON.stringify(strictAssignedToIds || [])])
 
     // ==========================================
     // RETURN

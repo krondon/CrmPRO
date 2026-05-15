@@ -110,6 +110,36 @@ export async function updateEmpresaLogo(empresa_id: string, logo_url: string): P
 }
 
 /**
+ * Rota el codigo_empresa de la empresa. Útil cuando el link de unión se filtró.
+ * Genera un nuevo código de 8 caracteres y lo persiste.
+ */
+export async function rotateCodigoEmpresa(empresaId: string): Promise<string> {
+    if (!empresaId) throw new Error('empresa_id requerido')
+
+    // Generar código de 8 chars en mayúsculas (mismo formato que el trigger)
+    const generateCode = () => {
+        const hex = (typeof crypto !== 'undefined' && crypto.randomUUID)
+            ? crypto.randomUUID().replace(/-/g, '')
+            : Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
+        return hex.slice(0, 8).toUpperCase()
+    }
+
+    let lastErr: any = null
+    for (let i = 0; i < 5; i++) {
+        const nuevo = generateCode()
+        const { error } = await supabase
+            .from('empresa')
+            .update({ codigo_empresa: nuevo })
+            .eq('id', empresaId)
+        if (!error) return nuevo
+        lastErr = error
+        // Solo reintentar en violación de unique
+        if (error.code !== '23505') break
+    }
+    throw lastErr || new Error('No se pudo rotar el código')
+}
+
+/**
  * Actualiza una empresa
  */
 export async function updateEmpresa(empresa_id: string, updates: UpdateEmpresaDTO): Promise<EmpresaDB> {

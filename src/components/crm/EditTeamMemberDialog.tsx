@@ -14,18 +14,10 @@ import { getPipelinesForPersona, addPersonaToPipeline, removePersonaFromPipeline
 import { updatePersona } from '@/supabase/helpers/persona'
 import { updateCompanyMemberRole } from '@/supabase/services/empresa'
 import { getEquipos } from '@/supabase/helpers/equipos'
+import { JOB_TITLES, getJobTitleLabel, canonicalJobTitleId } from '@/lib/roleLabels'
 
-// Opciones predefinidas de cargos/títulos de trabajo
-const JOB_TITLE_OPTIONS = [
-  { value: 'sales_rep', label: 'Sales Rep' },
-  { value: 'sales_manager', label: 'Sales Manager' },
-  { value: 'support_agent', label: 'Support Agent' },
-  { value: 'support_manager', label: 'Support Manager' },
-  { value: 'account_executive', label: 'Account Executive' },
-  { value: 'business_developer', label: 'Business Developer' },
-  { value: 'customer_success', label: 'Customer Success' },
-  { value: 'administrator', label: 'Administrator' }
-]
+// Cargos disponibles (catálogo central, en español).
+const JOB_TITLE_OPTIONS = JOB_TITLES.map(j => ({ value: j.id, label: j.label }))
 
 interface EditTeamMemberDialogProps {
   member: TeamMember
@@ -39,7 +31,8 @@ export function EditTeamMemberDialog({ member, companyId, onUpdated, canEditRole
   const [dbPipelines, setDbPipelines] = useState<Pipeline[]>([])
   const [originalSelection, setOriginalSelection] = useState<Set<string>>(new Set())
   const [localSelection, setLocalSelection] = useState<Set<string>>(new Set())
-  const [jobTitle, setJobTitle] = useState(member.role || '')
+  // Normalizar el valor existente al id canónico en español si viene en formato legacy.
+  const [jobTitle, setJobTitle] = useState(canonicalJobTitleId(member.role || ''))
   const [permissionRole, setPermissionRole] = useState(member.permissionRole || 'viewer')
 
   // Estado para equipos
@@ -169,7 +162,7 @@ export function EditTeamMemberDialog({ member, companyId, onUpdated, canEditRole
         </DialogHeader>
         <div className="space-y-4">
           <div>
-            <Label className="mb-2 block">Cargo / Job Title</Label>
+            <Label className="mb-2 block">Cargo</Label>
             <select
               className="w-full border rounded-md px-3 py-2 text-sm bg-background"
               value={jobTitle}
@@ -177,8 +170,12 @@ export function EditTeamMemberDialog({ member, companyId, onUpdated, canEditRole
             >
               <option value="">Seleccionar cargo...</option>
               {JOB_TITLE_OPTIONS.map(opt => (
-                <option key={opt.value} value={opt.label}>{opt.label}</option>
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
+              {/* Si el cargo actual del miembro no está en el catálogo (legacy), igual mostrarlo */}
+              {jobTitle && !JOB_TITLE_OPTIONS.some(o => o.value === jobTitle) && (
+                <option value={jobTitle}>{getJobTitleLabel(jobTitle)}</option>
+              )}
             </select>
           </div>
 
@@ -197,15 +194,15 @@ export function EditTeamMemberDialog({ member, companyId, onUpdated, canEditRole
             <p className="text-xs text-muted-foreground mt-1">Cambiar de equipo moverá al miembro a otro equipo.</p>
           </div>
           <div>
-            <Label className="mb-2 block">Permission Role</Label>
+            <Label className="mb-2 block">Rol de permisos</Label>
             <select
               className="w-full border rounded-md px-3 py-2 text-sm"
               value={permissionRole}
               onChange={(e) => setPermissionRole(e.target.value as any)}
               disabled={!canEditRole}
             >
-              <option value="viewer">Viewer (Lectura)</option>
-              <option value="admin">Admin (Control Total)</option>
+              <option value="viewer">Lector (Lectura)</option>
+              <option value="admin">Administrador (Control Total)</option>
             </select>
             {!canEditRole && (
               <p className="text-xs text-muted-foreground mt-1">Solo administradores pueden cambiar el rol.</p>

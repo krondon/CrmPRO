@@ -14,6 +14,7 @@ import { preloadChatsForCompany } from '@/lib/chatsCache'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Building } from '@phosphor-icons/react'
+import { getPermissionRoleLabel } from '@/lib/roleLabels'
 
 interface CRMLayoutProps {
     isGuestMode?: boolean
@@ -242,9 +243,9 @@ export function CRMLayout({ isGuestMode: forcedGuestMode }: CRMLayoutProps) {
 
     if (!user) return null
 
-    const role = currentCompany?.ownerId === user.id ? 'Owner' : (currentCompany?.role || 'Viewer')
-    const displayRole = role === 'admin' ? 'Admin' : (role === 'owner' || role === 'Owner') ? 'Propietario' : 'Lector'
-    const badgeColor = displayRole === 'Propietario' ? 'bg-primary/10 text-primary border-primary/20' : displayRole === 'Admin' ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' : 'bg-muted text-muted-foreground border-border'
+    const role = currentCompany?.ownerId === user.id ? 'owner' : (currentCompany?.role || 'viewer')
+    const displayRole = getPermissionRoleLabel(role)
+    const badgeColor = displayRole === 'Propietario' ? 'bg-primary/10 text-primary border-primary/20' : displayRole === 'Administrador' ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' : 'bg-muted text-muted-foreground border-border'
 
     return (
         <div className="fixed inset-0 bg-background overflow-hidden flex flex-col md:flex-row">

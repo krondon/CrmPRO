@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Plus, Trash, SignOut, Pencil, Check, X, Envelope, ShieldCheck, GearSix, Lightning, Tag, Funnel, IdentificationBadge, Buildings, Plug, ShoppingCart, Key, Rocket, Sliders } from '@phosphor-icons/react'
+import { Plus, Trash, SignOut, Pencil, Check, X, Envelope, ShieldCheck, GearSix, Lightning, Tag, Funnel, Buildings, Plug, ShoppingCart, Key, Rocket, Sliders, Copy, WhatsappLogo } from '@phosphor-icons/react'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -14,13 +14,16 @@ import { RolesManagement } from './RolesManagement'
 import { TagsManagement } from './settings/TagsManagement'
 import { CompanyManagement, Company } from './CompanyManagement'
 import { CatalogManagement } from './CatalogManagement'
-import { IDsViewer } from './IDsViewer'
+
 import { IntegrationsManager } from './settings/IntegrationsManager'
 import { LandingTokensManager } from './settings/LandingTokensManager'
+import { MetaTemplatesManager } from './settings/MetaTemplatesManager'
 import { updatePipeline, getPipelines } from '@/supabase/helpers/pipeline'
 import { AutomationsPanel } from './settings/AutomationsPanel'
 import { AiAutomationPanel } from './settings/ai-automation/AiAutomationPanel'
 import { CustomFieldsPanel } from './settings/CustomFieldsPanel'
+import { ApiKeysPanel } from './settings/ApiKeysPanel'
+import { PremiumLock } from '@/components/premium'
 import { useAuth } from '@/hooks/useAuth'
 import { toast } from 'sonner'
 
@@ -63,11 +66,13 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
             id: p.id,
             name: p.nombre,
             type: p.nombre.toLowerCase().trim().replace(/\s+/g, '-'),
+            short_id: p.short_id ?? null,
             stages: (p.etapas || []).map((s: any) => ({
               id: s.id,
               name: s.nombre,
               order: s.orden,
               color: s.color,
+              short_id: s.short_id ?? null,
               pipelineType: p.nombre.toLowerCase().trim().replace(/\s+/g, '-')
             })).sort((a: any, b: any) => a.order - b.order)
           }))
@@ -180,17 +185,24 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
             </TabsTrigger>
           )}
           {isAdminOrOwner && (
+            <TabsTrigger value="meta-templates" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
+              <WhatsappLogo size={14} weight="duotone" />
+              Plantillas Meta
+            </TabsTrigger>
+          )}
+          {isAdminOrOwner && (
             <TabsTrigger value="landing-tokens" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
               <Key size={14} weight="duotone" />
               Landing Tokens
             </TabsTrigger>
           )}
-          {isAdminOrOwner && (
-            <TabsTrigger value="ids" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
-              <IdentificationBadge size={14} weight="duotone" />
-              IDs
+          {userRole === 'owner' && (
+            <TabsTrigger value="api-keys" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
+              🤖
+              API Claude
             </TabsTrigger>
           )}
+
         </TabsList>
 
         {/* ── Mi Cuenta ─────────────────────────────────────── */}
@@ -393,7 +405,9 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
         {/* ── Integraciones ─────────────────────────────────── */}
         <TabsContent value="integrations" className="space-y-6 mt-8">
           {isAdminOrOwner ? (
-            <IntegrationsManager empresaId={currentCompanyId || ''} />
+            <PremiumLock feature="advanced_integrations">
+              <IntegrationsManager empresaId={currentCompanyId || ''} />
+            </PremiumLock>
           ) : (
             <Card className="border-none shadow-sm rounded-2xl">
               <CardContent className="py-16">
@@ -403,6 +417,27 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
                   </div>
                   <p className="font-bold text-lg">Sin permisos</p>
                   <p className="text-sm text-muted-foreground">No tienes permisos para gestionar integraciones.</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* ── Plantillas Meta ─────────────────────────────────── */}
+        <TabsContent value="meta-templates" className="space-y-6 mt-8">
+          {isAdminOrOwner ? (
+            <PremiumLock feature="advanced_integrations">
+              <MetaTemplatesManager empresaId={currentCompanyId || ''} />
+            </PremiumLock>
+          ) : (
+            <Card className="border-none shadow-sm rounded-2xl">
+              <CardContent className="py-16">
+                <div className="flex flex-col items-center justify-center text-center space-y-3 opacity-60">
+                  <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+                    <WhatsappLogo size={32} className="text-muted-foreground" weight="thin" />
+                  </div>
+                  <p className="font-bold text-lg">Sin permisos</p>
+                  <p className="text-sm text-muted-foreground">No tienes permisos para gestionar plantillas de Meta.</p>
                 </div>
               </CardContent>
             </Card>
@@ -535,19 +570,76 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent className="pt-3">
-                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Etapas</Label>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {pipeline.stages.map(stage => (
-                      <Badge
-                        key={stage.id}
-                        className="rounded-lg px-3 py-1 text-xs font-bold shadow-sm border-none"
-                        style={{ backgroundColor: stage.color, color: 'white' }}
-                      >
-                        {stage.name}
-                      </Badge>
-                    ))}
+                <CardContent className="pt-3 space-y-4">
+                  {/* Etapas (badges) */}
+                  <div>
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Etapas</Label>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {pipeline.stages.map(stage => (
+                        <Badge
+                          key={stage.id}
+                          className="rounded-lg px-3 py-1 text-xs font-bold shadow-sm border-none"
+                          style={{ backgroundColor: stage.color, color: 'white' }}
+                        >
+                          {stage.name}
+                        </Badge>
+                      ))}
+                    </div>
                   </div>
+
+                  {/* IDs del pipeline */}
+                  {(pipeline.short_id != null || pipeline.stages.some(s => s.short_id != null)) && (
+                    <div className="border border-border/40 rounded-xl overflow-hidden">
+                      <div className="bg-muted/30 px-3 py-2 border-b border-border/40">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">IDs del sistema</p>
+                      </div>
+                      {/* Pipeline short_id */}
+                      <div className="flex items-center justify-between px-3 py-2 hover:bg-muted/20 transition-colors">
+                        <div className="flex items-center gap-2">
+                          <p className="text-[10px] text-muted-foreground font-mono">PIPELINE_ID</p>
+                          {pipeline.short_id != null ? (
+                            <span className="text-sm font-bold font-mono text-violet-600">#{pipeline.short_id}</span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground italic">sin ID corto</span>
+                          )}
+                        </div>
+                        {pipeline.short_id != null && (
+                          <button
+                            className="h-7 w-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                            onClick={() => { navigator.clipboard.writeText(String(pipeline.short_id)); toast.success('Pipeline ID copiado') }}
+                            title="Copiar Pipeline ID"
+                          >
+                            <Copy size={13} />
+                          </button>
+                        )}
+                      </div>
+                      {/* Stage short_ids */}
+                      {pipeline.stages.map(stage => (
+                        <div key={stage.id} className="flex items-center justify-between px-3 py-2 border-t border-border/30 hover:bg-muted/20 transition-colors">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: stage.color }} />
+                            <div className="flex items-center gap-2">
+                              <p className="text-[10px] text-muted-foreground font-mono">STAGE_ID · {stage.name}</p>
+                              {stage.short_id != null ? (
+                                <span className="text-sm font-bold font-mono text-emerald-600">#{stage.short_id}</span>
+                              ) : (
+                                <span className="text-xs text-muted-foreground italic">sin ID corto</span>
+                              )}
+                            </div>
+                          </div>
+                          {stage.short_id != null && (
+                            <button
+                              className="h-7 w-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                              onClick={() => { navigator.clipboard.writeText(String(stage.short_id)); toast.success(`ID de "${stage.name}" copiado`) }}
+                              title="Copiar Stage ID"
+                            >
+                              <Copy size={13} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             ))}
@@ -609,10 +701,12 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
         {/* ── Automatizaciones ─────────────────────────────── */}
         <TabsContent value="automations" className="space-y-6 mt-8">
           {isAdminOrOwner && currentCompanyId ? (
-            <AutomationsPanel
-              empresaId={currentCompanyId}
-              pipelines={pipelines || []}
-            />
+            <PremiumLock feature="automations">
+              <AutomationsPanel
+                empresaId={currentCompanyId}
+                pipelines={pipelines || []}
+              />
+            </PremiumLock>
           ) : (
             <Card className="border-none shadow-sm rounded-2xl">
               <CardContent className="py-16">
@@ -631,10 +725,12 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
         {/* ── Automatización IA ─────────────────────────────── */}
         <TabsContent value="ai-automation" className="space-y-6 mt-8">
           {isAdminOrOwner && currentCompanyId ? (
-            <AiAutomationPanel
-              empresaId={currentCompanyId}
-              pipelines={pipelines || []}
-            />
+            <PremiumLock feature="automations">
+              <AiAutomationPanel
+                empresaId={currentCompanyId}
+                pipelines={pipelines || []}
+              />
+            </PremiumLock>
           ) : (
             <Card className="border-none shadow-sm rounded-2xl">
               <CardContent className="py-16">
@@ -650,22 +746,13 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
           )}
         </TabsContent>
 
-        {/* ── IDs ─────────────────────────────────── */}
-        <TabsContent value="ids" className="space-y-6 mt-8">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="h-10 w-10 rounded-xl bg-purple-500/10 flex items-center justify-center">
-              <IdentificationBadge size={20} weight="duotone" className="text-purple-600" />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold">IDs del Sistema</h2>
-              <p className="text-xs text-muted-foreground">Usa estos IDs para configurar las variables de entorno del webhook.</p>
-            </div>
-          </div>
-          <IDsViewer
-            empresaId={currentCompanyId}
-            empresaNombre={currentCompany?.name}
-          />
+        {/* ── API Keys para Claude ─────────────────────────────── */}
+        <TabsContent value="api-keys" className="space-y-6 mt-8">
+          {currentCompanyId && (
+            <ApiKeysPanel empresaId={currentCompanyId} />
+          )}
         </TabsContent>
+
       </Tabs>
 
       <AddPipelineDialog

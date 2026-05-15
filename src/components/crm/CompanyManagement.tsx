@@ -10,8 +10,10 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Plus, Upload, Trash, Building, Check, Eye, Pencil, X, Copy } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
-import { createEmpresa, deleteEmpresa, updateEmpresaLogo, updateEmpresa } from '@/supabase/services/empresa'
+import { createEmpresa, deleteEmpresa, updateEmpresaLogo, updateEmpresa, rotateCodigoEmpresa } from '@/supabase/services/empresa'
+import { ArrowsClockwise, Link as LinkIcon } from '@phosphor-icons/react'
 import { supabase } from '@/supabase/client'
+import { getPermissionRoleLabel } from '@/lib/roleLabels'
 
 export interface Company {
   id: string
@@ -226,8 +228,8 @@ export function CompanyManagement({ currentUserId, currentCompanyId, onCompanyCh
                         <Eye size={12} className="mr-1" />
                         Colaborador
                       </Badge>
-                      <Badge variant="outline" className="h-5 capitalize whitespace-nowrap">
-                        {currentCompany?.role || 'viewer'}
+                      <Badge variant="outline" className="h-5 whitespace-nowrap">
+                        {getPermissionRoleLabel(currentCompany?.role)}
                       </Badge>
                     </div>
                   </div>
@@ -435,25 +437,75 @@ export function CompanyManagement({ currentUserId, currentCompanyId, onCompanyCh
                       <p className="text-xs text-muted-foreground mt-1">
                         Creada el {new Date(company.createdAt).toLocaleDateString('es-ES')}
                       </p>
-                      {company.role === 'owner' && company.codigoEmpresa && (
-                        <div className="flex items-center gap-1.5 mt-1">
-                          <span className="text-xs text-muted-foreground">Código:</span>
-                          <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded select-all">
-                            {company.codigoEmpresa}
+                      {/* Company ID */}
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <span className="text-xs text-muted-foreground font-mono">ID:</span>
+                        <code className="text-xs font-mono bg-muted/60 px-1.5 py-0.5 rounded select-all text-foreground/70">
+                          {company.id.slice(0, 8)}…
+                        </code>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5"
+                          title="Copiar ID de empresa"
+                          onClick={() => {
+                            navigator.clipboard.writeText(company.id)
+                            toast.success('ID de empresa copiado')
+                          }}
+                        >
+                          <Copy size={12} />
+                        </Button>
+                      </div>
+
+                      {/* Link de unión — solo owner/admin */}
+                      {(company.role === 'owner' || company.role === 'admin') && company.codigoEmpresa && (
+                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                          <span className="text-xs text-muted-foreground font-mono inline-flex items-center gap-1">
+                            <LinkIcon size={10} /> Link:
+                          </span>
+                          <code className="text-xs font-mono bg-blue-500/10 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded select-all">
+                            /unirme/{company.codigoEmpresa}
                           </code>
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-5 w-5"
+                            title="Copiar link de unión completo"
                             onClick={() => {
-                              navigator.clipboard.writeText(company.codigoEmpresa!)
-                              toast.success('Código copiado')
+                              const fullUrl = `${window.location.origin}/unirme/${company.codigoEmpresa}`
+                              navigator.clipboard.writeText(fullUrl)
+                              toast.success('Link de unión copiado')
                             }}
                           >
                             <Copy size={12} />
                           </Button>
+                          {company.role === 'owner' && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5 text-muted-foreground hover:text-amber-600"
+                              title="Rotar código (invalida link anterior)"
+                              onClick={async () => {
+                                if (!confirm('¿Rotar el código? El link anterior dejará de funcionar.')) return
+                                try {
+                                  const nuevo = await rotateCodigoEmpresa(company.id)
+                                  setCompanies(curr =>
+                                    (curr || []).map(c =>
+                                      c.id === company.id ? { ...c, codigoEmpresa: nuevo } : c
+                                    )
+                                  )
+                                  toast.success(`Código rotado: ${nuevo}`)
+                                } catch (e: any) {
+                                  toast.error(e?.message || 'No se pudo rotar el código')
+                                }
+                              }}
+                            >
+                              <ArrowsClockwise size={12} />
+                            </Button>
+                          )}
                         </div>
                       )}
+
                     </div>
 
                     <div className="flex gap-2">
@@ -509,8 +561,8 @@ export function CompanyManagement({ currentUserId, currentCompanyId, onCompanyCh
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <h3 className="font-medium">{company.name}</h3>
-                        <Badge variant="outline" className="h-5 capitalize">
-                          {company.role || 'viewer'}
+                        <Badge variant="outline" className="h-5">
+                          {getPermissionRoleLabel(company.role)}
                         </Badge>
                       </div>
                     </div>

@@ -9,6 +9,8 @@ import { Plus } from '@phosphor-icons/react'
 import { Stage, PipelineType } from '@/lib/types'
 import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
+import { PremiumSwitch, useUpgradeModal } from '@/components/premium'
+import { useEdition } from '@/hooks/useEdition'
 
 interface AddStageDialogProps {
   pipelineType: PipelineType
@@ -25,6 +27,17 @@ export function AddStageDialog({ pipelineType, currentStagesCount, onAdd, trigge
   const [isSlaEnabled, setIsSlaEnabled] = useState(false)
   const [slaValue, setSlaValue] = useState(30)
   const [slaUnit, setSlaUnit] = useState<"minutes" | "hours" | "days">("minutes")
+
+  const { isLocked } = useEdition()
+  const { open: openUpgrade } = useUpgradeModal()
+  const semaforoLocked = isLocked('semaforo')
+  const handleSemaforoLabelClick = () => {
+    if (semaforoLocked) {
+      openUpgrade({ type: 'feature', feature: 'semaforo' })
+      return
+    }
+    setIsSlaEnabled(!isSlaEnabled)
+  }
 
   const predefinedColors = [
     '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', 
@@ -113,10 +126,10 @@ export function AddStageDialog({ pipelineType, currentStagesCount, onAdd, trigge
 
           <div className="flex flex-col gap-4 border p-4 rounded-md mt-4">
             <div className="flex items-center justify-between">
-              <Label className="cursor-pointer" onClick={() => setIsSlaEnabled(!isSlaEnabled)}>
+              <Label className="cursor-pointer" onClick={handleSemaforoLabelClick}>
                 Semaforo de tiempo
               </Label>
-              <Switch checked={isSlaEnabled} onCheckedChange={setIsSlaEnabled} />
+              <PremiumSwitch feature="semaforo" checked={isSlaEnabled} onCheckedChange={setIsSlaEnabled} />
             </div>
             <p className="text-xs text-muted-foreground">
               Establece un tiempo limite para esta etapa. Las tarjetas cambiaran de color segun el tiempo restante: verde (a tiempo), amarillo (poco tiempo) y rojo (vencido).

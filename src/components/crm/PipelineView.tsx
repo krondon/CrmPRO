@@ -1,15 +1,17 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { useLeadsRealtime } from '@/hooks/useLeadsRealtime'
 import { usePipelineData } from '@/hooks/usePipelineData'
 import { usePipelineLeadActions } from '@/hooks/usePipelineLeadActions'
+import { useUserPipelineAccess } from '@/hooks/useUserPipelineAccess'
 import { useDragDrop } from '@/hooks/useDragDrop'
 import { useStageDragDrop } from '@/hooks/useStageDragDrop'
+import { useLeadClipboard } from '@/hooks/useLeadClipboard'
 import { Lead, Pipeline, PipelineType, TeamMember, Stage } from '@/lib/types'
 // import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Plus, Funnel, Trash, CaretLeft, CaretRight, Download, GearSix, ArrowsClockwise, Shuffle } from '@phosphor-icons/react'
+import { Plus, Funnel, Trash, CaretLeft, CaretRight, Download, GearSix, ArrowsClockwise, Shuffle, ClipboardText, X as XIcon } from '@phosphor-icons/react'
 import { LeadDetailSheet } from './LeadDetailSheet'
 import { AddStageDialog } from './AddStageDialog'
 import { AddLeadDialog } from './AddLeadDialog'
@@ -32,7 +34,7 @@ import {
 import { useTranslation } from '@/lib/i18n'
 import { toast } from 'sonner'
 import { deletePipeline, getPipelines, updatePipelinesOrder } from '@/supabase/helpers/pipeline'
-import { deleteLead, getLeads, getLeadsPaged, updateLead, searchLeads } from '@/supabase/services/leads'
+import { deleteLead, getLeads, getLeadsPaged, updateLead, searchLeads, duplicateLead } from '@/supabase/services/leads'
 import { getEquipos } from '@/supabase/services/equipos'
 import { getPersonas } from '@/supabase/services/persona'
 import { getPipelinesForPersona } from '@/supabase/helpers/personaPipeline'
@@ -72,6 +74,15 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
   }
 
   // ==========================================
+  // HOOK: Restricción de pipelines por rol + cargo
+  // ==========================================
+  // Si el usuario es admin con cargo "Representante de Ventas":
+  //   - allowedPipelineIds limita a sus pipelines asignados
+  //   - isRestricted=true → strictAssignment: solo ve leads cuyo asignado_a coincida
+  //     con su usuario_id o con su persona.id (un lead puede tener cualquiera).
+  const { allowedPipelineIds, isRestricted, assignedToIds } = useUserPipelineAccess()
+
+  // ==========================================
   // HOOK: Datos del pipeline (pipelines, leads, paginación)
   // ==========================================
   const {
@@ -98,7 +109,12 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
   } = usePipelineData({
     companyId,
     userId: user?.id,
-    canViewAllLeads: true // Cambiar según permisos
+    // Si el usuario está restringido (admin + Representante de Ventas) no debe
+    // ver leads que no le fueron asignados, ni siquiera los "sin asignar".
+    canViewAllLeads: !isRestricted,
+    allowedPipelineIds,
+    strictAssignment: isRestricted,
+    strictAssignedToIds: assignedToIds
   })
 
   // Estados UI locales (no manejados por hooks)
@@ -324,7 +340,12 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
     canEditLeads,
     currentUserId: user?.id,
     actorNombre: user?.businessName || (user as any)?.nombre || user?.email,
-    companyId
+    companyId,
+    stagesById: useMemo(() => {
+      const map: Record<string, string> = {}
+      pipelines.forEach(p => p.stages.forEach(s => { map[s.id] = s.name }))
+      return map
+    }, [pipelines])
   })
 
   // Drag & Drop de Etapas (reordenar columnas)
@@ -396,10 +417,29 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
     }
   }
 
+  // Predicado: ¿este lead es visible para el usuario actual con la regla activa?
+  // Admin + Representante de Ventas: solo si está asignado a alguno de los IDs
+  // del usuario (usuario_id o persona.id) Y pertenece a un pipeline suyo.
+  const allowedPipelineSet = useMemo(
+    () => Array.isArray(allowedPipelineIds) ? new Set(allowedPipelineIds) : null,
+    [allowedPipelineIds]
+  )
+  const assignedToIdsSet = useMemo(() => new Set(assignedToIds), [assignedToIds])
+  const isLeadVisibleForCurrentUser = (lead: Lead): boolean => {
+    if (!isRestricted) return true
+    if (!user) return false
+    if (!lead.assignedTo || !assignedToIdsSet.has(lead.assignedTo)) return false
+    if (allowedPipelineSet && !allowedPipelineSet.has(lead.pipeline as unknown as string)) return false
+    return true
+  }
+
   // Sincronización en tiempo real de leads
   useLeadsRealtime({
     companyId: companyId || '',
     onInsert: (lead) => {
+      // Si el usuario está restringido y este lead no le pertenece, ignorarlo.
+      if (!isLeadVisibleForCurrentUser(lead)) return
+
       let added = false
       setLeads((current) => {
         // Evitar duplicados
@@ -412,10 +452,32 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
         ...prev,
         [lead.stage]: (prev[lead.stage] || 0) + 1
       }))
-      toast.success(`Nueva oportunidad agregada: ${lead.name}`)
     },
     onUpdate: (lead) => {
       const oldLead = leadsRef.current.find(l => l.id === lead.id)
+
+      // Si el usuario está restringido:
+      //  - Si el lead deja de pertenecerle (reasignado a otro o sacado de su pipeline), removerlo del estado.
+      //  - Si era invisible y ahora le pertenece, agregarlo.
+      if (isRestricted) {
+        const visible = isLeadVisibleForCurrentUser(lead)
+        if (!visible) {
+          if (oldLead) {
+            setStageCounts(prev => ({
+              ...prev,
+              [oldLead.stage]: Math.max(0, (prev[oldLead.stage] || 0) - 1)
+            }))
+            setLeads(current => current.filter(l => l.id !== lead.id))
+          }
+          return
+        }
+        if (!oldLead && visible) {
+          setLeads(current => current.find(l => l.id === lead.id) ? current : [...current, lead])
+          setStageCounts(prev => ({ ...prev, [lead.stage]: (prev[lead.stage] || 0) + 1 }))
+          return
+        }
+      }
+
       if (oldLead && oldLead.stage !== lead.stage) {
         setStageCounts(prev => ({
           ...prev,
@@ -426,7 +488,6 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
       // Preservar customFields del estado local si el evento realtime no los trae
       const merged = { ...lead, customFields: lead.customFields && Object.keys(lead.customFields).length ? lead.customFields : (oldLead?.customFields ?? {}) }
       setLeads((current) => current.map(l => l.id === lead.id ? merged : l));
-      toast.info(`Oportunidad actualizada: ${lead.name}`);
     },
     onDelete: (leadId) => {
       const leadToDelete = leadsRef.current.find(l => l.id === leadId)
@@ -481,7 +542,15 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
             }
           }))
 
-          if (!cancelled) setTeamMembers(mapped)
+          // Deduplicar miembros por email (o id)
+          const uniqueMap = new Map()
+          for (const m of mapped) {
+            const key = m.email ? m.email.toLowerCase() : m.id
+            if (!uniqueMap.has(key)) {
+              uniqueMap.set(key, m)
+            }
+          }
+          if (!cancelled) setTeamMembers(Array.from(uniqueMap.values()))
         } catch (e) {
           console.error('Error loading team members in PipelineView', e)
         }
@@ -526,12 +595,16 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
   const pipelineLeads = filterByMember === 'all'
     ? allPipelineLeads
     : allPipelineLeads.filter(l => {
-      if (filterByMember === 'me') {
-        if (user && (l.assignedTo === user.id || l.assignedTo === user.businessName || l.assignedTo === user.email)) return true
-        return false
-      }
+      // Un lead "mío" puede estar asignado por usuario_id, persona.id, businessName o email.
+      const isMine = !!user && (
+        l.assignedTo === user.id ||
+        (l.assignedTo && assignedToIdsSet.has(l.assignedTo)) ||
+        l.assignedTo === user.businessName ||
+        l.assignedTo === user.email
+      )
+      if (filterByMember === 'me') return isMine
       if (filterByMember === 'me+todos') {
-        if (user && (l.assignedTo === user.id || l.assignedTo === user.businessName || l.assignedTo === user.email)) return true
+        if (isMine) return true
         if (l.assignedTo === NIL_UUID || l.assignedTo == null) return true
         return false
       }
@@ -551,6 +624,15 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
       setFilterByMember('all')
     }
   }, [activePipeline, teamMembers, filterByMember, eligibleMembers])
+
+  // Si el usuario está restringido (admin + Representante de Ventas),
+  // solo puede filtrar como 'me'. Cualquier otro filtro mostraría leads que
+  // no le pertenecen (y que el backend ni siquiera trajo).
+  useEffect(() => {
+    if (isRestricted && filterByMember !== 'me') {
+      setFilterByMember('me')
+    }
+  }, [isRestricted, filterByMember])
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -785,6 +867,69 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
         ...prev,
         [lead.stage]: (prev[lead.stage] || 0) + 1
       }))
+    }
+  }
+
+  // ==========================================
+  // COPIAR Y PEGAR OPORTUNIDADES ENTRE PIPELINES
+  // ==========================================
+  const { copiedLead, copy: copyLead, clear: clearClipboard } = useLeadClipboard(companyId)
+  const [isPasting, setIsPasting] = useState(false)
+
+  const handleCopyLead = (lead: Lead) => {
+    copyLead(lead)
+    toast.success(`Copiaste "${lead.name}". Pega en cualquier etapa.`, { duration: 4000 })
+  }
+
+  const handlePasteToStage = async (stageId: string) => {
+    if (!copiedLead || !currentPipeline?.id || isPasting) return
+    setIsPasting(true)
+    try {
+      const created = await duplicateLead(
+        copiedLead.id,
+        currentPipeline.id,
+        stageId,
+        user?.id,
+        user?.businessName || user?.email
+      )
+
+      // Mapear LeadDB → Lead UI
+      const newLead: Lead = {
+        id: created.id,
+        name: created.nombre_completo,
+        email: created.correo_electronico || '',
+        phone: created.telefono || '',
+        company: created.empresa || '',
+        location: created.ubicacion || undefined,
+        evento: created.evento || undefined,
+        membresia: created.membresia || undefined,
+        budget: created.presupuesto || 0,
+        stage: created.etapa_id,
+        pipeline: (created.pipeline_id as any) || currentPipeline.type,
+        priority: created.prioridad as any,
+        assignedTo: created.asignado_a || '',
+        tags: (created as any).tags || [],
+        createdAt: new Date(created.created_at),
+        lastContact: new Date(created.created_at),
+        stageEnteredAt: (created as any).stage_entered_at ? new Date((created as any).stage_entered_at) : undefined,
+        slaCustomLimitMinutes: (created as any).sla_custom_limit_minutes ?? null,
+        customFields: (created as any).custom_fields ?? {},
+      }
+
+      setLeads(prev => [...prev, newLead])
+      setStageCounts(prev => ({
+        ...prev,
+        [stageId]: (prev[stageId] || 0) + 1
+      }))
+
+      const stageName = currentPipeline.stages.find(s => s.id === stageId)?.name || 'la etapa'
+      toast.success(`Pegaste "${newLead.name}" en ${stageName}`)
+      clearClipboard()
+    } catch (err: any) {
+      console.error('[PipelineView] Error duplicando lead:', err)
+      toast.error(err?.message || 'No se pudo pegar la oportunidad')
+    } finally {
+      setIsPasting(false)
     }
   }
 
@@ -1048,11 +1193,11 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
               </div>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos los miembros</SelectItem>
-              {user && <SelectItem value="me">{currentCompany ? `${currentCompany.name} (Yo)` : 'Yo'}</SelectItem>}
-              {user && <SelectItem value="me+todos">Yo + Todos</SelectItem>}
-              <SelectItem value="todos">Solo Todos</SelectItem>
-              {eligibleMembers.map(member => (
+              {!isRestricted && <SelectItem value="all">Todos los miembros</SelectItem>}
+              {user && <SelectItem value="me">{user.businessName ? `${user.businessName} (Yo)` : 'Yo'}</SelectItem>}
+              {!isRestricted && user && <SelectItem value="me+todos">Yo + Todos</SelectItem>}
+              {!isRestricted && <SelectItem value="todos">Solo Todos</SelectItem>}
+              {!isRestricted && eligibleMembers.map(member => (
                 <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>
               ))}
             </SelectContent>
@@ -1064,6 +1209,26 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
           )}
         </div>
       </div>
+
+      {/* Banner de oportunidad copiada — visible mientras hay clipboard activo */}
+      {copiedLead && (
+        <div className="mx-4 md:mx-6 mt-3 mb-1 px-3 py-2 rounded-lg bg-primary/10 border border-primary/30 flex items-center gap-3 text-sm animate-in fade-in slide-in-from-top-2 duration-200">
+          <ClipboardText size={18} weight="duotone" className="text-primary shrink-0" />
+          <span className="flex-1 truncate">
+            Copiaste <strong>"{copiedLead.name}"</strong>. Selecciona la etapa donde quieres pegarla (puedes cambiar de pipeline).
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-muted-foreground hover:text-foreground shrink-0"
+            onClick={clearClipboard}
+            title="Cancelar copia"
+          >
+            <XIcon size={14} className="mr-1" />
+            Cancelar
+          </Button>
+        </div>
+      )}
 
       <PipelineBoard
         currentPipeline={currentPipeline}
@@ -1101,6 +1266,10 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
           setMoveDialogLead(lead)
           setMoveDialogOpen(true)
         }}
+        onCopyLead={handleCopyLead}
+        pasteableLeadName={copiedLead?.name || null}
+        onPasteToStage={handlePasteToStage}
+        isPasting={isPasting}
         t={t}
         // Stage DnD
         onStageDragStart={handleStageDragStart}

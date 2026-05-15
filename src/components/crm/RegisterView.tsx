@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { PENDING_JOIN_KEY } from './JoinByLinkView'
+import { buscarEmpresaPorId } from '@/supabase/services/solicitudes'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -26,6 +28,18 @@ export function RegisterView({ onRegister, onSwitchToLogin }: RegisterViewProps)
   const [userName, setUserName] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
+  const [pendingEmpresaName, setPendingEmpresaName] = useState<string | null>(null)
+
+  // Si hay una invitación pendiente (vino de /unirme/:codigo), forzar employee
+  useEffect(() => {
+    const pendingId = localStorage.getItem(PENDING_JOIN_KEY)
+    if (pendingId) {
+      setAccountType('employee')
+      buscarEmpresaPorId(pendingId)
+        .then(emp => emp && setPendingEmpresaName(emp.nombre_empresa))
+        .catch(() => { /* silencio */ })
+    }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -162,16 +176,20 @@ export function RegisterView({ onRegister, onSwitchToLogin }: RegisterViewProps)
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md animate-in fade-in zoom-in-95 slide-in-from-bottom-4 duration-300">
         <CardHeader className="text-center">
-          <button
-            onClick={() => setAccountType(null)}
-            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-2"
-          >
-            <ArrowLeft size={16} />
-            Cambiar tipo de cuenta
-          </button>
+          {!pendingEmpresaName && (
+            <button
+              onClick={() => setAccountType(null)}
+              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-2"
+            >
+              <ArrowLeft size={16} />
+              Cambiar tipo de cuenta
+            </button>
+          )}
           <CardTitle className="text-3xl font-bold text-primary">CRM Pro</CardTitle>
           <CardDescription className="text-lg mt-2">
-            {isOwner ? 'Registro de Empresa' : 'Registro de Empleado'}
+            {pendingEmpresaName
+              ? <>Unirme a <strong>{pendingEmpresaName}</strong></>
+              : isOwner ? 'Registro de Empresa' : 'Registro de Empleado'}
           </CardDescription>
           <div className="flex items-center justify-center gap-2 mt-2">
             <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${

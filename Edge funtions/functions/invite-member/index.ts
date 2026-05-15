@@ -312,7 +312,7 @@ serve(async (req) => {
       console.warn('[invite-member] Falta RESEND_FROM o RESEND_DOMAIN para construir el remitente verificado');
       emailResult = { sent: false, reason: 'Missing RESEND_FROM/RESEND_DOMAIN' };
     } else {
-      const acceptUrl = `${baseUrl}/?token=${token}`;
+      const acceptUrl = `${baseUrl}/invitacion/${token}`;
       const html = `
         <!DOCTYPE html>
 <html>

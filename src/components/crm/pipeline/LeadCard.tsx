@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { DotsThree, Note, CalendarBlank, CurrencyDollar, Clock, WarningCircle } from '@phosphor-icons/react'
+import { DotsThree, Note, CalendarBlank, CurrencyDollar, Clock, WarningCircle, Copy } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { Lead, Pipeline, PipelineType, TeamMember, Stage } from '@/lib/types'
 import { Company } from '@/components/crm/CompanyManagement'
@@ -39,6 +39,7 @@ interface LeadCardProps {
     onDelete: (leadId: string) => void
     onMoveToStage: (lead: Lead, stageId: string) => void
     onOpenMoveDialog: (lead: Lead) => void
+    onCopy?: (lead: Lead) => void
 
     // Helpers
     t: any
@@ -64,6 +65,7 @@ function LeadCardComponent({
     onDelete,
     onMoveToStage,
     onOpenMoveDialog,
+    onCopy,
     t
 }: LeadCardProps) {
 
@@ -196,6 +198,17 @@ function LeadCardComponent({
                                         ))}
                                     </DropdownMenuSubContent>
                                 </DropdownMenuSub>
+                            )}
+                            {onCopy && (
+                                <DropdownMenuItem
+                                    onClick={(event) => {
+                                        event.stopPropagation()
+                                        onCopy(lead)
+                                    }}
+                                >
+                                    <Copy size={14} className="mr-2" />
+                                    Copiar oportunidad
+                                </DropdownMenuItem>
                             )}
                             {isAdminOrOwner && (
                                 <DropdownMenuItem
