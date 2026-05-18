@@ -648,6 +648,15 @@ export interface SearchLeadsOptions {
   archived?: boolean
   limit?: number
   order?: 'asc' | 'desc'
+  /**
+   * Si es true, solo se devuelven leads cuyo `asignado_a` esté en
+   * `strictAssignedToIds`. Aplica a admin/viewer + Representante de Ventas.
+   */
+  strictAssignment?: boolean
+  /** IDs aceptados para `asignado_a` cuando `strictAssignment` está activo. */
+  strictAssignedToIds?: string[]
+  /** Solo devolver leads cuyo pipeline esté en esta lista (defensa cliente). */
+  allowedPipelineIds?: string[] | null
 }
 
 

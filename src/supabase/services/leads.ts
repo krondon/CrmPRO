@@ -206,6 +206,9 @@ export async function searchLeads(
         archived = false,
         limit = 50,
         order = 'desc',
+        strictAssignment = false,
+        strictAssignedToIds,
+        allowedPipelineIds = null,
     } = options
 
     let query = supabase
@@ -226,6 +229,19 @@ export async function searchLeads(
         query = query.eq('etapa_id', stageId)
     }
 
+    // Filtro estricto por asignación (admin/viewer + Representante de Ventas):
+    // un buscador "global" jamás debe revelar leads que el usuario no puede ver.
+    if (strictAssignment) {
+        const ids = (strictAssignedToIds && strictAssignedToIds.length > 0)
+            ? strictAssignedToIds
+            : []
+        if (ids.length === 0) {
+            // Sin IDs no podemos devolver nada que le pertenezca.
+            return []
+        }
+        query = query.in('asignado_a', ids)
+    }
+
     query = query
         .or(
             `nombre_completo.ilike.%${searchTerm}%,telefono.ilike.%${searchTerm}%,correo_electronico.ilike.%${searchTerm}%,empresa.ilike.%${searchTerm}%`
@@ -236,7 +252,15 @@ export async function searchLeads(
     const { data, error } = await query
 
     if (error) throw error
-    return data ?? []
+
+    // Defensa cliente: si hay restricción de pipelines, filtrar por si el
+    // backend devolvió alguno fuera del set permitido.
+    const rows = (data ?? []) as LeadDB[]
+    if (Array.isArray(allowedPipelineIds)) {
+        const allowed = new Set(allowedPipelineIds)
+        return rows.filter((l: any) => allowed.has(l.pipeline_id))
+    }
+    return rows
 }
 
 function normalizeSearchText(value: unknown): string {

@@ -80,7 +80,10 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
   //   - allowedPipelineIds limita a sus pipelines asignados
   //   - isRestricted=true → strictAssignment: solo ve leads cuyo asignado_a coincida
   //     con su usuario_id o con su persona.id (un lead puede tener cualquiera).
-  const { allowedPipelineIds, isRestricted, assignedToIds } = useUserPipelineAccess()
+  // accessResolved=false durante el fetch async de la persona/cargo. Antes de
+  // ese punto no sabemos si aplica restricción; bloqueamos acciones sensibles
+  // (como el buscador global) hasta que se sepa.
+  const { allowedPipelineIds, isRestricted, assignedToIds, accessResolved } = useUserPipelineAccess()
 
   // ==========================================
   // HOOK: Datos del pipeline (pipelines, leads, paginación)
@@ -114,7 +117,11 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
     canViewAllLeads: !isRestricted,
     allowedPipelineIds,
     strictAssignment: isRestricted,
-    strictAssignedToIds: assignedToIds
+    strictAssignedToIds: assignedToIds,
+    // Si la lógica de restricción aún no terminó, el hook NO carga leads.
+    // Sin esto el primer render trae todos los leads de la empresa y los
+    // muestra antes de que sepamos si el usuario es Rep de Ventas.
+    accessResolved
   })
 
   // Estados UI locales (no manejados por hooks)
@@ -977,17 +984,38 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
             <LeadSearchDialog
               leads={leads}
               pipelines={pipelines}
-              onSelectLead={(lead) => setSelectedLead(lead)}
+              onSelectLead={(lead) => {
+                // Defensa final: si el usuario está restringido, no permitir
+                // abrir leads que no le pertenezcan, aunque hayan llegado al
+                // resultado por alguna race o bypass.
+                if (isRestricted && !isLeadVisibleForCurrentUser(lead)) {
+                  toast.error('No tienes acceso a esta oportunidad')
+                  return
+                }
+                setSelectedLead(lead)
+              }}
               canDelete={isAdminOrOwner}
               onDeleteLeads={handleDeleteMultipleLeads}
               onSearch={async (term) => {
+                // Si aún no resolvimos si el usuario tiene restricción, no devolvemos
+                // nada. Sin esto hay race: el buscador podría correr con
+                // strictAssignment=false mientras el hook async todavía está leyendo
+                // la persona/cargo, y devolvería leads que el rep no debe ver.
+                if (!accessResolved) return []
+
                 const currentPipelineObj = pipelines.find(p => p.type === activePipeline)
                 const currentPipelineId = currentPipelineObj?.id
                 try {
                   const results = await searchLeads(companyId!, term, {
                     archived: false,
                     limit: 100,
-                    order: 'desc'
+                    order: 'desc',
+                    // Si el usuario es admin/viewer + Representante de Ventas,
+                    // el buscador "global" se acota a sus pipelines + oportunidades.
+                    // Sin esto, un Rep podría ver leads de otros desde aquí.
+                    strictAssignment: isRestricted,
+                    strictAssignedToIds: assignedToIds,
+                    allowedPipelineIds
                   })
                   return (results || []).map((l: any) => ({
                     id: l.id,
@@ -1013,6 +1041,12 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
                 }
               }}
               onNavigateToLead={(lead) => {
+                // Defensa final: igual que onSelectLead, no permitimos navegar
+                // a leads que el usuario restringido no debería ver.
+                if (isRestricted && !isLeadVisibleForCurrentUser(lead)) {
+                  toast.error('No tienes acceso a esta oportunidad')
+                  return
+                }
                 const leadPipeline = pipelines.find(p => p.id === lead.pipeline || p.type === lead.pipeline)
                 setPendingNavigation({
                   leadId: lead.id,

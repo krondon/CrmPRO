@@ -59,6 +59,13 @@ export interface UsePipelineDataOptions {
      * `usuario_id` o su `persona.id` — incluir ambos para no perderse leads.
      */
     strictAssignedToIds?: string[]
+    /**
+     * Indica si la lógica de restricción (useUserPipelineAccess) ya terminó.
+     * Si es `false`, no se cargan leads aún para evitar mostrar leads que el
+     * usuario no debería ver. Por defecto `true` para preservar el comportamiento
+     * de vistas que no usan restricción.
+     */
+    accessResolved?: boolean
 }
 
 /** Return type del hook con setters expuestos para inyección */
@@ -129,7 +136,7 @@ function mapDbLeadToLead(l: any): Lead {
 // HOOK PRINCIPAL
 // ============================================
 export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDataReturn {
-    const { companyId, userId, canViewAllLeads = true, allowedPipelineIds = null, strictAssignment = false, strictAssignedToIds } = options
+    const { companyId, userId, canViewAllLeads = true, allowedPipelineIds = null, strictAssignment = false, strictAssignedToIds, accessResolved = true } = options
 
     // Estados principales
     const [leads, setLeads] = useState<Lead[]>([])
@@ -241,6 +248,16 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
     // ==========================================
     useEffect(() => {
         if (!companyId || !pipelines || pipelines.length === 0) return
+        // No cargar leads hasta saber si el usuario está restringido. Sin esto,
+        // el primer render trae TODOS los leads de la empresa (porque
+        // isRestricted=false al inicio) y los muestra antes de que el hook
+        // async termine, exponiendo leads que el usuario no debería ver.
+        if (!accessResolved) {
+            // Limpiamos cualquier lead remanente de una sesión previa para que
+            // mientras esperamos no se muestre nada ajeno.
+            setLeads([])
+            return
+        }
         const currentPipelineObj = pipelines.find(p => p.type === activePipeline)
         if (!currentPipelineObj?.id) return
 
@@ -335,7 +352,7 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
             .catch(err => console.error('[usePipelineData] Error loading leads:', err))
 
         return () => { cancelled = true }
-    }, [companyId, activePipeline, pipelines, canViewAllLeads, userId, strictAssignment, JSON.stringify(strictAssignedToIds || [])])
+    }, [companyId, activePipeline, pipelines, canViewAllLeads, userId, strictAssignment, JSON.stringify(strictAssignedToIds || []), accessResolved])
 
     // ==========================================
     // EFECTO: Cargar mensajes no leídos
@@ -376,6 +393,7 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
     // ==========================================
     const loadMoreStage = useCallback(async (stageId: string) => {
         if (!companyId || !pipelines) return
+        if (!accessResolved) return
         const currentPipelineObj = pipelines.find(p => p.type === activePipeline)
         if (!currentPipelineObj?.id) return
 
@@ -418,13 +436,14 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
         } catch (err) {
             console.error('[usePipelineData] Error loading more:', err)
         }
-    }, [companyId, pipelines, activePipeline, stagePages, userId, canViewAllLeads, strictAssignment, JSON.stringify(strictAssignedToIds || [])])
+    }, [companyId, pipelines, activePipeline, stagePages, userId, canViewAllLeads, strictAssignment, JSON.stringify(strictAssignedToIds || []), accessResolved])
 
     // ==========================================
     // FUNCIÓN: Cargar más leads de TODAS las stages
     // ==========================================
     const loadMoreAll = useCallback(async () => {
         if (!companyId || !pipelines || isLoadingMore) return
+        if (!accessResolved) return
         const currentPipelineObj = pipelines.find(p => p.type === activePipeline)
         if (!currentPipelineObj?.id) return
 
@@ -479,7 +498,7 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
         } finally {
             setIsLoadingMore(false)
         }
-    }, [companyId, pipelines, activePipeline, stagePages, isLoadingMore, userId, canViewAllLeads, strictAssignment, JSON.stringify(strictAssignedToIds || [])])
+    }, [companyId, pipelines, activePipeline, stagePages, isLoadingMore, userId, canViewAllLeads, strictAssignment, JSON.stringify(strictAssignedToIds || []), accessResolved])
 
     // ==========================================
     // RETURN
