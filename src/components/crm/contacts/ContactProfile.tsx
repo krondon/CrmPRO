@@ -24,7 +24,6 @@ import {
 } from '@phosphor-icons/react'
 import { ContactGeneralInfo } from './ContactGeneralInfo'
 import { ContactLeadsTab } from './ContactLeadsTab'
-import { ContactHistoryTab } from './ContactHistoryTab'
 import { ContactEditDialog } from './ContactEditDialog'
 
 interface ContactProfileProps {
@@ -212,12 +211,6 @@ export function ContactProfile({
                         >
                             Oportunidades
                         </TabsTrigger>
-                        <TabsTrigger
-                            value="history"
-                            className="h-10 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-3 font-medium text-xs md:text-sm whitespace-nowrap"
-                        >
-                            Historial
-                        </TabsTrigger>
                     </TabsList>
                 </div>
 
@@ -227,9 +220,6 @@ export function ContactProfile({
                     </TabsContent>
                     <TabsContent value="leads" className="m-0 p-4 md:p-6">
                         <ContactLeadsTab contact={contact} companyId={companyId} />
-                    </TabsContent>
-                    <TabsContent value="history" className="m-0 p-4 md:p-6">
-                        <ContactHistoryTab contactId={contact.id} />
                     </TabsContent>
                 </div>
             </Tabs>
