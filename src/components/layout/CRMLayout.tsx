@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom'
 import { Sidebar } from '@/components/crm/Sidebar'
+import { OnboardingTemplatesDialog } from '@/components/crm/OnboardingTemplatesDialog'
 import { NotificationPanel } from '@/components/crm/NotificationPanel'
 import { useAuth } from '@/hooks/useAuth'
 import { useState, useEffect, useCallback, useRef } from 'react'
@@ -36,9 +37,20 @@ export function CRMLayout({ isGuestMode: forcedGuestMode }: CRMLayoutProps) {
     const location = useLocation()
     const [showNotifications, setShowNotifications] = useState(false)
     const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0)
+    const [showOnboarding, setShowOnboarding] = useState(false)
+    const onboardingChecked = useRef(false)
 
     const isGuestMode = forcedGuestMode ?? authGuestMode
     const currentCompany = companies.find(c => c.id === currentCompanyId)
+
+    useEffect(() => {
+        if (!currentCompanyId || onboardingChecked.current) return
+        onboardingChecked.current = true
+        ;(async () => {
+            const { count } = await supabase.from('pipeline').select('id', { count: 'exact', head: true }).eq('empresa_id', currentCompanyId)
+            if ((count ?? 0) === 0) setShowOnboarding(true)
+        })()
+    }, [currentCompanyId])
 
     // Precargar chats cuando cambia la empresa
     useEffect(() => {
@@ -258,6 +270,7 @@ export function CRMLayout({ isGuestMode: forcedGuestMode }: CRMLayoutProps) {
                 onCompanyChange={handleCompanyChange}
                 companies={companies}
                 notificationCount={unreadNotificationsCount}
+                isAnonymous={user?.isAnonymous}
             />
 
             <main className="flex-1 flex flex-col overflow-hidden relative pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0">
@@ -323,6 +336,11 @@ export function CRMLayout({ isGuestMode: forcedGuestMode }: CRMLayoutProps) {
             </main>
 
             <NotificationPanel open={showNotifications} onClose={() => setShowNotifications(false)} />
+            <OnboardingTemplatesDialog
+                open={showOnboarding}
+                onClose={() => setShowOnboarding(false)}
+                companyId={currentCompanyId}
+            />
         </div>
     )
 }

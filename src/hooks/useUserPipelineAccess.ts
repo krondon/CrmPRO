@@ -66,6 +66,8 @@ export function useUserPipelineAccess(): UseUserPipelineAccessReturn {
             setAllowedPipelineIds(null)
             setIsRestricted(false)
             setCurrentPersonaId(null)
+            // No marcamos como resuelto porque aún no hay sesión/empresa;
+            // las vistas no deberían cargar tampoco sin esos datos.
             return
         }
 
@@ -91,6 +93,7 @@ export function useUserPipelineAccess(): UseUserPipelineAccessReturn {
                 setAllowedPipelineIds(null)
                 setIsRestricted(false)
                 setIsLoading(false)
+                setAccessResolved(true)
                 return
             }
             try {
@@ -145,7 +148,6 @@ export function useUserPipelineAccess(): UseUserPipelineAccessReturn {
                     return empId === currentCompanyId
                 })
 
-                // Si no tiene persona en esta empresa, no sabemos el cargo → no restringimos.
                 if (!personaForCompany) {
                     setAllowedPipelineIds(null)
                     setIsRestricted(false)
@@ -161,7 +163,7 @@ export function useUserPipelineAccess(): UseUserPipelineAccessReturn {
                     return
                 }
 
-                // 2) Es admin + Representante de Ventas → leer sus pipelines asignados.
+                // 2) Es admin/viewer + Representante de Ventas → leer pipelines asignados.
                 const { data: pipelinesRows, error: ppErr } = await supabase
                     .from('persona_pipeline')
                     .select('pipeline_id')

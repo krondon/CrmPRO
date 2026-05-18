@@ -15,8 +15,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     }
 
     if (!user) {
-        // Guardar la ubicación actual para redirigir después del login
-        return <Navigate to="/login" state={{ from: location }} replace />
+        return <Navigate to="/welcome" state={{ from: location }} replace />
     }
 
     return <>{children}</>

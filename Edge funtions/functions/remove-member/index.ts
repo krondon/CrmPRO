@@ -39,19 +39,32 @@ serve(async (req) => {
     // but strictly speaking, we should verify the requester's role securely.
     const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    const { data: memberData, error: memberError } = await supabaseAdmin
-      .from('empresa_miembros')
-      .select('role, empresa(usuario_id)')
-      .eq('empresa_id', companyId)
-      .eq('usuario_id', user.id)
-      .single();
+    // El owner NO necesariamente está en empresa_miembros — vive en empresa.usuario_id.
+    // Por eso autorizamos en dos pasos: primero confirmamos si es owner, y si no, miramos su rol.
+    const { data: empresaRow, error: empresaErr } = await supabaseAdmin
+      .from('empresa')
+      .select('usuario_id')
+      .eq('id', companyId)
+      .maybeSingle();
 
-    if (memberError || !memberData) {
-      throw new Error('Requester is not a member of this company');
+    if (empresaErr || !empresaRow) {
+      throw new Error('Empresa no encontrada');
     }
 
-    const isOwner = memberData.empresa.usuario_id === user.id;
-    const isAdmin = memberData.role === 'admin';
+    const isOwner = empresaRow.usuario_id === user.id;
+    let isAdmin = false;
+
+    if (!isOwner) {
+      // Si no es owner, debe estar en empresa_miembros con role=admin
+      const { data: memberRow } = await supabaseAdmin
+        .from('empresa_miembros')
+        .select('role')
+        .eq('empresa_id', companyId)
+        .eq('usuario_id', user.id)
+        .maybeSingle();
+
+      isAdmin = memberRow?.role === 'admin';
+    }
 
     if (!isOwner && !isAdmin) {
       throw new Error('Unauthorized: Only Admins or Owners can remove members');
