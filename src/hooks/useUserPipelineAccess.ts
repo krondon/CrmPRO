@@ -41,8 +41,8 @@ interface UseUserPipelineAccessReturn {
     /**
      * `true` cuando el hook ya determinó si el usuario está restringido o no.
      * `false` mientras se está calculando (incluido el fetch async de persona).
-     * Las vistas deben esperar a que sea `true` antes de cargar datos para
-     * evitar mostrar todo y luego ocultarlo (race condition).
+     * Las vistas deben esperar a que sea `true` antes de cargar datos o hacer
+     * búsquedas globales para evitar mostrar leads que el usuario no debe ver.
      */
     accessResolved: boolean
 }
@@ -58,11 +58,10 @@ export function useUserPipelineAccess(): UseUserPipelineAccessReturn {
     const [accessResolved, setAccessResolved] = useState(false)
 
     useEffect(() => {
-        // Cada vez que cambian las dependencias volvemos a "no resuelto" hasta
-        // que la lógica determine definitivamente el estado del usuario.
+        // Volvemos a "no resuelto" hasta que la lógica termine de decidir.
         setAccessResolved(false)
 
-        // Sin usuario o sin empresa → reset (no hay nada que resolver aún).
+        // Sin usuario o sin empresa → reset (no hay nada que resolver aún)
         if (!user?.id || !currentCompanyId) {
             setAllowedPipelineIds(null)
             setIsRestricted(false)
@@ -98,10 +97,13 @@ export function useUserPipelineAccess(): UseUserPipelineAccessReturn {
                 return
             }
             try {
-                // 1) Buscar la persona del usuario en esta empresa para conocer su cargo.
+                // 1) Traer personas del usuario. Hacemos 2 queries simples en
+                //    lugar de un join implícito de PostgREST porque ese join a
+                //    veces no resuelve la relación (devuelve null) y nos deja
+                //    sin saber el empresa_id del equipo de la persona.
                 const { data: personas, error: pErr } = await supabase
                     .from('persona')
-                    .select('id, titulo_trabajo, equipo_id, equipos:equipo_id(empresa_id)')
+                    .select('id, titulo_trabajo, equipo_id')
                     .eq('usuario_id', user.id)
 
                 if (cancelled) return
@@ -113,8 +115,36 @@ export function useUserPipelineAccess(): UseUserPipelineAccessReturn {
                     return
                 }
 
-                const personaForCompany = (personas || []).find((p: any) => {
-                    const empId = Array.isArray(p.equipos) ? p.equipos[0]?.empresa_id : p.equipos?.empresa_id
+                const personasList = personas || []
+                const equipoIds = personasList
+                    .map((p: any) => p.equipo_id)
+                    .filter((v: any): v is string => !!v)
+
+                // 2) Traer los equipos para conocer empresa_id de cada uno.
+                let equipoToEmpresa = new Map<string, string>()
+                if (equipoIds.length > 0) {
+                    const { data: equipos, error: eqErr } = await supabase
+                        .from('equipos')
+                        .select('id, empresa_id')
+                        .in('id', equipoIds)
+
+                    if (cancelled) return
+                    if (eqErr) {
+                        console.warn('[useUserPipelineAccess] No se pudo leer equipos:', eqErr)
+                        setAllowedPipelineIds(null)
+                        setIsRestricted(false)
+                        setCurrentPersonaId(null)
+                        return
+                    }
+
+                    equipoToEmpresa = new Map(
+                        (equipos || []).map((e: any) => [e.id as string, e.empresa_id as string])
+                    )
+                }
+
+                // 3) Encontrar la persona del usuario CUYO equipo está en la empresa actual.
+                const personaForCompany = personasList.find((p: any) => {
+                    const empId = p.equipo_id ? equipoToEmpresa.get(p.equipo_id) : undefined
                     return empId === currentCompanyId
                 })
 

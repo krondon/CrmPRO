@@ -26,11 +26,17 @@ type TokenConfig = {
   asignado_a: string;
   empresa_label: string;
   nombre: string;
-  metadata?: Record<string, unknown>;
+  metadata?: {
+    /** Mapeo opcional `tipo` → `etapa_id`. Si está, redirige el lead según el evento. */
+    etapas_por_tipo?: Record<string, string>;
+    [key: string]: unknown;
+  };
 };
 
-/** Payload que envía la landing page */
+/** Payload que envía la landing / app externa */
 type LandingLeadPayload = {
+  /** Tipo de evento (ej "registro", "cita", "interesado"). Default: "registro". */
+  tipo?: string;
   nombre_completo?: string;
   correo_electronico?: string;
   telefono: string;
@@ -41,7 +47,7 @@ type LandingLeadPayload = {
   prioridad?: string;
   asignado_a?: string;
   evento?: string;
-  notas?: string; // Campos extra del formulario dinámico (formateados como texto)
+  notas?: string; // Texto libre, se inserta como nota en el lead
   // Campos legacy (retrocompatibilidad) — se ignoran si hay token válido
   empresa_id?: string;
   pipeline_id?: string;
@@ -66,6 +72,10 @@ function normalizePhone(phone: string): string {
     .replace("@s.whatsapp.net", "")
     .replace(/[^\d]/g, "")
     .trim();
+}
+
+function normalizeTipo(tipo: string | undefined | null): string {
+  return (tipo ?? "registro").toString().toLowerCase().trim();
 }
 
 function jsonResponse(body: Record<string, unknown>, status: number) {
@@ -143,7 +153,6 @@ async function createReunion(
   leadId: string,
   empresaId: string
 ): Promise<Record<string, unknown>> {
-  // Validar campos obligatorios de la reunión
   if (!reunion.titulo || !reunion.fecha) {
     console.warn("[reunion] Faltan campos obligatorios (titulo, fecha)");
     return { error: "Reunión requiere 'titulo' y 'fecha'" };
@@ -166,7 +175,7 @@ async function createReunion(
       fecha: startTime.toISOString(),
       duracion_minutos: duracion,
       notas: reunion.notas || null,
-      created_by: null, // Creada desde landing
+      created_by: null,
     })
     .select("id")
     .single();
@@ -186,18 +195,37 @@ async function createReunion(
 }
 
 /* ------------------------------------------------------------------ */
+/*  Helper: insertar nota (texto libre del payload)                    */
+/* ------------------------------------------------------------------ */
+
+async function insertNota(
+  supabase: ReturnType<typeof createClient>,
+  leadId: string,
+  contenido: string
+): Promise<void> {
+  try {
+    await supabase.from("nota_lead").insert({
+      lead_id: leadId,
+      contenido,
+      creado_por: null,
+      creador_nombre: "Formulario Web",
+    });
+  } catch (notaErr) {
+    console.warn("[notas] No se pudo insertar nota:", notaErr);
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Handler principal                                                  */
 /* ------------------------------------------------------------------ */
 
 serve(async (req: Request) => {
-  // ── CORS preflight ───────────────────────────────────────────────
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  // ── Health check ─────────────────────────────────────────────────
   if (req.method === "GET") {
-    return jsonResponse({ success: true, message: "received_landing activo (multi-token)" }, 200);
+    return jsonResponse({ success: true, message: "received_landing activo (multi-token, multi-evento)" }, 200);
   }
 
   if (req.method !== "POST") {
@@ -211,14 +239,13 @@ serve(async (req: Request) => {
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
   try {
-    // ── Leer payload ────────────────────────────────────────────────
     const payload = (await req.json()) as LandingLeadPayload;
 
     if (!payload.telefono) {
       return jsonResponse({ error: "El campo 'telefono' es obligatorio" }, 400);
     }
 
-    // ── Resolver configuración del token ────────────────────────────
+    // ── Resolver token ──────────────────────────────────────────────
     const url = new URL(req.url);
     const token = url.searchParams.get("token") || null;
 
@@ -230,10 +257,9 @@ serve(async (req: Request) => {
         return jsonResponse({ error: "Token inválido o inactivo" }, 403);
       }
       console.log(
-        `✅ [TOKEN] Resuelto: "${config.nombre}" → empresa=${config.empresa_id}, pipeline=${config.pipeline_id}, etapa=${config.etapa_id}`
+        `✅ [TOKEN] Resuelto: "${config.nombre}" → empresa=${config.empresa_id}, pipeline=${config.pipeline_id}, etapa_default=${config.etapa_id}`
       );
     } else {
-      // ── Modo legacy (retrocompatible): IDs directos en el payload ──
       if (!payload.empresa_id) {
         return jsonResponse(
           { error: "Debes enviar ?token=xxx o incluir 'empresa_id' en el payload" },
@@ -243,12 +269,18 @@ serve(async (req: Request) => {
       console.log(`⚠️ [LEGACY] Sin token, usando IDs del payload: empresa=${payload.empresa_id}`);
     }
 
-    // ── Determinar valores finales ──────────────────────────────────
-    const empresaId  = config?.empresa_id  ?? payload.empresa_id!;
-    const pipelineId = config?.pipeline_id ?? payload.pipeline_id;
-    const etapaId    = config?.etapa_id    ?? payload.etapa_id;
+    // ── Resolver tipo + etapa destino ───────────────────────────────
+    const tipo = normalizeTipo(payload.tipo);
+    const etapasPorTipo = config?.metadata?.etapas_por_tipo ?? {};
+    const etapaFromTipo = etapasPorTipo[tipo] || null;
 
-    // Validar que la empresa existe (solo en modo legacy)
+    const empresaId  = config?.empresa_id  ?? payload.empresa_id!;
+    const pipelineId = config?.pipeline_id ?? payload.pipeline_id ?? null;
+    const etapaId    = etapaFromTipo ?? config?.etapa_id ?? payload.etapa_id ?? null;
+
+    console.log(`📥 [EVENT] tipo="${tipo}" → etapa_destino=${etapaId} ${etapaFromTipo ? "(mapeado por tipo)" : "(default del token)"}`);
+
+    // Validar empresa en modo legacy
     if (!config) {
       const { data: empresa } = await supabase
         .from("empresa")
@@ -263,91 +295,112 @@ serve(async (req: Request) => {
 
     const cleanPhone = normalizePhone(payload.telefono);
 
-    // ── Insertar lead ───────────────────────────────────────────────
-    const { data, error } = await supabase
+    // ── Buscar lead existente (mismo teléfono + empresa) ────────────
+    const { data: existingLead } = await supabase
       .from("lead")
-      .insert({
-        nombre_completo:    payload.nombre_completo ?? `Lead Landing ${cleanPhone}`,
-        correo_electronico: payload.correo_electronico ?? null,
-        telefono:           cleanPhone,
-        empresa:            payload.empresa ?? config?.empresa_label ?? "Landing",
-        ubicacion:          payload.ubicacion ?? null,
-        presupuesto:        payload.presupuesto ?? null,
-        membresia:          payload.membresia ?? null,
-        evento:             payload.evento ?? null,
-        empresa_id:         empresaId,
-        pipeline_id:        pipelineId ?? null,
-        etapa_id:           etapaId ?? null,
-        prioridad:          payload.prioridad ?? config?.prioridad_default ?? "medium",
-        asignado_a:         payload.asignado_a ?? config?.asignado_a ?? "00000000-0000-0000-0000-000000000000",
-      })
-      .select("id")
-      .single();
+      .select("id, etapa_id, pipeline_id, nombre_completo, correo_electronico, ubicacion, presupuesto, membresia, evento")
+      .eq("empresa_id", empresaId)
+      .eq("telefono", cleanPhone)
+      .maybeSingle();
 
-    if (error) {
-      // ── Duplicado (unique constraint on telefono + empresa_id) ────
-      if ((error as any).code === "23505") {
-        const { data: existingLead } = await supabase
+    let leadId: string;
+    let created = false;
+    let movedEtapa = false;
+    let updated = false;
+    let finalEtapaId: string | null = etapaId ?? null;
+
+    if (existingLead) {
+      // ── Lead ya existe → ACTUALIZAR con la info nueva ─────────────
+      leadId = existingLead.id as string;
+
+      // Solo sobreescribir campos si el payload trae un valor (no pisar con null)
+      const updates: Record<string, unknown> = {};
+      if (payload.nombre_completo)    updates.nombre_completo    = payload.nombre_completo;
+      if (payload.correo_electronico) updates.correo_electronico = payload.correo_electronico;
+      if (payload.ubicacion)          updates.ubicacion          = payload.ubicacion;
+      if (payload.presupuesto != null) updates.presupuesto       = payload.presupuesto;
+      if (payload.membresia)          updates.membresia          = payload.membresia;
+      if (payload.evento)             updates.evento             = payload.evento;
+
+      // Mover de etapa si corresponde (mismo pipeline + etapa distinta)
+      const samePipeline = !pipelineId || existingLead.pipeline_id === pipelineId;
+      if (etapaId && samePipeline && existingLead.etapa_id !== etapaId) {
+        updates.etapa_id = etapaId;
+        updates.stage_entered_at = new Date().toISOString();
+        updates.sla_custom_limit_minutes = null;
+        movedEtapa = true;
+        finalEtapaId = etapaId;
+      } else {
+        finalEtapaId = (existingLead.etapa_id as string | null) ?? etapaId ?? null;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        const { error: updErr } = await supabase
           .from("lead")
-          .select("id")
-          .eq("empresa_id", empresaId)
-          .eq("telefono", cleanPhone)
-          .maybeSingle();
+          .update(updates)
+          .eq("id", leadId);
 
-        // Si hay reunión y el lead ya existía, intentar crearla de todas formas
-        let reunionResult: Record<string, unknown> | null = null;
-        if (payload.reunion && existingLead?.id) {
-          reunionResult = await createReunion(supabase, payload.reunion, existingLead.id, empresaId);
+        if (updErr) {
+          console.warn(`[update] No se pudo actualizar lead ${leadId}:`, updErr);
+        } else {
+          updated = true;
+          console.log(`✏️ [update] Lead ${leadId} actualizado con ${Object.keys(updates).length} campos`);
         }
-
-        // Insertar notas de campos extra en el lead existente
-        if (payload.notas && existingLead?.id) {
-          try {
-            await supabase.from("nota_lead").insert({
-              lead_id: existingLead.id,
-              contenido: payload.notas,
-              creado_por: null,
-              creador_nombre: "Formulario Web",
-            });
-          } catch (notaErr) {
-            console.warn("[notas] No se pudo insertar nota en lead existente:", notaErr);
-          }
-        }
-
-        return jsonResponse(
-          {
-            success: true,
-            message: "Lead already exists",
-            lead_id: existingLead?.id ?? null,
-            token_name: config?.nombre ?? null,
-            reunion: reunionResult,
-          },
-          200
-        );
       }
 
-      return jsonResponse({ error: error.message }, 500);
-    }
+      // Dejar nota documentando el nuevo submit (siempre, para que quede trazado)
+      const resumenSubmit = [
+        `📩 Nuevo submit desde "${config?.nombre ?? "API directa"}" (tipo: ${tipo})`,
+        payload.nombre_completo  ? `• Nombre: ${payload.nombre_completo}` : null,
+        payload.correo_electronico ? `• Email: ${payload.correo_electronico}` : null,
+        payload.ubicacion        ? `• Ubicación: ${payload.ubicacion}` : null,
+        payload.presupuesto != null ? `• Presupuesto: ${payload.presupuesto}` : null,
+        payload.membresia        ? `• Membresía: ${payload.membresia}` : null,
+        payload.evento           ? `• Evento: ${payload.evento}` : null,
+      ].filter(Boolean).join("\n");
+      await insertNota(supabase, leadId, resumenSubmit);
+    } else {
+      // ── Lead nuevo → INSERT ──────────────────────────────────────
+      const { data, error } = await supabase
+        .from("lead")
+        .insert({
+          nombre_completo:    payload.nombre_completo ?? `Lead Landing ${cleanPhone}`,
+          correo_electronico: payload.correo_electronico ?? null,
+          telefono:           cleanPhone,
+          empresa:            payload.empresa ?? config?.empresa_label ?? "Landing",
+          ubicacion:          payload.ubicacion ?? null,
+          presupuesto:        payload.presupuesto ?? null,
+          membresia:          payload.membresia ?? null,
+          evento:             payload.evento ?? null,
+          empresa_id:         empresaId,
+          pipeline_id:        pipelineId,
+          etapa_id:           etapaId,
+          prioridad:          payload.prioridad ?? config?.prioridad_default ?? "medium",
+          asignado_a:         payload.asignado_a ?? config?.asignado_a ?? "00000000-0000-0000-0000-000000000000",
+          stage_entered_at:   new Date().toISOString(),
+        })
+        .select("id")
+        .single();
 
-    // ── Insertar notas de campos extra del formulario dinámico ─────
-    if (payload.notas) {
-      try {
-        await supabase.from("nota_lead").insert({
-          lead_id: data.id,
-          contenido: payload.notas,
-          creado_por: null,
-          creador_nombre: "Formulario Web",
-        });
-        console.log(`✅ [notas] Nota insertada para lead ${data.id}`);
-      } catch (notaErr) {
-        console.warn("[notas] No se pudo insertar nota:", notaErr);
+      if (error) {
+        console.error("[insert] Error creando lead:", error);
+        return jsonResponse({ error: error.message }, 500);
       }
+
+      leadId = data.id as string;
+      created = true;
+      finalEtapaId = etapaId ?? null;
     }
 
-    // ── Crear reunión si se incluyó en el payload ──────────────────
+    // ── Nota (siempre que venga, sea lead nuevo o existente) ────────
+    if (payload.notas && payload.notas.trim()) {
+      await insertNota(supabase, leadId, payload.notas.trim());
+    }
+
+    // ── Reunión (siempre que venga) ─────────────────────────────────
     let reunionResult: Record<string, unknown> | null = null;
     if (payload.reunion) {
-      reunionResult = await createReunion(supabase, payload.reunion, data.id, empresaId);
+      reunionResult = await createReunion(supabase, payload.reunion, leadId, empresaId);
     }
 
     // ── Auditoría en webhooks_entrantes ─────────────────────────────
@@ -355,10 +408,10 @@ serve(async (req: Request) => {
       await supabase.from("webhooks_entrantes").insert({
         empresa_id: empresaId,
         provider: "landing",
-        event: "lead_created",
+        event: tipo,
         payload: { ...payload, token: token ?? undefined },
         signature_valid: !!token,
-        dedupe_key: `landing_${cleanPhone}_${empresaId}`,
+        dedupe_key: `landing_${cleanPhone}_${empresaId}_${tipo}`,
       });
     } catch (auditErr) {
       console.warn("[audit] No se pudo registrar auditoría:", auditErr);
@@ -376,16 +429,20 @@ serve(async (req: Request) => {
         const reunionInfo = reunionResult && !reunionResult.error
           ? ` + cita "${payload.reunion?.titulo}" agendada`
           : "";
+        const accion = created ? "Nuevo lead" : movedEtapa ? "Lead movido de etapa" : "Lead actualizado";
         await supabase.from("notificaciones").insert({
           user_id: empresa.owner_id,
           tipo: "nuevo_lead_landing",
-          titulo: "Nuevo Lead desde Landing",
-          mensaje: `Se ha creado un lead desde "${config?.nombre ?? "API directa"}": ${payload.nombre_completo ?? cleanPhone}${reunionInfo}`,
+          titulo: `${accion} desde Landing`,
+          mensaje: `${accion} (${tipo}) desde "${config?.nombre ?? "API directa"}": ${payload.nombre_completo ?? cleanPhone}${reunionInfo}`,
           datos: {
-            lead_id: data.id,
+            lead_id: leadId,
             telefono: cleanPhone,
             empresa_id: empresaId,
             token_name: config?.nombre ?? null,
+            tipo,
+            created,
+            moved_etapa: movedEtapa,
             reunion_id: reunionResult?.reunion_id ?? null,
           },
           leido: false,
@@ -398,11 +455,16 @@ serve(async (req: Request) => {
     return jsonResponse(
       {
         success: true,
-        lead_id: data.id,
+        lead_id: leadId,
+        created,
+        updated,
+        moved_etapa: movedEtapa,
+        etapa_id: finalEtapaId,
+        tipo,
         token_name: config?.nombre ?? null,
         reunion: reunionResult,
       },
-      201
+      created ? 201 : 200
     );
   } catch (e) {
     return jsonResponse(
