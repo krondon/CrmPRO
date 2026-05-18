@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Trash, Building, Info, Funnel, Users, XCircle, CaretDown, CheckCircle, Clock, UserPlus, PencilSimple } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createEquipo, deleteEquipo, getEquipos } from '@/supabase/services/equipos'
 import { getPersonas, createPersona, deletePersona } from '@/supabase/services/persona'
 import { getPipelines } from '@/supabase/helpers/pipeline'
@@ -19,12 +19,15 @@ import type { SolicitudUnionDB } from '@/lib/types'
 import { supabase } from '@/supabase/client'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
 import { AllLeadsDialog } from './AllLeadsDialog'
 import { MemberSearchDialog } from './MemberSearchDialog'
 import { TeamManagerDialog } from './TeamManagerDialog'
 
 type Equipo = { id: string; nombre_equipo: string; empresa_id: string; created_at: string }
 
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '@/hooks/useAuth'
 import { Company } from './CompanyManagement'
 import { EditTeamMemberDialog } from './EditTeamMemberDialog'
 import { getPermissionRoleLabel, getJobTitleLabel, isSalesRepJobTitle } from '@/lib/roleLabels'
@@ -44,12 +47,40 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
     )
   }
 
+  const navigate = useNavigate()
+  const { user } = useAuth()
+
   const currentCompany = companies.find(c => c.id === companyId)
   const userRole = currentCompany?.role || 'viewer'
   const isOwnerById = currentUserId && currentCompany?.ownerId === currentUserId
   const isAdminOrOwner = userRole === 'admin' || userRole === 'owner' || isOwnerById
+  // Si el usuario actual no es dueño de la empresa activa, está en modo invitado.
+  // La ruta del pipeline cambia entre /pipeline (dueño) y /guest/pipeline (invitado).
+  const isGuestMode = !!(currentCompany && user && currentCompany.ownerId !== user.id)
+
+  /**
+   * Navegación a una oportunidad: replica el patrón del buscador global.
+   * Guarda el lead en sessionStorage para que PipelineView lo abra al montar,
+   * y redirige a la ruta correcta según si es dueño o invitado.
+   */
+  const handleNavigateToLead = (lead: Lead) => {
+    try {
+      sessionStorage.setItem('pendingLeadNavigation', JSON.stringify({
+        leadId: lead.id,
+        leadData: lead,
+        pipelineId: lead.pipeline
+      }))
+    } catch (err) {
+      console.warn('[TeamView] No se pudo guardar pendingLeadNavigation:', err)
+    }
+    navigate(isGuestMode ? '/guest/pipeline' : '/pipeline')
+  }
 
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
+  // Arranca en `true` para que el skeleton se vea desde el primer render
+  // y no haya flash de "lista vacía" antes de que el effect dispare la carga.
+  const [isLoadingMembers, setIsLoadingMembers] = useState(true)
+  const membersLoadedOnceRef = useRef(false)
   // leads y roles ahora se inicializan como arrays vacíos, y deben obtenerse de la BD si se requiere
   const [leads, setLeads] = useState<Lead[]>([])
   const [roles, setRoles] = useState<Role[]>([])
@@ -68,6 +99,17 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
   const [solicitudPipelines, setSolicitudPipelines] = useState<Record<string, Set<string>>>({})
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null)
   const [editingMemberRole, setEditingMemberRole] = useState<string>('viewer')
+
+  useEffect(() => {
+    // Al cambiar de empresa: marcamos que aún no se ha cargado, mostramos
+    // skeleton hasta que llegue la primera respuesta de la nueva empresa,
+    // y limpiamos los datos viejos para que no se mezclen visualmente.
+    membersLoadedOnceRef.current = false
+    setIsLoadingMembers(true)
+    setTeamMembers([])
+    setApprovedMembers([])
+    setSolicitudesPendientes([])
+  }, [companyId])
 
   useEffect(() => {
     if (!companyId) return
@@ -188,6 +230,7 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
   useEffect(() => {
     if (!companyId) return
     let cancelled = false
+    if (!membersLoadedOnceRef.current) setIsLoadingMembers(true)
 
       ; (async () => {
         try {
@@ -313,8 +356,11 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
           })
 
           setTeamMembers([...uniqueMembers, ...uniquePending])
+          membersLoadedOnceRef.current = true
         } catch (e: any) {
           console.error('[TeamView] error cargando miembros', e)
+        } finally {
+          if (!cancelled) setIsLoadingMembers(false)
         }
       })()
 
@@ -867,288 +913,324 @@ export function TeamView({ companyId, companies = [], currentUserId, currentUser
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredMembers.map(member => {
-          const roleInfo = getRoleInfo(member.roleId)
-          return (
-            <Card key={member.id} className="overflow-hidden border border-border/30 shadow-sm hover:shadow-md transition-all duration-200 rounded-2xl group flex flex-col bg-card/40">
-              <CardHeader className="bg-muted/10 pb-4 border-b border-border/20">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <Avatar className="h-14 w-14 shrink-0 shadow-sm border border-primary/10">
-                      <AvatarImage src={member.avatar} />
-                      <AvatarFallback className="bg-gradient-to-br from-primary/10 to-primary/5 text-primary font-black text-xl">
-                        {member.name.split(' ').map((n: string) => n[0]).join('').substring(0, 2)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1 overflow-hidden flex flex-col justify-center">
-                      <div className="flex items-center gap-2 mb-1">
-                        <CardTitle className="text-lg font-bold truncate text-foreground/90 font-sans tracking-tight" title={member.name}>
-                          {member.name}
-                        </CardTitle>
-                        {member.permissionRole && (
-                          <Badge variant="secondary" className="text-[10px] shrink-0 rounded-md px-1.5 py-0 font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-colors uppercase tracking-widest leading-4">
-                            {getPermissionRoleLabel(member.permissionRole)}
-                          </Badge>
-                        )}
-                        {(member as any).status === 'pending' && (
-                          <Badge variant="outline" className="text-[10px] rounded-md px-1.5 py-0 font-bold bg-yellow-50 text-yellow-700 border-yellow-300 shrink-0 uppercase tracking-widest leading-4">
-                            Pend.
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-sm font-medium text-muted-foreground truncate">{getJobTitleLabel(member.role)}</p>
+        {isLoadingMembers ? (
+          <>
+            {Array.from({ length: 6 }).map((_, index) => (
+              <Card key={`member-skeleton-${index}`} className="overflow-hidden border border-border/30 shadow-sm rounded-2xl bg-card/40">
+                <CardHeader className="bg-muted/10 pb-4 border-b border-border/20">
+                  <div className="flex items-start gap-3">
+                    <Skeleton className="h-14 w-14 rounded-full" />
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-3 w-24" />
                     </div>
                   </div>
-                  {isAdminOrOwner && (
-                    <div className="flex items-center gap-1.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                      {(member as any).status === 'pending' ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 w-8 p-0 text-destructive hover:bg-destructive hover:text-white transition-colors rounded-lg shadow-sm"
-                          onClick={() => handleDeleteMember(member.id)}
-                          title="Cancelar invitación"
-                        >
-                          <XCircle size={16} weight="bold" />
-                        </Button>
-                      ) : (
-                        (member.userId !== currentUserId && member.email !== currentUserEmail) && (
-                          <>
-                            {isOwnerById && (
-                              <EditTeamMemberDialog
-                                member={member}
-                                companyId={companyId!}
-                                onUpdated={() => setRefreshTrigger(prev => prev + 1)}
-                                canEditRole={true}
-                              />
+                </CardHeader>
+                <CardContent className="pt-4 space-y-3">
+                  <Skeleton className="h-10 w-full" />
+                  <div className="flex items-center justify-between">
+                    <Skeleton className="h-3 w-24" />
+                    <Skeleton className="h-5 w-10" />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Skeleton className="h-3 w-24" />
+                    <Skeleton className="h-5 w-10" />
+                  </div>
+                  <div className="space-y-2">
+                    <Skeleton className="h-3 w-28" />
+                    <div className="flex gap-2">
+                      <Skeleton className="h-5 w-12" />
+                      <Skeleton className="h-5 w-12" />
+                      <Skeleton className="h-5 w-12" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </>
+        ) : (
+          <>
+            {filteredMembers.map(member => {
+              const roleInfo = getRoleInfo(member.roleId)
+              return (
+                <Card key={member.id} className="overflow-hidden border border-border/30 shadow-sm hover:shadow-md transition-all duration-200 rounded-2xl group flex flex-col bg-card/40">
+                  <CardHeader className="bg-muted/10 pb-4 border-b border-border/20">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <Avatar className="h-14 w-14 shrink-0 shadow-sm border border-primary/10">
+                          <AvatarImage src={member.avatar} />
+                          <AvatarFallback className="bg-gradient-to-br from-primary/10 to-primary/5 text-primary font-black text-xl">
+                            {member.name.split(' ').map((n: string) => n[0]).join('').substring(0, 2)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1 overflow-hidden flex flex-col justify-center">
+                          <div className="flex items-center gap-2 mb-1 min-w-0 flex-wrap">
+                            <CardTitle className="text-base sm:text-lg font-bold truncate max-w-full text-foreground/90 font-sans tracking-tight" title={member.name}>
+                              {member.name}
+                            </CardTitle>
+                            {member.permissionRole && (
+                              <Badge variant="secondary" className="text-[10px] shrink-0 rounded-md px-1.5 py-0 font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-colors uppercase tracking-wide leading-4">
+                                {getPermissionRoleLabel(member.permissionRole)}
+                              </Badge>
                             )}
+                            {(member as any).status === 'pending' && (
+                              <Badge variant="outline" className="text-[10px] rounded-md px-1.5 py-0 font-bold bg-yellow-50 text-yellow-700 border-yellow-300 shrink-0 uppercase tracking-wide leading-4">
+                                Pend.
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm font-medium text-muted-foreground truncate">{getJobTitleLabel(member.role)}</p>
+                        </div>
+                      </div>
+                      {isAdminOrOwner && (
+                        <div className="flex items-center gap-1.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                          {(member as any).status === 'pending' ? (
                             <Button
                               variant="outline"
                               size="sm"
                               className="h-8 w-8 p-0 text-destructive hover:bg-destructive hover:text-white transition-colors rounded-lg shadow-sm"
                               onClick={() => handleDeleteMember(member.id)}
-                              title="Eliminar miembro"
+                              title="Cancelar invitación"
                             >
-                              <Trash size={16} weight="bold" />
+                              <XCircle size={16} weight="bold" />
                             </Button>
-                          </>
-                        )
+                          ) : (
+                            (member.userId !== currentUserId && member.email !== currentUserEmail) && (
+                              <>
+                                {isOwnerById && (
+                                  <EditTeamMemberDialog
+                                    member={member}
+                                    companyId={companyId!}
+                                    onUpdated={() => setRefreshTrigger(prev => prev + 1)}
+                                    canEditRole={true}
+                                  />
+                                )}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 w-8 p-0 text-destructive hover:bg-destructive hover:text-white transition-colors rounded-lg shadow-sm"
+                                  onClick={() => handleDeleteMember(member.id)}
+                                  title="Eliminar miembro"
+                                >
+                                  <Trash size={16} weight="bold" />
+                                </Button>
+                              </>
+                            )
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent className="pt-4 flex-1 flex flex-col">
-                <div className="space-y-3 flex-1">
-                  <div className="flex flex-col gap-1 text-sm bg-muted/30 px-3 py-2 rounded-lg border border-border/40">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60">Email</span>
-                    <span className="font-semibold text-foreground/80 truncate text-xs" title={member.email}>{member.email}</span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between text-sm py-1">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1.5">
-                      <Users size={12} weight="bold" /> Equipo
-                    </span>
-                    <span className="font-bold text-xs text-foreground/80 truncate text-right">
-                      {member.teamId ? (equipos.find(e => e.id === member.teamId)?.nombre_equipo || 'Desconocido') : 'No asignado'}
-                    </span>
-                  </div>
+                  </CardHeader>
+                  <CardContent className="pt-4 flex-1 flex flex-col">
+                    <div className="space-y-3 flex-1">
+                      <div className="flex flex-col gap-1 text-sm bg-muted/30 px-3 py-2 rounded-lg border border-border/40">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60">Email</span>
+                        <span className="font-semibold text-foreground/80 truncate text-xs" title={member.email}>{member.email}</span>
+                      </div>
+                      
+                      <div className="flex items-center justify-between text-sm py-1">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1.5">
+                          <Users size={12} weight="bold" /> Equipo
+                        </span>
+                        <span className="font-bold text-xs text-foreground/80 truncate text-right">
+                          {member.teamId ? (equipos.find(e => e.id === member.teamId)?.nombre_equipo || 'Desconocido') : 'No asignado'}
+                        </span>
+                      </div>
 
-                  <div className="flex items-center justify-between text-sm py-1 border-t border-border/20 pt-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1.5">
-                      <CheckCircle size={12} weight="bold" /> Tareas Activas
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-xs font-bold px-2 py-0 border border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/50 dark:bg-blue-900/20 dark:text-blue-400">
-                        {getAssignedLeadsCount(member.id, (member as any).status)}
-                      </Badge>
-                      {getAssignedLeadsCount(member.id, (member as any).status) > 0 && (
-                        <AllLeadsDialog
-                          memberName={member.name}
-                          leads={getLeadsForMember(member as any)}
-                          onLeadClick={(leadId) => {
-                            // Navegar al detalle del lead
-                            console.log('Navegando a la oportunidad:', leadId)
-                          }}
-                          trigger={
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-muted/50 rounded-full cursor-pointer text-muted-foreground">
-                              <Info size={14} weight="bold" />
-                            </Button>
-                          }
-                        />
-                      )}
+                      <div className="flex items-center justify-between text-sm py-1 border-t border-border/20 pt-2">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1.5">
+                          <CheckCircle size={12} weight="bold" /> Tareas Activas
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="text-xs font-bold px-2 py-0 border border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/50 dark:bg-blue-900/20 dark:text-blue-400">
+                            {getAssignedLeadsCount(member.id, (member as any).status)}
+                          </Badge>
+                          {getAssignedLeadsCount(member.id, (member as any).status) > 0 && (
+                            <AllLeadsDialog
+                              memberName={member.name}
+                              leads={getLeadsForMember(member as any)}
+                              onLeadClick={handleNavigateToLead}
+                              trigger={
+                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-muted/50 rounded-full cursor-pointer text-muted-foreground">
+                                  <Info size={14} weight="bold" />
+                                </Button>
+                              }
+                            />
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="text-sm pt-2 border-t border-border/20">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60 block mb-2">Pipelines Asignados</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(() => {
+                            const allPipelines = member.pipelines || []
+                            const visiblePipelines = allPipelines.slice(0, 3)
+                            const hiddenPipelines = allPipelines.slice(3)
+
+                            const renderBadge = (tp: string) => {
+                              let label = tp
+                              if (tp === 'sales') label = 'Ventas'
+                              else if (tp === 'support') label = 'Soporte'
+                              else if (tp === 'administrative') label = 'Admin'
+                              return (
+                                <Badge key={tp} variant="outline" className="text-[10px] font-bold uppercase tracking-wider text-foreground/70 border-border/60 bg-background shadow-xs px-2 py-0.5 rounded-md">
+                                  {label}
+                                </Badge>
+                              )
+                            }
+
+                            return (
+                              <>
+                                {visiblePipelines.map(renderBadge)}
+                                {hiddenPipelines.length > 0 && (
+                                  <Popover>
+                                    <PopoverTrigger asChild>
+                                      <Badge variant="secondary" className="text-[10px] font-bold uppercase tracking-wider cursor-pointer hover:bg-secondary/80 px-2 py-0.5 rounded-md transition-colors border shadow-xs">
+                                        +{hiddenPipelines.length}
+                                      </Badge>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-56 p-3 rounded-xl shadow-xl">
+                                      <div className="space-y-3">
+                                        <h4 className="font-bold text-[10px] uppercase tracking-wider text-muted-foreground">Más Pipelines</h4>
+                                        <div className="flex flex-wrap gap-1.5">
+                                          {hiddenPipelines.map(renderBadge)}
+                                        </div>
+                                      </div>
+                                    </PopoverContent>
+                                  </Popover>
+                                )}
+                                {allPipelines.length === 0 && (
+                                  <span className="text-xs text-muted-foreground/50 italic font-medium">No tiene pipelines</span>
+                                )}
+                              </>
+                            )
+                          })()}
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
 
-                  <div className="text-sm pt-2 border-t border-border/20">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60 block mb-2">Pipelines Asignados</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {(() => {
-                        const allPipelines = member.pipelines || []
-                        const visiblePipelines = allPipelines.slice(0, 3)
-                        const hiddenPipelines = allPipelines.slice(3)
+            {filteredMembers.length === 0 && onlyApprovedMembers.length === 0 && (
+              <div className="col-span-full flex flex-col items-center justify-center py-16 text-center">
+                <div className="p-4 rounded-full bg-muted/30 mb-4">
+                  <Users size={32} className="text-muted-foreground/40" />
+                </div>
+                <p className="text-muted-foreground/70 font-medium">
+                  {selectedTeamFilter
+                    ? "No hay miembros en este equipo"
+                    : "Aún no se han agregado miembros al equipo"}
+                </p>
+              </div>
+            )}
 
-                        const renderBadge = (tp: string) => {
-                          let label = tp
-                          if (tp === 'sales') label = 'Ventas'
-                          else if (tp === 'support') label = 'Soporte'
-                          else if (tp === 'administrative') label = 'Admin'
-                          return (
-                            <Badge key={tp} variant="outline" className="text-[10px] font-bold uppercase tracking-wider text-foreground/70 border-border/60 bg-background shadow-xs px-2 py-0.5 rounded-md">
-                              {label}
-                            </Badge>
-                          )
-                        }
-
-                        return (
-                          <>
-                            {visiblePipelines.map(renderBadge)}
-                            {hiddenPipelines.length > 0 && (
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <Badge variant="secondary" className="text-[10px] font-bold uppercase tracking-wider cursor-pointer hover:bg-secondary/80 px-2 py-0.5 rounded-md transition-colors border shadow-xs">
-                                    +{hiddenPipelines.length}
-                                  </Badge>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-56 p-3 rounded-xl shadow-xl">
-                                  <div className="space-y-3">
-                                    <h4 className="font-bold text-[10px] uppercase tracking-wider text-muted-foreground">Más Pipelines</h4>
-                                    <div className="flex flex-wrap gap-1.5">
-                                      {hiddenPipelines.map(renderBadge)}
-                                    </div>
-                                  </div>
-                                </PopoverContent>
-                              </Popover>
-                            )}
-                            {allPipelines.length === 0 && (
-                              <span className="text-xs text-muted-foreground/50 italic font-medium">No tiene pipelines</span>
-                            )}
-                          </>
-                        )
-                      })()}
+            {/* Miembros sin equipo asignado (solo en empresa_miembros) */}
+            {onlyApprovedMembers.map(member => (
+              <Card key={member.id} className="overflow-hidden border border-border/30 shadow-sm hover:shadow-md transition-all duration-200 rounded-2xl group flex flex-col bg-card/40">
+                <CardHeader className="bg-muted/10 pb-4 border-b border-border/20">
+                  <div className="flex items-start justify-between gap-3 min-w-0">
+                    <Avatar className="h-14 w-14 shrink-0 shadow-sm border border-primary/10">
+                      <AvatarFallback className="bg-gradient-to-br from-primary/10 to-primary/5 text-primary font-black text-xl">
+                        {(member.nombre || member.email).substring(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1 overflow-hidden flex flex-col justify-center">
+                      <div className="flex items-center gap-2 mb-1 min-w-0 flex-wrap">
+                        <CardTitle className="text-lg font-bold truncate text-foreground/90 font-sans tracking-tight" title={member.nombre || member.email}>
+                          {member.nombre || member.email}
+                        </CardTitle>
+                        <Badge variant="secondary" className="text-[10px] shrink-0 rounded-md px-1.5 py-0 font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-colors uppercase tracking-widest leading-4">
+                          {getPermissionRoleLabel(member.role)}
+                        </Badge>
+                      </div>
+                      <p className="text-sm font-medium text-muted-foreground truncate">Colaborador</p>
                     </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )
-        })}
-
-        {filteredMembers.length === 0 && onlyApprovedMembers.length === 0 && (
-          <div className="col-span-full flex flex-col items-center justify-center py-16 text-center">
-            <div className="p-4 rounded-full bg-muted/30 mb-4">
-              <Users size={32} className="text-muted-foreground/40" />
-            </div>
-            <p className="text-muted-foreground/70 font-medium">
-              {selectedTeamFilter
-                ? "No hay miembros en este equipo"
-                : "Aún no se han agregado miembros al equipo"}
-            </p>
-          </div>
-        )}
-
-        {/* Miembros sin equipo asignado (solo en empresa_miembros) */}
-        {onlyApprovedMembers.map(member => (
-          <Card key={member.id} className="overflow-hidden border border-border/30 shadow-sm hover:shadow-md transition-all duration-200 rounded-2xl group flex flex-col bg-card/40">
-            <CardHeader className="bg-muted/10 pb-4 border-b border-border/20">
-              <div className="flex items-start justify-between gap-3 min-w-0">
-                <Avatar className="h-14 w-14 shrink-0 shadow-sm border border-primary/10">
-                  <AvatarFallback className="bg-gradient-to-br from-primary/10 to-primary/5 text-primary font-black text-xl">
-                    {(member.nombre || member.email).substring(0, 2).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0 flex-1 overflow-hidden flex flex-col justify-center">
-                  <div className="flex items-center gap-2 mb-1 min-w-0 flex-wrap">
-                    <CardTitle className="text-lg font-bold truncate text-foreground/90 font-sans tracking-tight" title={member.nombre || member.email}>
-                      {member.nombre || member.email}
-                    </CardTitle>
-                    <Badge variant="secondary" className="text-[10px] shrink-0 rounded-md px-1.5 py-0 font-bold bg-primary/10 text-primary hover:bg-primary/20 transition-colors uppercase tracking-widest leading-4">
-                      {getPermissionRoleLabel(member.role)}
-                    </Badge>
-                  </div>
-                  <p className="text-sm font-medium text-muted-foreground truncate">Colaborador</p>
-                </div>
-                {isAdminOrOwner &&
-                  member.email?.toLowerCase() !== currentUserEmail?.toLowerCase() &&
-                  member.usuario_id !== currentUserId && (
-                  <div className="flex items-center gap-1.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                    {isOwnerById && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 w-8 p-0 rounded-lg shadow-sm hover:border-primary hover:text-primary transition-colors"
-                        onClick={() => { setEditingMemberId(member.id); setEditingMemberRole(member.role) }}
-                        title="Editar rol"
-                      >
-                        <PencilSimple size={14} weight="bold" />
-                      </Button>
+                    {isAdminOrOwner &&
+                      member.email?.toLowerCase() !== currentUserEmail?.toLowerCase() &&
+                      member.usuario_id !== currentUserId && (
+                      <div className="flex items-center gap-1.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                        {isOwnerById && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 w-8 p-0 rounded-lg shadow-sm hover:border-primary hover:text-primary transition-colors"
+                            onClick={() => { setEditingMemberId(member.id); setEditingMemberRole(member.role) }}
+                            title="Editar rol"
+                          >
+                            <PencilSimple size={14} weight="bold" />
+                          </Button>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-destructive hover:bg-destructive hover:text-white transition-colors rounded-lg shadow-sm"
+                          onClick={() => handleDeleteApprovedMember(member)}
+                          title="Eliminar miembro"
+                        >
+                          <Trash size={14} weight="bold" />
+                        </Button>
+                      </div>
                     )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 w-8 p-0 text-destructive hover:bg-destructive hover:text-white transition-colors rounded-lg shadow-sm"
-                      onClick={() => handleDeleteApprovedMember(member)}
-                      title="Eliminar miembro"
-                    >
-                      <Trash size={14} weight="bold" />
-                    </Button>
                   </div>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="pt-4 flex-1 flex flex-col">
-              <div className="space-y-3 flex-1 flex flex-col justify-center">
-                {editingMemberId === member.id ? (
-                  <div className="flex flex-col gap-3 bg-muted/20 p-3 rounded-xl border border-border/40 mb-2">
-                    <div className="flex flex-col gap-1.5">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70">Rol del usuario</span>
-                      <Select value={editingMemberRole} onValueChange={setEditingMemberRole}>
-                        <SelectTrigger className="h-9 w-full bg-background font-bold focus:ring-primary/20">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="rounded-xl">
-                          <SelectItem value="viewer" className="font-medium text-sm">Lector</SelectItem>
-                          <SelectItem value="admin" className="font-medium text-sm">Administrador</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex items-center justify-end gap-2 mt-1">
-                      <Button size="sm" variant="ghost" className="h-8 rounded-lg text-xs font-bold" onClick={() => setEditingMemberId(null)}>
-                        Cancelar
-                      </Button>
-                      <Button size="sm" className="h-8 rounded-lg text-xs font-bold shadow-sm" onClick={() => handleUpdateApprovedMemberRole(member)}>
-                        Guardar
-                      </Button>
-                    </div>
+                </CardHeader>
+                <CardContent className="pt-4 flex-1 flex flex-col">
+                  <div className="space-y-3 flex-1 flex flex-col justify-center">
+                    {editingMemberId === member.id ? (
+                      <div className="flex flex-col gap-3 bg-muted/20 p-3 rounded-xl border border-border/40 mb-2">
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70">Rol del usuario</span>
+                          <Select value={editingMemberRole} onValueChange={setEditingMemberRole}>
+                            <SelectTrigger className="h-9 w-full bg-background font-bold focus:ring-primary/20">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-xl">
+                              <SelectItem value="viewer" className="font-medium text-sm">Lector</SelectItem>
+                              <SelectItem value="admin" className="font-medium text-sm">Administrador</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex items-center justify-end gap-2 mt-1">
+                          <Button size="sm" variant="ghost" className="h-8 rounded-lg text-xs font-bold" onClick={() => setEditingMemberId(null)}>
+                            Cancelar
+                          </Button>
+                          <Button size="sm" className="h-8 rounded-lg text-xs font-bold shadow-sm" onClick={() => handleUpdateApprovedMemberRole(member)}>
+                            Guardar
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex flex-col gap-1 text-sm bg-muted/30 px-3 py-2 rounded-lg border border-border/40">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60">Email</span>
+                          <span className="font-semibold text-foreground/80 truncate text-xs" title={member.email}>{member.email}</span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-sm py-1 border-b border-border/20 pt-2">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1.5">
+                            <CheckCircle size={12} weight="bold" /> Tareas Activas
+                          </span>
+                          <Badge variant="secondary" className="text-xs font-bold px-2 py-0 border border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/50 dark:bg-blue-900/20 dark:text-blue-400">
+                            {getApprovedLeadsCount(member.usuario_id)}
+                          </Badge>
+                        </div>
+
+                        <div className="flex items-center justify-between text-sm py-1">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1.5">
+                            <Clock size={12} weight="bold" /> Registro
+                          </span>
+                          <span className="font-bold text-xs text-foreground/80">{new Date(member.created_at).toLocaleDateString('es-ES')}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
-                ) : (
-                  <>
-                    <div className="flex flex-col gap-1 text-sm bg-muted/30 px-3 py-2 rounded-lg border border-border/40">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60">Email</span>
-                      <span className="font-semibold text-foreground/80 truncate text-xs" title={member.email}>{member.email}</span>
-                    </div>
-
-                    <div className="flex items-center justify-between text-sm py-1 border-b border-border/20 pt-2">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1.5">
-                        <CheckCircle size={12} weight="bold" /> Tareas Activas
-                      </span>
-                      <Badge variant="secondary" className="text-xs font-bold px-2 py-0 border border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/50 dark:bg-blue-900/20 dark:text-blue-400">
-                        {getApprovedLeadsCount(member.usuario_id)}
-                      </Badge>
-                    </div>
-
-                    <div className="flex items-center justify-between text-sm py-1">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1.5">
-                        <Clock size={12} weight="bold" /> Registro
-                      </span>
-                      <span className="font-bold text-xs text-foreground/80">{new Date(member.created_at).toLocaleDateString('es-ES')}</span>
-                    </div>
-                  </>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+                </CardContent>
+              </Card>
+            ))}
+          </>
+        )}
       </div>
     </div>
   )

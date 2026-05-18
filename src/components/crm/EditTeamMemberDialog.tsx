@@ -150,9 +150,16 @@ export function EditTeamMemberDialog({ member, companyId, onUpdated, canEditRole
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" title="Editar pipelines">
-          <PencilSimple size={16} className="mr-1" />
-          Editar
+        <Button
+          variant="outline"
+          size="sm"
+          title="Editar miembro"
+          // En móvil: botón cuadrado solo con icono, igual que los demás del header.
+          // En sm+ se ve con texto.
+          className="h-8 w-8 p-0 sm:w-auto sm:px-3"
+        >
+          <PencilSimple size={16} className="sm:mr-1" />
+          <span className="hidden sm:inline">Editar</span>
         </Button>
       </DialogTrigger>
       <DialogContent>
