@@ -720,6 +720,7 @@ export function ChatWindow({
                 )}
                 <MessageInput
                     leadId={lead.id}
+                    leadData={{ name: lead.name, company: lead.company, phone: lead.phone }}
                     channel={detectChannel(lead)}
                     disabled={isLoadingMessages}
                     instanceLabel={activeInstance ? (activeInstance.label || activeInstance.client_id || 'WhatsApp') : null}

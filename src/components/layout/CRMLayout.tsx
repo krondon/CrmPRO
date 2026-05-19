@@ -16,6 +16,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Building } from '@phosphor-icons/react'
 import { getPermissionRoleLabel } from '@/lib/roleLabels'
+import { SupportFab } from '@/components/premium'
 
 interface CRMLayoutProps {
     isGuestMode?: boolean
@@ -341,6 +342,7 @@ export function CRMLayout({ isGuestMode: forcedGuestMode }: CRMLayoutProps) {
                 onClose={() => setShowOnboarding(false)}
                 companyId={currentCompanyId}
             />
+            <SupportFab />
         </div>
     )
 }

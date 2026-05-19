@@ -54,6 +54,26 @@ export async function getMessages(leadId: string) {
   return data as Message[]
 }
 
+/**
+ * Marca la oportunidad como atendida (limpia is_pending_human_response).
+ * Llamado después de enviar un mensaje exitosamente desde el CRM, porque
+ * sendMessage('team', ...) solo lo invoca un usuario autenticado del CRM,
+ * nunca la IA. La IA inserta directamente en `mensajes` desde otra edge
+ * function y no pasa por aquí.
+ */
+async function clearPendingHumanResponse(leadId: string): Promise<void> {
+  try {
+    await supabase
+      .from('lead')
+      .update({ is_pending_human_response: false })
+      .eq('id', leadId)
+      .eq('is_pending_human_response', true) // evita updates innecesarios
+  } catch (err) {
+    // No bloqueamos el envío si esto falla — el polling lo corregirá en el siguiente tick.
+    console.warn('[sendMessage] no se pudo limpiar is_pending_human_response:', err)
+  }
+}
+
 export async function sendMessage(
   leadId: string,
   content: string,
@@ -81,6 +101,8 @@ export async function sendMessage(
     })
 
     if (!error && data) {
+      // Limpiar el flag "Pendiente" — es un humano respondiendo desde el CRM.
+      clearPendingHumanResponse(leadId)
       return data as Message
     }
 
@@ -112,6 +134,8 @@ export async function sendMessage(
       throw new Error(`No se pudo enviar por Edge Function (${invokeErrorText}; ${directErrorText})`)
     }
 
+    // Limpiar el flag "Pendiente" — humano respondió desde el CRM (vía fetch directo).
+    clearPendingHumanResponse(leadId)
     return directJson as Message
   }
 

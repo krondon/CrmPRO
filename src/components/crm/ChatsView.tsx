@@ -7,6 +7,9 @@ import { useLeadsRealtime } from '@/hooks/useLeadsRealtime'
 import { useUserPipelineAccess } from '@/hooks/useUserPipelineAccess'
 import { MessageInput, ChatList, ChatWindow } from './chats'
 import { usePersistentState } from '@/hooks/usePersistentState'
+import { GuestLock } from '@/components/premium'
+import { useGuestMode } from '@/hooks/useGuestMode'
+import { ChatsMockup } from './chats/ChatsMockup'
 
 interface User {
   id: string
@@ -26,6 +29,8 @@ interface ChatsViewProps {
 // NOTA: safeFormatDate ahora viene de useDateFormat hook como safeFormatDate
 
 export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = false, canDeleteMessages = true, canManageTags = true, canUseAi = false }: ChatsViewProps) {
+  const { isGuest } = useGuestMode()
+
   // Restricción admin/viewer + Representante de Ventas → solo se muestran los
   // chats anclados a oportunidades asignadas al usuario en sus pipelines.
   // accessResolved indica si el hook YA terminó su fetch async (sin ese flag
@@ -257,6 +262,19 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
     name: lastSelectedLeadRef.current!.name || lastSelectedLeadRef.current!.phone || 'Lead',
     phone: lastSelectedLeadRef.current!.phone
   } : null
+
+  if (isGuest) {
+    return (
+      <div className="flex flex-1 min-h-0 bg-background overflow-hidden w-full">
+        <GuestLock
+          title="Chats omnicanal"
+          description="Conecta WhatsApp, Instagram y Facebook en un solo lugar para responder a tus clientes desde el CRM. Escríbenos y te contamos cómo activarla."
+        >
+          <ChatsMockup />
+        </GuestLock>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-1 min-h-0 bg-background overflow-hidden w-full">

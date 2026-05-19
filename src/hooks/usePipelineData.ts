@@ -27,6 +27,7 @@ import { getLeadsPaged } from '@/supabase/services/leads'
 import { getUnreadMessagesCount, subscribeToAllMessages } from '@/supabase/services/mensajes'
 import { getNotasCountByLeads } from '@/supabase/services/notas'
 import { getReunionesCountByLeads } from '@/supabase/services/reuniones'
+import { supabase } from '@/supabase/client'
 
 // ============================================
 // TIPOS ESTRICTOS
@@ -128,7 +129,8 @@ function mapDbLeadToLead(l: any): Lead {
         lastContact: l.last_message_at ? new Date(l.last_message_at) : new Date(l.created_at),
         stageEnteredAt: l.stage_entered_at ? new Date(l.stage_entered_at) : null,
         slaCustomLimitMinutes: l.sla_custom_limit_minutes ?? null,
-        customFields: l.custom_fields ?? {}
+        customFields: l.custom_fields ?? {},
+        isPendingHumanResponse: l.is_pending_human_response === true
     }
 }
 
@@ -386,6 +388,46 @@ export function usePipelineData(options: UsePipelineDataOptions): UsePipelineDat
         })
 
         return () => { subscription.unsubscribe() }
+    }, [companyId])
+
+    // ==========================================
+    // EFECTO: Realtime de cambios en la columna is_pending_human_response.
+    // El trigger en BD la pone true al recibir mensaje del cliente; el
+    // edge function verify-pending-responses la pone false cuando SuperAPI
+    // confirma que un asesor respondió manualmente. En ambos casos llega
+    // por aquí y se refleja en la UI sin recargar.
+    // ==========================================
+    useEffect(() => {
+        if (!companyId || !supabase) return
+
+        const channel = supabase
+            .channel(`pending-response-${companyId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'lead',
+                    filter: `empresa_id=eq.${companyId}`
+                },
+                (payload: any) => {
+                    const updated = payload?.new
+                    if (!updated?.id) return
+                    // Si el payload no incluye la columna (p.ej. publicación realtime
+                    // no actualizada tras la migración), NO sobrescribimos: preservamos
+                    // el valor actual para no apagar el badge accidentalmente.
+                    const hasField = Object.prototype.hasOwnProperty.call(updated, 'is_pending_human_response')
+                    if (!hasField) return
+                    setLeads(prev => prev.map(l =>
+                        l.id === updated.id
+                            ? { ...l, isPendingHumanResponse: updated.is_pending_human_response === true }
+                            : l
+                    ))
+                }
+            )
+            .subscribe()
+
+        return () => { channel.unsubscribe() }
     }, [companyId])
 
     // ==========================================

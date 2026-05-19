@@ -23,6 +23,12 @@ interface LeadCardProps {
     stageColor: string
     isHighlighted: boolean
     hasUnreadMessages: boolean
+    /**
+     * Si la feature "Pendiente de respuesta humana" está activa para la
+     * empresa actual. Cuando true, se muestra el texto "Pendiente" en la
+     * esquina inferior derecha del card si lead.isPendingHumanResponse=true.
+     */
+    showPendingHumanResponse?: boolean
     notesCount: number
     meetingsCount: number
     isAdminOrOwner: boolean
@@ -51,6 +57,7 @@ function LeadCardComponent({
     stageColor,
     isHighlighted,
     hasUnreadMessages,
+    showPendingHumanResponse = false,
     notesCount,
     meetingsCount,
     isAdminOrOwner,
@@ -324,9 +331,17 @@ function LeadCardComponent({
                     <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center text-[9px] font-bold text-primary shrink-0">
                         {getAssignedName().charAt(0).toUpperCase()}
                     </div>
-                    <span className="text-[11px] text-muted-foreground font-medium truncate">
+                    <span className="text-[11px] text-muted-foreground font-medium truncate flex-1">
                         {getAssignedName()}
                     </span>
+                    {showPendingHumanResponse && lead.isPendingHumanResponse && (
+                        <span
+                            className="text-[9px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded-md bg-red-500/10 border border-red-500/20 shrink-0"
+                            title="El cliente envió un mensaje que aún no ha sido atendido por un asesor"
+                        >
+                            Pendiente
+                        </span>
+                    )}
                 </div>
             </div>
         </Card>

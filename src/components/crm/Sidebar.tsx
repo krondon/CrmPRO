@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { House, Kanban, ChartBar, CalendarBlank, Users, Gear, Bell, SignOut, Microphone, Buildings, ChatCircleDots, AddressBook, ClockCounterClockwise } from '@phosphor-icons/react'
+import { House, Kanban, ChartBar, CalendarBlank, Users, Gear, Bell, SignOut, Microphone, Buildings, ChatCircleDots, AddressBook, ClockCounterClockwise, Crown } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -53,7 +53,17 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
     return cleanPath === itemId || (itemId === 'dashboard' && cleanPath === '')
   }
 
-  const menuItems = [
+  // `accent: 'gold'` marca un item con tratamiento dorado especial
+  // (solo se aplica cuando NO está activo). Lo usamos para "Premium"
+  // en modo invitado, para que destaque como CTA hasta que el usuario
+  // entre a la vista.
+  type MenuItem = {
+    id: string
+    icon: typeof House
+    label: string
+    accent?: 'gold'
+  }
+  const menuItems: MenuItem[] = [
     { id: 'dashboard', icon: House, label: t.nav.dashboard },
     { id: 'pipeline', icon: Kanban, label: t.nav.pipeline },
     { id: 'chats', icon: ChatCircleDots, label: 'Chats' },
@@ -63,6 +73,10 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
     { id: 'calendar', icon: CalendarBlank, label: t.nav.calendar },
     { id: 'team', icon: Users, label: t.nav.team },
     { id: 'settings', icon: Gear, label: t.nav.settings },
+    // El item "Premium" se muestra en modo invitado, sea por usuario anónimo
+    // (visitante que probó el CRM en una feria) o por URL `/guest/*` (usuario
+    // logueado viendo otra empresa).
+    ...((isGuestMode || isAnonymous) ? [{ id: 'premium', icon: Crown, label: 'Premium', accent: 'gold' as const }] : []),
   ]
 
   return (
@@ -155,6 +169,7 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
             {menuItems.map((item) => {
               const Icon = item.icon
               const active = isActive(item.id)
+              const isGold = item.accent === 'gold' && !active
 
               return (
                 <li key={item.id}>
@@ -164,18 +179,24 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
                       'w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-200 group',
                       active
                         ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
-                        : 'text-foreground/70 hover:bg-primary/5 hover:text-primary'
+                        : isGold
+                          ? 'text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 bg-gradient-to-r from-amber-500/10 to-yellow-500/5 border border-amber-500/20 shadow-sm'
+                          : 'text-foreground/70 hover:bg-primary/5 hover:text-primary'
                     )}
                   >
                     <Icon
                       size={20}
-                      weight={active ? 'fill' : 'bold'}
+                      weight={active ? 'fill' : isGold ? 'fill' : 'bold'}
                       className={cn(
                         "transition-transform duration-200 group-hover:scale-110",
-                        active ? "text-primary-foreground" : "text-muted-foreground group-hover:text-primary"
+                        active
+                          ? "text-primary-foreground"
+                          : isGold
+                            ? "text-amber-500"
+                            : "text-muted-foreground group-hover:text-primary"
                       )}
                     />
-                    <span>{item.label}</span>
+                    <span className={cn(isGold && 'font-black tracking-wide')}>{item.label}</span>
                   </NavLink>
                 </li>
               )
@@ -228,6 +249,19 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
               )}
             </div>
           )}
+
+          {isAnonymous && (
+            <div className="mt-3 pt-3 border-t border-border/40 rounded-xl bg-gradient-to-br from-slate-900 to-slate-800 px-3 py-3 flex flex-col items-center gap-1 shadow-inner">
+              <img
+                src="/LogoNegativo.png"
+                alt="Morna Tech"
+                className="h-7 w-auto object-contain"
+              />
+              <p className="text-[9px] font-bold uppercase tracking-widest text-white/60">
+                Desarrollado por Morna Tech
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -260,6 +294,7 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
           {menuItems.map((item) => {
             const Icon = item.icon
             const active = isActive(item.id)
+            const isGold = item.accent === 'gold' && !active
 
             return (
               <NavLink
@@ -269,11 +304,13 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
                   'flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg text-xs font-medium transition-all min-w-fit',
                   active
                     ? 'text-primary'
-                    : 'text-muted-foreground'
+                    : isGold
+                      ? 'text-amber-500'
+                      : 'text-muted-foreground'
                 )}
               >
-                <Icon size={20} weight={active ? 'fill' : 'regular'} />
-                <span className="text-[9px]">{item.label}</span>
+                <Icon size={20} weight={active ? 'fill' : isGold ? 'fill' : 'regular'} />
+                <span className={cn('text-[9px]', isGold && 'font-bold')}>{item.label}</span>
               </NavLink>
             )
           })}

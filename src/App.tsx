@@ -10,6 +10,7 @@ import { TeamView } from '@/components/crm/TeamView'
 import { SettingsView } from '@/components/crm/SettingsView'
 import { NotificationsView } from '@/components/crm/NotificationsView'
 import { HistorialView } from '@/components/crm/HistorialView'
+import { PremiumView } from '@/components/crm/PremiumView'
 import LoginView from '@/components/crm/LoginView'
 import { RegisterView } from '@/components/crm/RegisterView'
 import { NoCompanyView } from '@/components/crm/NoCompanyView'
@@ -154,6 +155,8 @@ function App() {
           <Route path="/historial" element={
             <HistorialView companyId={currentCompanyId} />
           } />
+          {/* Premium showcase: visible para usuarios anónimos (visitantes). */}
+          <Route path="/premium" element={<PremiumView />} />
         </Route>
 
         {/* Guest Mode Routes */}
@@ -198,6 +201,7 @@ function App() {
           <Route path="historial" element={
             <Navigate to="/guest/dashboard" replace />
           } />
+          <Route path="premium" element={<PremiumView />} />
         </Route>
 
         {/* Fallback */}

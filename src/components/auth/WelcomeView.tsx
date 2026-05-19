@@ -22,14 +22,14 @@ export function WelcomeView() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-sm space-y-6 animate-in fade-in zoom-in-95 duration-300">
 
-        {/* Logo */}
-        <div className="text-center space-y-2">
-          <div className="mx-auto w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/30">
-            <svg viewBox="0 0 24 24" className="w-8 h-8 fill-white">
-              <rect x="2" y="3" width="6" height="18" rx="1.5"/>
-              <rect x="9" y="3" width="6" height="12" rx="1.5"/>
-              <rect x="16" y="3" width="6" height="15" rx="1.5"/>
-            </svg>
+        {/* Logo Morna Tech */}
+        <div className="text-center space-y-3">
+          <div className="mx-auto px-6 py-4 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 shadow-lg shadow-slate-900/30 inline-flex items-center justify-center">
+            <img
+              src="/LogoNegativo.png"
+              alt="Morna Tech"
+              className="h-14 w-auto object-contain"
+            />
           </div>
           <h1 className="text-2xl font-bold text-foreground">CRM Pro</h1>
           <p className="text-sm text-muted-foreground">¿Cómo deseas continuar?</p>

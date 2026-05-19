@@ -41,6 +41,8 @@ import { getPipelinesForPersona } from '@/supabase/helpers/personaPipeline'
 import { createEtapa, deleteEtapa, updateEtapa } from '@/supabase/helpers/etapas'
 import { getUnreadMessagesCount, subscribeToAllMessages, markMessagesAsRead } from '@/supabase/services/mensajes'
 import { getNotasCountByLeads } from '@/supabase/services/notas'
+import { getPendingResponseEnabled } from '@/supabase/services/chatSettings'
+import { usePendingResponsePolling } from '@/hooks/usePendingResponsePolling'
 import { supabase } from '@/lib/supabase'
 
 import { Building } from '@phosphor-icons/react'
@@ -127,6 +129,23 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
   // Estados UI locales (no manejados por hooks)
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
+
+  // Feature "Pendiente de respuesta humana". Toggle por empresa en chat_settings.
+  // Cuando está activa, el badge se muestra en LeadCard y el hook polea SuperAPI
+  // cada 60s para detectar respuestas hechas fuera del CRM.
+  const [pendingResponseEnabled, setPendingResponseEnabled] = useState(false)
+  useEffect(() => {
+    if (!companyId) return
+    let cancelled = false
+    getPendingResponseEnabled(companyId)
+      .then(v => { if (!cancelled) setPendingResponseEnabled(v) })
+      .catch(err => console.warn('[PipelineView] error leyendo pending_response_enabled:', err))
+    return () => { cancelled = true }
+  }, [companyId])
+
+  // Polling solo si la feature está activa para la empresa.
+  usePendingResponsePolling(companyId, pendingResponseEnabled)
+
   const [filterByMember, setFilterByMember] = useState<string>('all')
   const isMobile = useIsMobile()
   const [moveDialogOpen, setMoveDialogOpen] = useState(false)
@@ -1284,6 +1303,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
         stageCounts={stageCounts}
         stagePages={stagePages}
         unreadLeads={unreadLeads}
+        pendingResponseEnabled={pendingResponseEnabled}
         notasCounts={notasCounts}
         meetingsCounts={meetingsCounts}
         highlightedLeadId={highlightedLeadId}

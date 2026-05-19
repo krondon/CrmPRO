@@ -31,6 +31,7 @@ export function useLeadsRealtime({ companyId, onInsert, onUpdate, onDelete }: Us
     stageEnteredAt: dbLead.stage_entered_at ? new Date(dbLead.stage_entered_at) : undefined,
     slaCustomLimitMinutes: dbLead.sla_custom_limit_minutes ?? null,
     customFields: dbLead.custom_fields ?? {},
+    isPendingHumanResponse: dbLead.is_pending_human_response === true,
   });
 
   useEffect(() => {

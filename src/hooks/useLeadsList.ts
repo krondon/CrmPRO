@@ -174,6 +174,7 @@ export function mapDBToLead(d: any): Lead {
         archived: !!d.archived,
         archivedAt: d.archived_at ? new Date(d.archived_at) : undefined,
         customFields: d.custom_fields ?? {},
+        isPendingHumanResponse: d.is_pending_human_response === true,
     }
 }
 

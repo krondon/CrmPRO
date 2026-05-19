@@ -112,6 +112,13 @@ export interface Lead {
   customFields?: Record<string, any>
   stageEnteredAt?: Date | null
   slaCustomLimitMinutes?: number | null
+  /**
+   * `true` cuando el cliente envió un mensaje y todavía no ha respondido
+   * un asesor humano. La IA respondiendo NO limpia este flag — solo se
+   * limpia cuando SuperAPI confirma que el chat fue bloqueado por escritura
+   * manual (ver edge function verify-pending-responses).
+   */
+  isPendingHumanResponse?: boolean
 }
 
 export interface Stage {
@@ -362,6 +369,7 @@ export interface LeadDB {
   stage_entered_at?: string | null
   sla_custom_limit_minutes?: number | null
   custom_fields?: Record<string, any>
+  is_pending_human_response?: boolean
 }
 
 // ============================================================
@@ -728,6 +736,28 @@ export interface LandingTokenDB {
   metadata?: Record<string, unknown>
   created_at?: string
   updated_at?: string
+}
+
+// ----- Quick Replies (Mensajes Predeterminados) -----
+export interface QuickReplyDB {
+  id: string
+  empresa_id: string
+  title: string
+  content: string
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface QuickReply {
+  id: string
+  title: string
+  content: string
+}
+
+export interface CreateQuickReplyDTO {
+  title: string
+  content: string
 }
 
 // ============================================================

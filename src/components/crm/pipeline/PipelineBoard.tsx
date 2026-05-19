@@ -19,6 +19,8 @@ interface PipelineBoardProps {
     stageCounts: Record<string, number>
     stagePages: Record<string, { offset: number; hasMore: boolean }>
     unreadLeads: Set<string>
+    /** Si la empresa activó "Pendiente de respuesta humana" (chat_settings.pending_response_enabled). */
+    pendingResponseEnabled?: boolean
     notasCounts: Record<string, number>
     meetingsCounts: Record<string, number>
     highlightedLeadId: string | null
@@ -74,6 +76,7 @@ export function PipelineBoard({
     stageCounts,
     stagePages,
     unreadLeads,
+    pendingResponseEnabled = false,
     notasCounts,
     meetingsCounts,
     highlightedLeadId,
@@ -130,6 +133,7 @@ export function PipelineBoard({
                             stageCounts={stageCounts}
                             stagePages={stagePages}
                             unreadLeads={unreadLeads}
+                            pendingResponseEnabled={pendingResponseEnabled}
                             notasCounts={notasCounts}
                             meetingsCounts={meetingsCounts}
                             highlightedLeadId={highlightedLeadId}

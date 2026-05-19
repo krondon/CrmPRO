@@ -28,6 +28,8 @@ interface PipelineColumnProps {
     stageCounts: Record<string, number>
     stagePages: Record<string, { offset: number; hasMore: boolean }>
     unreadLeads: Set<string>
+    /** Si la empresa activó "Pendiente de respuesta humana". */
+    pendingResponseEnabled?: boolean
     notasCounts: Record<string, number>
     meetingsCounts: Record<string, number>
     highlightedLeadId: string | null
@@ -83,6 +85,7 @@ export function PipelineColumn({
     stageCounts,
     stagePages,
     unreadLeads,
+    pendingResponseEnabled = false,
     notasCounts,
     meetingsCounts,
     highlightedLeadId,
@@ -409,6 +412,7 @@ export function PipelineColumn({
                             stageColor={stage.color}
                             isHighlighted={highlightedLeadId === lead.id}
                             hasUnreadMessages={unreadLeads.has(lead.id)}
+                            showPendingHumanResponse={pendingResponseEnabled}
                             notesCount={notasCounts[lead.id] || 0}
                             meetingsCount={meetingsCounts[lead.id] || 0}
                             isAdminOrOwner={isAdminOrOwner}

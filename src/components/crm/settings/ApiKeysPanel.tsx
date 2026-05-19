@@ -153,9 +153,9 @@ export function ApiKeysPanel({ empresaId }: Props) {
                 <Key size={20} weight="duotone" className="text-violet-600" />
               </div>
               <div>
-                <CardTitle className="text-lg font-bold">API Keys para Claude</CardTitle>
+                <CardTitle className="text-lg font-bold">API Keys</CardTitle>
                 <CardDescription className="text-xs">
-                  Genera keys para conectar tu CRM a Claude vía <code className="font-mono bg-muted px-1 rounded">@morna-studio/crm-mcp</code>
+                  Genera keys para conectar tu CRM con asistentes de IA vía <code className="font-mono bg-muted px-1 rounded">@morna-studio/crm-mcp</code>
                 </CardDescription>
               </div>
             </div>
@@ -210,7 +210,7 @@ export function ApiKeysPanel({ empresaId }: Props) {
       {/* Config instructions */}
       <Card className="border border-dashed border-border/60 bg-muted/20 rounded-2xl">
         <CardContent className="pt-5 space-y-3">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Cómo conectar en Claude Desktop / Code</p>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Cómo conectar tu asistente de IA</p>
           <pre className="text-xs bg-background rounded-xl p-4 border border-border/40 overflow-x-auto leading-relaxed">{`{
   "mcpServers": {
     "mi-crm": {
@@ -239,7 +239,7 @@ export function ApiKeysPanel({ empresaId }: Props) {
             <div className="space-y-1.5">
               <Label className="text-sm font-semibold">Nombre</Label>
               <Input
-                placeholder="Ej: Integración Claude de ventas"
+                placeholder="Ej: Integración IA de ventas"
                 value={newKeyName}
                 onChange={e => setNewKeyName(e.target.value)}
                 className="rounded-xl"

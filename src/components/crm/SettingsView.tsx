@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Plus, Trash, SignOut, Pencil, Check, X, Envelope, ShieldCheck, GearSix, Lightning, Tag, Funnel, Buildings, Plug, ShoppingCart, Key, Rocket, Sliders, Copy, WhatsappLogo } from '@phosphor-icons/react'
+import { Plus, Trash, SignOut, Pencil, Check, X, Envelope, ShieldCheck, GearSix, Tag, Funnel, Buildings, Plug, ShoppingCart, Key, Rocket, Sliders, Copy, WhatsappLogo } from '@phosphor-icons/react'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -19,11 +19,11 @@ import { IntegrationsManager } from './settings/IntegrationsManager'
 import { LandingTokensManager } from './settings/LandingTokensManager'
 import { MetaTemplatesManager } from './settings/MetaTemplatesManager'
 import { updatePipeline, getPipelines } from '@/supabase/helpers/pipeline'
-import { AutomationsPanel } from './settings/AutomationsPanel'
+import { getPendingResponseEnabled, setPendingResponseEnabled } from '@/supabase/services/chatSettings'
 import { AiAutomationPanel } from './settings/ai-automation/AiAutomationPanel'
 import { CustomFieldsPanel } from './settings/CustomFieldsPanel'
 import { ApiKeysPanel } from './settings/ApiKeysPanel'
-import { PremiumLock } from '@/components/premium'
+import { PremiumLock, GuestLock } from '@/components/premium'
 import { useAuth } from '@/hooks/useAuth'
 import { toast } from 'sonner'
 
@@ -55,6 +55,50 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
   const [showPipelineDialog, setShowPipelineDialog] = useState(false)
   const [editingPipelineId, setEditingPipelineId] = useState<string | null>(null)
   const [editPipelineName, setEditPipelineName] = useState('')
+
+  // Toggle "Pendiente de respuesta humana" (chat_settings.pending_response_enabled).
+  // Cuando está activo: badge "Pendiente" en LeadCard + polling cada 60s a SuperAPI
+  // para detectar respuestas hechas fuera del CRM.
+  const [pendingFlag, setPendingFlag] = useState(false)
+  const [pendingFlagLoaded, setPendingFlagLoaded] = useState(false)
+  const [pendingFlagSaving, setPendingFlagSaving] = useState(false)
+
+  useEffect(() => {
+    if (!currentCompanyId) return
+    let cancelled = false
+    setPendingFlagLoaded(false)
+    getPendingResponseEnabled(currentCompanyId)
+      .then(v => {
+        if (cancelled) return
+        setPendingFlag(v)
+        setPendingFlagLoaded(true)
+      })
+      .catch(err => {
+        console.warn('[SettingsView] error leyendo pending_response_enabled:', err)
+        if (!cancelled) setPendingFlagLoaded(true)
+      })
+    return () => { cancelled = true }
+  }, [currentCompanyId])
+
+  const handleTogglePendingFlag = async (next: boolean) => {
+    if (!currentCompanyId) return
+    setPendingFlagSaving(true)
+    const previous = pendingFlag
+    setPendingFlag(next) // optimista
+    try {
+      await setPendingResponseEnabled(currentCompanyId, next)
+      toast.success(next
+        ? 'Etiqueta "Pendiente" activada para tus pipelines'
+        : 'Etiqueta "Pendiente" desactivada'
+      )
+    } catch (err: any) {
+      console.error('[SettingsView] error guardando pending_response_enabled:', err)
+      setPendingFlag(previous)
+      toast.error(err?.message || 'No se pudo guardar la preferencia')
+    } finally {
+      setPendingFlagSaving(false)
+    }
+  }
 
   useEffect(() => {
     if (!currentCompanyId) return
@@ -167,12 +211,6 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
             </TabsTrigger>
           )}
           {isAdminOrOwner && (
-            <TabsTrigger value="automations" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
-              <Lightning size={14} weight="duotone" />
-              Automatizaciones
-            </TabsTrigger>
-          )}
-          {isAdminOrOwner && (
             <TabsTrigger value="ai-automation" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
               🤖
               IA
@@ -199,7 +237,7 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
           {userRole === 'owner' && (
             <TabsTrigger value="api-keys" className="rounded-lg data-[state=active]:shadow-sm gap-1.5 text-xs font-semibold shrink-0">
               🤖
-              API Claude
+              API Key
             </TabsTrigger>
           )}
 
@@ -404,6 +442,10 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
 
         {/* ── Integraciones ─────────────────────────────────── */}
         <TabsContent value="integrations" className="space-y-6 mt-8">
+          <GuestLock
+            title="Integraciones avanzadas"
+            description="Conecta tu CRM con WhatsApp Business, Instagram, Facebook y otras plataformas para centralizar tus conversaciones. Escríbenos y te contamos cómo activarla."
+          >
           {isAdminOrOwner ? (
             <PremiumLock feature="advanced_integrations">
               <IntegrationsManager empresaId={currentCompanyId || ''} />
@@ -421,10 +463,15 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
               </CardContent>
             </Card>
           )}
+          </GuestLock>
         </TabsContent>
 
         {/* ── Plantillas Meta ─────────────────────────────────── */}
         <TabsContent value="meta-templates" className="space-y-6 mt-8">
+          <GuestLock
+            title="Plantillas de WhatsApp Meta"
+            description="Crea y gestiona plantillas aprobadas por Meta para enviar mensajes proactivos a tus clientes por WhatsApp. Escríbenos y te contamos cómo activarla."
+          >
           {isAdminOrOwner ? (
             <PremiumLock feature="advanced_integrations">
               <MetaTemplatesManager empresaId={currentCompanyId || ''} />
@@ -442,10 +489,15 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
               </CardContent>
             </Card>
           )}
+          </GuestLock>
         </TabsContent>
 
         {/* ── Landing Tokens ─────────────────────────────────── */}
         <TabsContent value="landing-tokens" className="space-y-6 mt-8">
+          <GuestLock
+            title="Landing Tokens"
+            description="Genera enlaces únicos para que clientes potenciales se registren automáticamente en tu CRM desde landing pages o formularios externos. Escríbenos y te contamos cómo activarla."
+          >
           {isAdminOrOwner ? (
             <LandingTokensManager empresaId={currentCompanyId || ''} />
           ) : (
@@ -461,6 +513,7 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
               </CardContent>
             </Card>
           )}
+          </GuestLock>
         </TabsContent>
 
         {/* ── Catálogo ─────────────────────────────────── */}
@@ -507,6 +560,32 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
               </Button>
             )}
           </div>
+
+          {/* Toggle: Etiqueta "Pendiente" en oportunidades */}
+          {isAdminOrOwner && (
+            <Card className="border-none shadow-sm rounded-2xl">
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-sm font-bold mb-1">Etiqueta "Pendiente" en oportunidades</h3>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Muestra una etiqueta roja "Pendiente" en la esquina inferior derecha
+                      de las oportunidades cuando el cliente envió un mensaje y todavía no
+                      ha respondido un asesor. A diferencia del punto rojo, la etiqueta
+                      <strong> no desaparece cuando responde la IA</strong> — solo se quita
+                      cuando SuperAPI detecta que un asesor está escribiendo manualmente
+                      (chat bloqueado).
+                    </p>
+                  </div>
+                  <Switch
+                    checked={pendingFlag}
+                    onCheckedChange={handleTogglePendingFlag}
+                    disabled={!pendingFlagLoaded || pendingFlagSaving}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <div className="grid gap-4">
             {(pipelines || []).map(pipeline => (
@@ -698,32 +777,12 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
           )}
         </TabsContent>
 
-        {/* ── Automatizaciones ─────────────────────────────── */}
-        <TabsContent value="automations" className="space-y-6 mt-8">
-          {isAdminOrOwner && currentCompanyId ? (
-            <PremiumLock feature="automations">
-              <AutomationsPanel
-                empresaId={currentCompanyId}
-                pipelines={pipelines || []}
-              />
-            </PremiumLock>
-          ) : (
-            <Card className="border-none shadow-sm rounded-2xl">
-              <CardContent className="py-16">
-                <div className="flex flex-col items-center justify-center text-center space-y-3 opacity-60">
-                  <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
-                    <Lightning size={32} className="text-muted-foreground" weight="thin" />
-                  </div>
-                  <p className="font-bold text-lg">Sin permisos</p>
-                  <p className="text-sm text-muted-foreground">No tienes permisos para gestionar automatizaciones.</p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
         {/* ── Automatización IA ─────────────────────────────── */}
         <TabsContent value="ai-automation" className="space-y-6 mt-8">
+          <GuestLock
+            title="Automatización con IA"
+            description="Configura un agente de inteligencia artificial que responde tus chats automáticamente, califica leads y mueve oportunidades por tu pipeline. Escríbenos y te contamos cómo activarla."
+          >
           {isAdminOrOwner && currentCompanyId ? (
             <PremiumLock feature="automations">
               <AiAutomationPanel
@@ -744,13 +803,19 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
               </CardContent>
             </Card>
           )}
+          </GuestLock>
         </TabsContent>
 
-        {/* ── API Keys para Claude ─────────────────────────────── */}
+        {/* ── API Keys ─────────────────────────────── */}
         <TabsContent value="api-keys" className="space-y-6 mt-8">
-          {currentCompanyId && (
-            <ApiKeysPanel empresaId={currentCompanyId} />
-          )}
+          <GuestLock
+            title="API Key"
+            description="Conecta tu propia API key para potenciar la IA de tu CRM con el modelo más avanzado del mercado. Escríbenos y te contamos cómo activarla."
+          >
+            {currentCompanyId && (
+              <ApiKeysPanel empresaId={currentCompanyId} />
+            )}
+          </GuestLock>
         </TabsContent>
 
       </Tabs>
