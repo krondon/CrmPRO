@@ -7,6 +7,7 @@ import { getPipelines } from '@/supabase/helpers/pipeline'
 import { askAnalyticsAI, AnalyticsResponse, HubmySubscriptionError } from '@/supabase/services/analyticsAi'
 import { useUserPipelineAccess } from '@/hooks/useUserPipelineAccess'
 import { useAuth } from '@/hooks/useAuth'
+import { useGuestMode } from '@/hooks/useGuestMode'
 import { toast } from 'sonner'
 import {
   CurrencyDollar,
@@ -31,6 +32,7 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
   // los leads asignados a él (acepta usuario_id o persona.id).
   const { allowedPipelineIds, isRestricted, assignedToIds } = useUserPipelineAccess()
   const { user } = useAuth()
+  const { isGuest } = useGuestMode()
 
   const [dateRange, setDateRange] = useState<'30days' | 'quarter'>('30days')
 
@@ -231,14 +233,16 @@ export function AnalyticsDashboard({ companyId }: { companyId?: string }) {
         </div>
       </div>
 
-      {/* AI Search Bar */}
-      <AnalyticsAIBar
-        onAsk={handleAskAI}
-        loading={aiLoading}
-        error={aiError}
-        active={aiResponse}
-        onClear={clearAi}
-      />
+      {/* AI Search Bar — oculta para invitados */}
+      {!isGuest && (
+        <AnalyticsAIBar
+          onAsk={handleAskAI}
+          loading={aiLoading}
+          error={aiError}
+          active={aiResponse}
+          onClear={clearAi}
+        />
+      )}
 
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">

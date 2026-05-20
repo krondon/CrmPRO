@@ -1076,6 +1076,8 @@ export function LeadDetailSheet({ lead, open, onClose, onUpdate, teamMembers = [
               recordingTime={recordingTime}
               onStartRecording={startRecording}
               onStopRecording={stopRecording}
+              empresaId={companyId}
+              leadData={{ name: lead.name, company: lead.company, phone: lead.phone }}
               translations={{
                 noMessages: t.chat.noMessages,
                 typeMessage: t.chat.typeMessage

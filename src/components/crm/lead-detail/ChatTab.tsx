@@ -10,11 +10,12 @@
  * Extraído de LeadDetailSheet para mantener el código organizado.
  */
 
-import { useRef, useState, useEffect } from 'react'
-import { Message, Channel } from '@/lib/types'
+import { useRef, useState, useEffect, useCallback, useMemo } from 'react'
+import { Message, Channel, MetaFollowUpTemplateDB, QuickReply } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import {
@@ -42,9 +43,25 @@ import {
     Microphone,
     Stop,
     Check,
-    WarningCircle
+    WarningCircle,
+    FileText,
+    ChatText,
+    MagnifyingGlass,
+    Plus,
+    PencilSimple,
+    X
 } from '@phosphor-icons/react'
 import { safeFormatDate } from '@/hooks/useDateFormat'
+import { useAuth } from '@/hooks/useAuth'
+import { listFollowUpTemplates, sendMetaTemplate } from '@/supabase/services/metaTemplates'
+import {
+    listQuickReplies,
+    createQuickReply,
+    updateQuickReply,
+    deleteQuickReply,
+    renderQuickReply,
+    QUICK_REPLY_VARIABLES,
+} from '@/supabase/services/quickReplies'
 
 // ============================================
 // TIPOS
@@ -70,6 +87,9 @@ interface ChatTabProps {
     recordingTime: number
     onStartRecording: () => void
     onStopRecording: () => void
+    // Quick replies + Meta templates (igual que en el chat grande)
+    empresaId?: string
+    leadData?: { name?: string | null; company?: string | null; phone?: string | null }
     translations: {
         noMessages: string
         typeMessage: string
@@ -324,12 +344,189 @@ export function ChatTab({
     recordingTime,
     onStartRecording,
     onStopRecording,
+    empresaId,
+    leadData,
     translations: t
 }: ChatTabProps) {
     const fileInputRef = useRef<HTMLInputElement>(null)
     const [historyLimit, setHistoryLimit] = useState(20)
     const [lightboxImage, setLightboxImage] = useState<string | null>(null)
     const [activeDeleteMsgId, setActiveDeleteMsgId] = useState<string | null>(null)
+
+    // ===== Plantillas Meta + Mensajes predeterminados =====
+    // Misma lógica que en MessageInput (chat grande) para mantener UX consistente
+    const { user, companies, currentCompanyId } = useAuth()
+    const currentCompany = companies.find(c => c.id === currentCompanyId)
+    const role = (currentCompany?.role || '').toLowerCase()
+    const isOwnerByCompany = !!(currentCompany && user && currentCompany.ownerId === user.id)
+    const canManageQuickReplies = isOwnerByCompany || role === 'owner' || role === 'admin'
+
+    // Plantillas Meta (solo WhatsApp)
+    const [metaTemplates, setMetaTemplates] = useState<MetaFollowUpTemplateDB[]>([])
+    const [templatesLoaded, setTemplatesLoaded] = useState(false)
+    const [sendingTemplateId, setSendingTemplateId] = useState<string | null>(null)
+    const [templatePopoverOpen, setTemplatePopoverOpen] = useState(false)
+
+    const loadTemplates = useCallback(async () => {
+        if (!empresaId || selectedChannel !== 'whatsapp' || templatesLoaded) return
+        try {
+            const list = await listFollowUpTemplates(empresaId)
+            setMetaTemplates(list.filter(tpl => tpl.active))
+        } catch (err) {
+            console.error('[ChatTab] error loading templates', err)
+        } finally {
+            setTemplatesLoaded(true)
+        }
+    }, [empresaId, selectedChannel, templatesLoaded])
+
+    const handleSendTemplate = async (template: MetaFollowUpTemplateDB) => {
+        setSendingTemplateId(template.id)
+        try {
+            const res = await sendMetaTemplate({ lead_id: leadId, template_id: template.id })
+            if (!res.ok) {
+                toast.error(res.error || 'No se pudo enviar la plantilla')
+                return
+            }
+            toast.success(`Plantilla "${template.display_label || template.meta_template_name}" enviada`)
+            setTemplatePopoverOpen(false)
+        } catch (err: any) {
+            console.error('[ChatTab] sendTemplate error', err)
+            toast.error(err?.message || 'Error enviando plantilla')
+        } finally {
+            setSendingTemplateId(null)
+        }
+    }
+
+    // Mensajes predeterminados (Quick Replies) — disponibles en todos los canales
+    const [quickReplies, setQuickReplies] = useState<QuickReply[]>([])
+    const [quickRepliesLoaded, setQuickRepliesLoaded] = useState(false)
+    const [quickRepliesLoading, setQuickRepliesLoading] = useState(false)
+    const [quickReplyPopoverOpen, setQuickReplyPopoverOpen] = useState(false)
+    const [quickReplySearch, setQuickReplySearch] = useState('')
+    const [formMode, setFormMode] = useState<'list' | 'create' | 'edit'>('list')
+    const [formEditingId, setFormEditingId] = useState<string | null>(null)
+    const [formTitle, setFormTitle] = useState('')
+    const [formContent, setFormContent] = useState('')
+    const [formSaving, setFormSaving] = useState(false)
+    const formContentRef = useRef<HTMLTextAreaElement>(null)
+
+    const loadQuickReplies = useCallback(async () => {
+        if (!empresaId || quickRepliesLoaded) return
+        setQuickRepliesLoading(true)
+        try {
+            const list = await listQuickReplies(empresaId)
+            setQuickReplies(list)
+        } catch (err) {
+            console.error('[ChatTab] error loading quick replies', err)
+        } finally {
+            setQuickRepliesLoaded(true)
+            setQuickRepliesLoading(false)
+        }
+    }, [empresaId, quickRepliesLoaded])
+
+    const filteredQuickReplies = useMemo(() => {
+        const q = quickReplySearch.trim().toLowerCase()
+        if (!q) return quickReplies
+        return quickReplies.filter(qr =>
+            qr.title.toLowerCase().includes(q) || qr.content.toLowerCase().includes(q)
+        )
+    }, [quickReplies, quickReplySearch])
+
+    const resetForm = () => {
+        setFormMode('list')
+        setFormEditingId(null)
+        setFormTitle('')
+        setFormContent('')
+    }
+
+    const handleUseQuickReply = (qr: QuickReply) => {
+        const rendered = renderQuickReply(qr.content, {
+            name: leadData?.name,
+            company: leadData?.company,
+            phone: leadData?.phone,
+        })
+        onMessageInputChange(rendered)
+        setQuickReplyPopoverOpen(false)
+        resetForm()
+        setQuickReplySearch('')
+    }
+
+    const handleStartCreate = () => {
+        setFormMode('create')
+        setFormEditingId(null)
+        setFormTitle('')
+        setFormContent('')
+        setTimeout(() => formContentRef.current?.focus(), 0)
+    }
+
+    const handleStartEdit = (qr: QuickReply) => {
+        setFormMode('edit')
+        setFormEditingId(qr.id)
+        setFormTitle(qr.title)
+        setFormContent(qr.content)
+        setTimeout(() => formContentRef.current?.focus(), 0)
+    }
+
+    const handleSaveForm = async () => {
+        if (!empresaId) return
+        const title = formTitle.trim()
+        const content = formContent.trim()
+        if (!title || !content) {
+            toast.error('Título y contenido son obligatorios')
+            return
+        }
+        setFormSaving(true)
+        try {
+            if (formMode === 'edit' && formEditingId) {
+                await updateQuickReply(formEditingId, { title, content })
+                setQuickReplies(prev =>
+                    prev
+                        .map(qr => qr.id === formEditingId ? { ...qr, title, content } : qr)
+                        .sort((a, b) => a.title.localeCompare(b.title))
+                )
+                toast.success('Mensaje predeterminado actualizado')
+            } else {
+                const created = await createQuickReply(empresaId, { title, content })
+                setQuickReplies(prev =>
+                    [...prev, created].sort((a, b) => a.title.localeCompare(b.title))
+                )
+                toast.success('Mensaje predeterminado creado')
+            }
+            resetForm()
+        } catch (err: any) {
+            console.error('[ChatTab] save quick reply error', err)
+            toast.error(err?.message || 'Error guardando el mensaje')
+        } finally {
+            setFormSaving(false)
+        }
+    }
+
+    const handleDeleteQuickReply = async (qr: QuickReply) => {
+        if (!confirm(`¿Eliminar el mensaje "${qr.title}"? Esta acción no se puede deshacer.`)) return
+        try {
+            await deleteQuickReply(qr.id)
+            setQuickReplies(prev => prev.filter(x => x.id !== qr.id))
+            toast.success('Mensaje eliminado')
+        } catch (err: any) {
+            console.error('[ChatTab] delete quick reply error', err)
+            toast.error(err?.message || 'No se pudo eliminar el mensaje')
+        }
+    }
+
+    const insertVariableInForm = (varKey: string) => {
+        const ta = formContentRef.current
+        if (!ta) return
+        const token = `{${varKey}}`
+        const start = ta.selectionStart ?? formContent.length
+        const end = ta.selectionEnd ?? formContent.length
+        const next = formContent.slice(0, start) + token + formContent.slice(end)
+        setFormContent(next)
+        setTimeout(() => {
+            ta.focus()
+            const pos = start + token.length
+            ta.setSelectionRange(pos, pos)
+        }, 0)
+    }
 
     // Dismiss delete button when tapping outside
     useEffect(() => {
@@ -539,6 +736,313 @@ export function ChatTab({
                 >
                     {isUploading ? <Spinner size={20} className="animate-spin" /> : <Paperclip size={20} />}
                 </Button>
+
+                {empresaId && (
+                    <Popover
+                        open={quickReplyPopoverOpen}
+                        onOpenChange={(o) => {
+                            setQuickReplyPopoverOpen(o)
+                            if (o) loadQuickReplies()
+                            else resetForm()
+                        }}
+                    >
+                        <PopoverTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                disabled={!canEdit || isUploading}
+                                title="Mensajes predeterminados"
+                                className="text-muted-foreground hover:text-violet-600"
+                            >
+                                <ChatText size={20} weight="duotone" />
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                            align="start"
+                            side="top"
+                            className="w-[22rem] p-0 rounded-2xl overflow-hidden"
+                        >
+                            <div className="px-4 py-3 border-b border-border/40 bg-violet-500/5">
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        <ChatText size={16} weight="duotone" className="text-violet-600 shrink-0" />
+                                        <span className="text-sm font-bold truncate">
+                                            {formMode === 'list' ? 'Mensajes predeterminados'
+                                                : formMode === 'create' ? 'Nuevo mensaje'
+                                                : 'Editar mensaje'}
+                                        </span>
+                                    </div>
+                                    {formMode !== 'list' && (
+                                        <button
+                                            type="button"
+                                            onClick={resetForm}
+                                            className="text-muted-foreground hover:text-foreground p-1 rounded-md hover:bg-muted shrink-0"
+                                            title="Volver al listado"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    )}
+                                </div>
+                                {formMode === 'list' && (
+                                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                                        Selecciona uno para usarlo. Las variables se reemplazan automáticamente.
+                                    </p>
+                                )}
+                            </div>
+
+                            {formMode === 'list' ? (
+                                <>
+                                    <div className="px-3 pt-3">
+                                        <div className="relative">
+                                            <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                                            <Input
+                                                value={quickReplySearch}
+                                                onChange={(e) => setQuickReplySearch(e.target.value)}
+                                                placeholder="Buscar por título o contenido..."
+                                                className="pl-8 pr-8 h-9 text-xs"
+                                            />
+                                            {quickReplySearch && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setQuickReplySearch('')}
+                                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground rounded-md hover:bg-muted"
+                                                    aria-label="Limpiar"
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="max-h-72 overflow-y-auto p-2">
+                                        {quickRepliesLoading && !quickRepliesLoaded ? (
+                                            <p className="text-xs text-muted-foreground text-center py-6">Cargando…</p>
+                                        ) : quickReplies.length === 0 ? (
+                                            <div className="text-center py-6 px-3 space-y-1">
+                                                <p className="text-xs font-semibold">Sin mensajes predeterminados</p>
+                                                <p className="text-[11px] text-muted-foreground">
+                                                    {canManageQuickReplies
+                                                        ? 'Crea el primero con el botón de abajo.'
+                                                        : 'Pídele a un administrador que cree algunos.'}
+                                                </p>
+                                            </div>
+                                        ) : filteredQuickReplies.length === 0 ? (
+                                            <p className="text-xs text-muted-foreground text-center py-6">
+                                                No se encontraron mensajes para "{quickReplySearch}".
+                                            </p>
+                                        ) : (
+                                            filteredQuickReplies.map((qr) => (
+                                                <div
+                                                    key={qr.id}
+                                                    className="group flex items-start gap-1 p-2 rounded-xl hover:bg-muted/60 transition-colors"
+                                                >
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleUseQuickReply(qr)}
+                                                        className="flex-1 min-w-0 text-left"
+                                                    >
+                                                        <div className="text-sm font-bold truncate">{qr.title}</div>
+                                                        <p className="text-[11px] text-muted-foreground line-clamp-2 whitespace-pre-wrap mt-0.5">
+                                                            {qr.content}
+                                                        </p>
+                                                    </button>
+                                                    {canManageQuickReplies && (
+                                                        <div className="flex flex-col gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleStartEdit(qr)}
+                                                                className="p-1 rounded-md hover:bg-background text-muted-foreground hover:text-foreground"
+                                                                title="Editar"
+                                                            >
+                                                                <PencilSimple size={12} weight="bold" />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleDeleteQuickReply(qr)}
+                                                                className="p-1 rounded-md hover:bg-background text-muted-foreground hover:text-destructive"
+                                                                title="Eliminar"
+                                                            >
+                                                                <Trash size={12} weight="bold" />
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+
+                                    {canManageQuickReplies && (
+                                        <div className="p-2 border-t border-border/40">
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={handleStartCreate}
+                                                className="w-full justify-start gap-2 text-violet-600 hover:text-violet-700 hover:bg-violet-500/10"
+                                            >
+                                                <Plus size={14} weight="bold" />
+                                                Crear mensaje predeterminado
+                                            </Button>
+                                        </div>
+                                    )}
+                                </>
+                            ) : (
+                                <div className="p-3 space-y-3">
+                                    <div className="space-y-1.5">
+                                        <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                            Título
+                                        </label>
+                                        <Input
+                                            value={formTitle}
+                                            onChange={(e) => setFormTitle(e.target.value)}
+                                            placeholder="ej: Saludo inicial"
+                                            className="h-9 text-sm"
+                                            disabled={formSaving}
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                            Contenido del mensaje
+                                        </label>
+                                        <textarea
+                                            ref={formContentRef}
+                                            value={formContent}
+                                            onChange={(e) => setFormContent(e.target.value)}
+                                            placeholder="Hola {nombre}, gracias por contactarnos…"
+                                            rows={4}
+                                            className="w-full text-sm rounded-md border border-input bg-background px-3 py-2 placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
+                                            disabled={formSaving}
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                            Insertar variable
+                                        </label>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {QUICK_REPLY_VARIABLES.map(v => (
+                                                <button
+                                                    key={v.key}
+                                                    type="button"
+                                                    onClick={() => insertVariableInForm(v.key)}
+                                                    disabled={formSaving}
+                                                    className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md bg-violet-500/10 text-violet-700 hover:bg-violet-500/20 transition-colors disabled:opacity-50"
+                                                    title={v.label}
+                                                >
+                                                    {`{${v.key}}`}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center justify-end gap-2 pt-1">
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={resetForm}
+                                            disabled={formSaving}
+                                            className="h-8"
+                                        >
+                                            Cancelar
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            onClick={handleSaveForm}
+                                            disabled={formSaving || !formTitle.trim() || !formContent.trim()}
+                                            className="h-8 gap-1.5"
+                                        >
+                                            {formSaving ? (
+                                                <Spinner size={12} className="animate-spin" />
+                                            ) : (
+                                                <Check size={12} weight="bold" />
+                                            )}
+                                            Guardar
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+                        </PopoverContent>
+                    </Popover>
+                )}
+
+                {selectedChannel === 'whatsapp' && empresaId && (
+                    <Popover
+                        open={templatePopoverOpen}
+                        onOpenChange={(o) => {
+                            setTemplatePopoverOpen(o)
+                            if (o) loadTemplates()
+                        }}
+                    >
+                        <PopoverTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                disabled={!canEdit || isUploading}
+                                title="Enviar plantilla de WhatsApp"
+                                className="text-muted-foreground hover:text-green-600"
+                            >
+                                <FileText size={20} weight="duotone" />
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                            align="start"
+                            side="top"
+                            className="w-80 p-0 rounded-2xl overflow-hidden"
+                        >
+                            <div className="px-4 py-3 border-b border-border/40 bg-green-500/5">
+                                <div className="flex items-center gap-2">
+                                    <WhatsappLogo size={16} weight="duotone" className="text-green-600" />
+                                    <span className="text-sm font-bold">Plantillas Meta</span>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground mt-0.5">
+                                    Envía una plantilla aprobada a este lead.
+                                </p>
+                            </div>
+                            <div className="max-h-72 overflow-y-auto p-2">
+                                {!templatesLoaded ? (
+                                    <p className="text-xs text-muted-foreground text-center py-6">Cargando…</p>
+                                ) : metaTemplates.length === 0 ? (
+                                    <div className="text-center py-6 px-3 space-y-1">
+                                        <p className="text-xs font-semibold">Sin plantillas activas</p>
+                                        <p className="text-[11px] text-muted-foreground">
+                                            Configura plantillas en Configuración → Plantillas Meta.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    metaTemplates.map((tpl) => (
+                                        <button
+                                            key={tpl.id}
+                                            type="button"
+                                            disabled={sendingTemplateId !== null}
+                                            onClick={() => handleSendTemplate(tpl)}
+                                            className="w-full text-left p-2.5 rounded-xl hover:bg-muted/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed group"
+                                        >
+                                            <div className="flex items-center justify-between gap-2 mb-1">
+                                                <span className="text-sm font-bold truncate">
+                                                    {tpl.display_label || tpl.meta_template_name}
+                                                </span>
+                                                <span className="text-[9px] uppercase font-mono text-muted-foreground shrink-0">
+                                                    {tpl.meta_template_language}
+                                                </span>
+                                            </div>
+                                            {tpl.body_preview && (
+                                                <p className="text-[11px] text-muted-foreground line-clamp-2 whitespace-pre-wrap">
+                                                    {tpl.body_preview}
+                                                </p>
+                                            )}
+                                            {sendingTemplateId === tpl.id && (
+                                                <p className="text-[10px] text-green-600 font-semibold mt-1 flex items-center gap-1">
+                                                    <Spinner size={10} className="animate-spin" /> Enviando…
+                                                </p>
+                                            )}
+                                        </button>
+                                    ))
+                                )}
+                            </div>
+                        </PopoverContent>
+                    </Popover>
+                )}
+
                 <Input
                     value={messageInput}
                     onChange={(e) => onMessageInputChange(e.target.value)}
