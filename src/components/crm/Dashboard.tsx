@@ -264,7 +264,7 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 md:p-8 pb-32 md:pb-8 space-y-8 bg-background/50">
+    <div className="flex-1 overflow-y-auto p-4 md:p-8 pb-32 md:pb-8 space-y-6 md:space-y-8 bg-background/50">
       {/* Welcome Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-5">
@@ -396,7 +396,7 @@ export function Dashboard({ companyId, companies = [], onShowNotifications, onNa
       </div>
 
       {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 lg:grid-rows-2 gap-8 h-auto">
+      <div className="grid grid-cols-1 lg:grid-cols-2 lg:grid-rows-2 gap-4 sm:gap-6 lg:gap-8 h-auto">
         {/* Tareas de Hoy */}
         {/* Tareas de Hoy */}
         <Card className="relative overflow-hidden shadow-sm flex flex-col h-full min-h-[350px] max-h-[500px]">

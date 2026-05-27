@@ -8,7 +8,7 @@ export function SupportFab() {
   if (!isGuest) return null
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 group">
+    <div className="fixed bottom-24 right-4 md:bottom-6 md:right-6 z-50 group">
       {/* Tooltip */}
       <div className="absolute bottom-full right-0 mb-3 px-3 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 whitespace-nowrap">
         Hablemos con el equipo de Morna Tech

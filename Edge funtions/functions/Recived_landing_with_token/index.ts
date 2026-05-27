@@ -66,12 +66,31 @@ type LandingLeadPayload = {
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Normaliza un teléfono al formato internacional usado por SuperAPI / WhatsApp.
+ *
+ * Caso especial Venezuela: muchos formularios reciben el número en formato
+ * local (ej. 04125896324) en vez del internacional (584125896324). SuperAPI
+ * espera el internacional con @c.us, así que un lead que entre como
+ * "04125896324" termina como "04125896324@c.us" → mensaje no entregable.
+ *
+ * Fix: si los dígitos limpios coinciden con el patrón VE local
+ * (0 + código de operadora + 7 dígitos), reemplazamos el "0" líder por "58".
+ *
+ * Operadoras VE: 412 (Digitel), 414/424 (Movistar), 416/426 (Movilnet).
+ */
 function normalizePhone(phone: string): string {
-  return phone
+  const digits = phone
     .replace("@c.us", "")
     .replace("@s.whatsapp.net", "")
     .replace(/[^\d]/g, "")
     .trim();
+
+  if (/^0(412|414|416|424|426)\d{7}$/.test(digits)) {
+    return "58" + digits.slice(1);
+  }
+
+  return digits;
 }
 
 function normalizeTipo(tipo: string | undefined | null): string {

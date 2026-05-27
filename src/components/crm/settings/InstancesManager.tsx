@@ -13,6 +13,7 @@ import { Plus, Trash, PencilSimple, WhatsappLogo, InstagramLogo, FacebookLogo, F
 import { toast } from 'sonner'
 import { getPipelines } from '@/supabase/helpers/pipeline'
 import type { Pipeline } from '@/lib/types'
+import { SuperAPIConnectButton } from './SuperAPIConnectButton'
 
 interface InstancesManagerProps {
   empresaId: string
@@ -344,6 +345,13 @@ export function InstancesManager({ empresaId }: InstancesManagerProps) {
 
   return (
     <div className="space-y-6">
+      {/*
+        SuperAPI OAuth — solo se renderiza si el feature flag está prendido
+        (VITE_SUPERAPI_OAUTH_ENABLED=true y hay client_id configurado).
+        Si está apagado, el componente devuelve null y no aparece nada.
+      */}
+      <SuperAPIConnectButton empresaId={empresaId} />
+
       {/* Nueva Instancia */}
       <Card className="border-none shadow-sm rounded-2xl overflow-hidden">
         <CardHeader className="bg-gradient-to-r from-emerald-500/5 to-transparent pb-4">

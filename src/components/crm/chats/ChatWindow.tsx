@@ -32,6 +32,12 @@ interface ChatWindowProps {
     canDeleteMessages?: boolean
     canManageTags?: boolean
     isAiEnabled?: boolean
+    /**
+     * Si la feature "Pendiente de respuesta humana" está activa para la
+     * empresa. Cuando true, se muestra el badge "Pendiente" en el header
+     * del chat si lead.isPendingHumanResponse=true.
+     */
+    showPendingHumanResponse?: boolean
     onBack: () => void // Para móvil
     onArchive: (lead: Lead, state: boolean) => Promise<void>
     onDelete: (lead: Lead) => Promise<void>
@@ -51,6 +57,7 @@ export function ChatWindow({
     canDeleteMessages = true,
     canManageTags = true,
     isAiEnabled = false,
+    showPendingHumanResponse = false,
     onBack,
     onArchive,
     onDelete,
@@ -70,6 +77,22 @@ export function ChatWindow({
     // Usar permisos resueltos localmente en vez de los props
     canDeleteMessages = resolvedCanDeleteMessages
     canManageTags = resolvedCanManageTags
+
+    // Inserta un mensaje preservando orden cronológico por `created_at`.
+    // Necesario porque el webhook puede insertar mensajes con timestamp
+    // del proveedor (no NOW()), y los realtime pueden llegar fuera de orden
+    // —especialmente en ráfagas de Facebook Messenger.
+    const insertSortedMessage = useCallback((prev: DbMessage[], msg: DbMessage): DbMessage[] => {
+        if (prev.some(m => m.id === msg.id)) return prev
+        const t = new Date(msg.created_at).getTime()
+        // Camino rápido: típicamente el nuevo es el más reciente.
+        if (prev.length === 0 || t >= new Date(prev[prev.length - 1].created_at).getTime()) {
+            return [...prev, msg]
+        }
+        const idx = prev.findIndex(m => new Date(m.created_at).getTime() > t)
+        if (idx === -1) return [...prev, msg]
+        return [...prev.slice(0, idx), msg, ...prev.slice(idx)]
+    }, [])
 
     // Estados locales
     const [messages, setMessages] = useState<DbMessage[]>([])
@@ -176,7 +199,7 @@ export function ChatWindow({
 
         // Suscribirse a nuevos mensajes del lead (canal único para evitar colisiones)
         const sub = subscribeToMessages(lead.id, (newMsg) => {
-            setMessages(prev => prev.some(m => m.id === newMsg.id) ? prev : [...prev, newMsg])
+            setMessages(prev => insertSortedMessage(prev, newMsg))
             updateLeadListOrderRef.current(lead.id, newMsg)
 
             if (newMsg.sender === 'lead') {
@@ -194,8 +217,8 @@ export function ChatWindow({
         if (!incomingMessage || !lead) return
         const msg = incomingMessage.msg
         if (msg.lead_id !== lead.id) return
-        setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg])
-    }, [incomingMessage, lead?.id])
+        setMessages(prev => insertSortedMessage(prev, msg))
+    }, [incomingMessage, lead?.id, insertSortedMessage])
 
     // Scroll automático y al cambiar de mensajes
     useEffect(() => {
@@ -390,9 +413,19 @@ export function ChatWindow({
                             </AvatarFallback>
                         </Avatar>
                         <div className="flex flex-col min-w-0 flex-1">
-                            <h3 className="font-bold truncate text-[13px] sm:text-base leading-tight tracking-tight">
-                                {lead.name}
-                            </h3>
+                            <div className="flex items-center gap-2 min-w-0">
+                                <h3 className="font-bold truncate text-[13px] sm:text-base leading-tight tracking-tight">
+                                    {lead.name}
+                                </h3>
+                                {showPendingHumanResponse && lead.isPendingHumanResponse && (
+                                    <span
+                                        className="text-[9px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded-md bg-red-500/10 border border-red-500/20 shrink-0"
+                                        title="El cliente envió un mensaje que aún no ha sido atendido por un asesor"
+                                    >
+                                        Pendiente
+                                    </span>
+                                )}
+                            </div>
                             <p className="truncate text-[10px] sm:text-[11px] font-medium text-muted-foreground">
                                 {lead.phone}
                                 {lead.company && <span className="hidden sm:inline"> • {lead.company}</span>}
@@ -727,7 +760,7 @@ export function ChatWindow({
                     empresaId={companyId}
                     onMessageSent={(msg) => {
                         if (msg) {
-                            setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg])
+                            setMessages(prev => insertSortedMessage(prev, msg))
                         }
                         updateLeadListOrder(lead.id, msg as any)
                     }}

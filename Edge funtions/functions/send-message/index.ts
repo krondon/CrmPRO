@@ -253,6 +253,16 @@ serve(async (req) => {
       // Para WhatsApp, limpiar el número de teléfono (solo dígitos)
       if (targetChannel === 'whatsapp' || targetChannel === 'wws') {
         chatId = chatId.replace(/\D/g, '');
+
+        // Red de seguridad Venezuela: si el número quedó en formato local
+        // (0 + operadora + 7 dígitos, ej. 04143047373) lo convertimos al
+        // internacional (584143047373). SuperAPI/WhatsApp rechaza el local,
+        // así que sin esto el mensaje nunca llega. Cubre leads creados a mano,
+        // importados o por cualquier vía que no haya normalizado el teléfono.
+        if (/^0(412|414|416|424|426)\d{7}$/.test(chatId)) {
+          chatId = '58' + chatId.slice(1);
+        }
+
         // Super API con platform 'wws' requiere el formato: numero@c.us
         // Ejemplo: 584143996158@c.us
         if (chatId && !chatId.includes('@')) {

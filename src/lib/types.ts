@@ -738,6 +738,46 @@ export interface LandingTokenDB {
   updated_at?: string
 }
 
+// ============================================================
+// SUPERAPI · OAUTH 2.0
+// ------------------------------------------------------------
+// Tipos para la integración OAuth con SuperAPI (sección 5 del
+// documento "SuperAPI · OAuth Integration Guide").
+// Una install por empresa; re-autorización actualiza la fila.
+// ============================================================
+
+export type SuperApiScope = 'instances.read' | 'messages.send' | 'messages.receive'
+
+/** Fila exacta como vive en la tabla `superapi_installs`. */
+export interface SuperAPIInstallDB {
+  id: string
+  empresa_id: string
+  access_token: string                  // NUNCA exponer al cliente — solo edge functions con service role
+  token_type: string                    // 'Bearer'
+  scopes: SuperApiScope[]
+  instance_ids: string[]                // IDs SuperAPI autorizados en este install
+  superapi_user_email: string | null
+  expires_at: string | null             // null = no expira
+  revoked_at: string | null             // null = activo
+  last_used_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** Versión "segura" para uso en frontend: sin access_token. */
+export interface SuperAPIInstall {
+  id: string
+  empresaId: string
+  scopes: SuperApiScope[]
+  instanceIds: string[]
+  superapiUserEmail: string | null
+  expiresAt: string | null
+  revokedAt: string | null
+  lastUsedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 // ----- Quick Replies (Mensajes Predeterminados) -----
 export interface QuickReplyDB {
   id: string

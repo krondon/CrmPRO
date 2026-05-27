@@ -1,4 +1,5 @@
 import { supabase } from '../client'
+import { normalizePhone } from '@/lib/phoneUtils'
 import type {
     LeadDB,
     CreateLeadDTO,
@@ -400,9 +401,16 @@ import { createHistoryEntry } from './history'
  * Crea un nuevo lead
  */
 export async function createLead(lead: CreateLeadDTO, actorId?: string, actorNombre?: string): Promise<LeadDB> {
+    // Normalizar el teléfono a formato internacional antes de guardar, para que
+    // los mensajes salientes (que arman <numero>@c.us) funcionen y la
+    // deduplicación por teléfono case bien. Cubre el caso VE local (0414... → 5814...).
+    const payload: CreateLeadDTO = lead.telefono
+        ? { ...lead, telefono: normalizePhone(lead.telefono) }
+        : lead
+
     const { data, error } = await supabase
         .from('lead')
-        .insert(lead)
+        .insert(payload)
         .select()
         .single()
 
@@ -529,9 +537,15 @@ export async function duplicateLead(
  * Crea múltiples leads en una sola operación
  */
 export async function createLeadsBulk(leads: CreateLeadDTO[], actorId?: string, actorNombre?: string): Promise<LeadDB[]> {
+    // Normalizar teléfonos a formato internacional (VE local → 58...) en cada
+    // lead importado, igual que en createLead.
+    const payload = leads.map(lead =>
+        lead.telefono ? { ...lead, telefono: normalizePhone(lead.telefono) } : lead
+    )
+
     const { data, error } = await supabase
         .from('lead')
-        .insert(leads)
+        .insert(payload)
         .select()
 
     if (error) throw error

@@ -79,6 +79,13 @@ interface ChatListProps {
             createdAt: string
         }>
     }
+
+    /**
+     * Si la feature "Pendiente de respuesta humana" está activa para la
+     * empresa. Cuando true, muestra el badge "Pendiente" en cada chat
+     * cuyo lead.isPendingHumanResponse=true.
+     */
+    showPendingHumanResponse?: boolean
 }
 
 export const ChatList = memo(function ChatList({
@@ -99,7 +106,8 @@ export const ChatList = memo(function ChatList({
     searchQuery,
     onSearchQueryChange,
     searchLoading,
-    searchResults
+    searchResults,
+    showPendingHumanResponse = false
 }: ChatListProps) {
     // Estados de filtros LOCALES (solo afectan la vista, no la query)
     const [channelFilter, setChannelFilter] = useState<'all' | 'whatsapp' | 'instagram' | 'facebook'>('all')
@@ -184,6 +192,18 @@ export const ChatList = memo(function ChatList({
     const totalSearchCount = resolvedSearchChatMatches.length + searchResults.messageMatches.length
 
     const getLeadChannel = (lead: Lead) => channelByLead[lead.id] || detectChannel(lead)
+
+    const renderPendingBadge = (lead: Lead) => {
+        if (!showPendingHumanResponse || !lead.isPendingHumanResponse) return null
+        return (
+            <span
+                className="text-[9px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded-md bg-red-500/10 border border-red-500/20 shrink-0"
+                title="El cliente envió un mensaje que aún no ha sido atendido por un asesor"
+            >
+                Pendiente
+            </span>
+        )
+    }
 
     const renderLeadTags = (lead: Lead, maxVisible = 3) => {
         if (!lead.tags || lead.tags.length === 0) return null
@@ -547,9 +567,12 @@ export const ChatList = memo(function ChatList({
                                     </div>
                                 </div>
                                 <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-                                    <span className="truncate text-[14px] font-semibold text-foreground/90">
-                                        {highlightMatch(lead.name || 'Sin nombre', searchQuery)}
-                                    </span>
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        <span className="truncate text-[14px] font-semibold text-foreground/90 flex-1 min-w-0">
+                                            {highlightMatch(lead.name || 'Sin nombre', searchQuery)}
+                                        </span>
+                                        {renderPendingBadge(lead)}
+                                    </div>
                                     <span className="truncate text-xs text-muted-foreground">
                                         {highlightMatch(lead.phone || lead.company || 'Sin detalle', searchQuery)}
                                     </span>
@@ -659,15 +682,18 @@ export const ChatList = memo(function ChatList({
                                         </div>
 
                                         <div className="flex-1 min-w-0 flex flex-col justify-center h-full gap-0.5">
-                                            <div className="flex justify-between items-baseline">
+                                            <div className="flex justify-between items-baseline gap-2">
+                                                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                                    <span className={cn(
+                                                        "truncate text-[15px] leading-none transition-colors",
+                                                        unreadCounts[lead.id] > 0 ? "font-bold text-foreground" : "font-semibold text-foreground/80 group-hover:text-foreground"
+                                                    )}>
+                                                        {lead.name}
+                                                    </span>
+                                                    {renderPendingBadge(lead)}
+                                                </div>
                                                 <span className={cn(
-                                                    "truncate text-[15px] leading-none transition-colors",
-                                                    unreadCounts[lead.id] > 0 ? "font-bold text-foreground" : "font-semibold text-foreground/80 group-hover:text-foreground"
-                                                )}>
-                                                    {lead.name}
-                                                </span>
-                                                <span className={cn(
-                                                    "text-[10px] uppercase tracking-tighter whitespace-nowrap ml-2 font-bold",
+                                                    "text-[10px] uppercase tracking-tighter whitespace-nowrap font-bold",
                                                     unreadCounts[lead.id] > 0 ? "text-emerald-500" : "text-muted-foreground"
                                                 )}>
                                                     {safeFormatDate(lead.lastMessageAt, 'HH:mm', { locale: es })}

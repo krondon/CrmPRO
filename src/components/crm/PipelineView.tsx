@@ -1251,7 +1251,7 @@ export function PipelineView({ companyId, companies = [], user }: { companyId?: 
         {/* Filter Section */}
         <div className="flex items-center gap-3 mt-3">
           <Select value={filterByMember} onValueChange={setFilterByMember}>
-            <SelectTrigger className="w-auto min-w-[200px] h-9 px-3 bg-muted/30 border border-border/30 rounded-xl text-sm hover:bg-muted/50 transition-colors shadow-sm">
+            <SelectTrigger className="w-full sm:w-auto sm:min-w-[200px] h-9 px-3 bg-muted/30 border border-border/30 rounded-xl text-sm hover:bg-muted/50 transition-colors shadow-sm">
               <div className="flex items-center gap-2">
                 <Funnel size={15} className="text-muted-foreground/70 shrink-0" />
                 <SelectValue placeholder="Filtrar por miembro" />

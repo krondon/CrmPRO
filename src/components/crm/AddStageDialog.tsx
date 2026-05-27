@@ -104,11 +104,13 @@ export function AddStageDialog({ pipelineType, currentStagesCount, onAdd, trigge
           </div>
           <div>
             <Label>{t.stage.color}</Label>
-            <div className="flex gap-2 mt-2">
+            <div className="flex flex-wrap gap-2 mt-2">
               {predefinedColors.map(c => (
                 <button
                   key={c}
-                  className={`w-8 h-8 rounded-full border-2 transition-all ${
+                  type="button"
+                  aria-label={`Color ${c}`}
+                  className={`w-9 h-9 rounded-full border-2 transition-all shrink-0 ${
                     color === c ? 'border-foreground scale-110' : 'border-border'
                   }`}
                   style={{ backgroundColor: c }}
@@ -119,7 +121,8 @@ export function AddStageDialog({ pipelineType, currentStagesCount, onAdd, trigge
                 type="color"
                 value={color}
                 onChange={(e) => setColor(e.target.value)}
-                className="w-8 h-8 p-0 border-0"
+                className="w-9 h-9 p-0 border-0 shrink-0"
+                aria-label="Color personalizado"
               />
             </div>
           </div>

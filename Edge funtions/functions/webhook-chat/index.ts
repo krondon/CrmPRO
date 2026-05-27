@@ -19,6 +19,46 @@ const corsHeaders = {
 // Nombre del bucket para guardar archivos recibidos
 const MEDIA_BUCKET = "CRM message received";
 
+/**
+ * Resuelve el timestamp original del mensaje desde el payload del proveedor.
+ *
+ * Importante para Facebook/Messenger: el usuario suele mandar varios mensajes
+ * en ráfaga y cada uno llega como POST separado. Si dejamos `created_at` en el
+ * default `NOW()` de Postgres, basta con que dos webhooks corran en paralelo
+ * (cold start, retries, etc.) para que el orden de INSERT no coincida con el
+ * orden de envío y los chats se vean desordenados en el CRM.
+ *
+ * SuperAPI y Meta exponen el timestamp original como `data.timestamp` (epoch).
+ * Algunos providers lo mandan en segundos, otros en ms — detectamos por magnitud.
+ * Si no viene timestamp, usamos `now()` como fallback (comportamiento anterior).
+ */
+function resolveMessageTimestamp(eventData: any, payload: any): string {
+  const raw =
+    eventData?.timestamp ??
+    payload?.timestamp ??
+    eventData?.sent_at ??
+    payload?.sent_at ??
+    eventData?.created_at ??
+    payload?.created_at ??
+    null;
+  if (raw == null) return new Date().toISOString();
+
+  // Si ya viene como ISO string válido, lo respetamos.
+  if (typeof raw === "string") {
+    const parsed = Date.parse(raw);
+    if (!Number.isNaN(parsed)) return new Date(parsed).toISOString();
+  }
+
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return new Date().toISOString();
+
+  // Heurística: > 1e12 es ms (≈ año 2001+ en ms); más chico, segundos.
+  const ms = n > 1e12 ? n : n * 1000;
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) return new Date().toISOString();
+  return date.toISOString();
+}
+
 // Función helper para descargar archivo de URL y subirlo al bucket de Storage
 async function downloadAndStoreMedia(
   supabase: ReturnType<typeof createClient>,
@@ -1032,13 +1072,17 @@ serve(async (req) => {
                 continue;
               }
 
-              // Insertar mensaje para este lead
+              // Insertar mensaje para este lead.
+              // `created_at` se setea desde el timestamp del proveedor para preservar
+              // orden cronológico real (ver resolveMessageTimestamp arriba).
+              const messageCreatedAt = resolveMessageTimestamp(eventData, payload);
               const { data: insertedMsg, error: insertError } = await supabase.from("mensajes").insert({
                 lead_id: lead.id,
                 content: content,
                 sender: senderRole,
                 channel: channelType,
                 external_id: externalId,
+                created_at: messageCreatedAt,
                 metadata: {
                   ...normalizedMetadata,
                   instanceId: instanceResolved?.id || null,
@@ -1495,6 +1539,7 @@ serve(async (req) => {
                   sender: 'lead',
                   channel: sourceType.toLowerCase(),
                   external_id: externalId,
+                  created_at: resolveMessageTimestamp(eventData, payload),
                   metadata: {
                     ...normalizedMetadata,
                     instanceId: instanceResolved?.id || null,

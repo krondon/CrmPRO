@@ -10,6 +10,8 @@ import { usePersistentState } from '@/hooks/usePersistentState'
 import { GuestLock } from '@/components/premium'
 import { useGuestMode } from '@/hooks/useGuestMode'
 import { ChatsMockup } from './chats/ChatsMockup'
+import { getPendingResponseEnabled } from '@/supabase/services/chatSettings'
+import { usePendingResponsePolling } from '@/hooks/usePendingResponsePolling'
 
 interface User {
   id: string
@@ -86,6 +88,20 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null)
   const [selectedLeadFromSearch, setSelectedLeadFromSearch] = useState<Lead | null>(null)
   const [showChatSettings, setShowChatSettings] = useState(false)
+
+  // Feature "Pendiente de respuesta humana": misma toggle que PipelineView.
+  // Cuando está activa se muestra el badge en ChatList y ChatWindow, y se
+  // hace polling cada 60s para limpiar el flag si el asesor respondió fuera del CRM.
+  const [pendingResponseEnabled, setPendingResponseEnabled] = useState(false)
+  useEffect(() => {
+    if (!companyId) return
+    let cancelled = false
+    getPendingResponseEnabled(companyId)
+      .then(v => { if (!cancelled) setPendingResponseEnabled(v) })
+      .catch(err => console.warn('[ChatsView] error leyendo pending_response_enabled:', err))
+    return () => { cancelled = true }
+  }, [companyId])
+  usePendingResponsePolling(companyId, pendingResponseEnabled)
 
   // Fallback: mensaje entrante propagado desde subscribeToAllMessages hacia ChatWindow
   // Usa timestamp para garantizar que cada mensaje genere una nueva referencia
@@ -297,6 +313,7 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
         onSearchQueryChange={setSearchQuery}
         searchLoading={searchLoading}
         searchResults={searchResults}
+        showPendingHumanResponse={pendingResponseEnabled}
       />
       <ChatWindow
         lead={selectedLead || null}
@@ -305,6 +322,7 @@ export function ChatsView({ companyId, onNavigateToPipeline, canDeleteLead = fal
         canDeleteMessages={canDeleteMessages}
         canManageTags={canManageTags}
         isAiEnabled={canUseAi}
+        showPendingHumanResponse={pendingResponseEnabled}
         onBack={() => { setSelectedLeadId(null); setSelectedLeadFromSearch(null) }}
         onArchive={handleArchiveToggle}
         onDelete={handleDeleteLead}

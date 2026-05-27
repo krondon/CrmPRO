@@ -22,10 +22,13 @@ import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import { WelcomeView } from '@/components/auth/WelcomeView'
 import { UpdatePasswordView } from '@/components/auth/UpdatePasswordView'
 import { HubmyCallbackView } from '@/components/auth/HubmyCallbackView'
+import { SuperAPICallbackView } from '@/components/crm/SuperAPICallbackView'
 import { CRMLayout } from '@/components/layout/CRMLayout'
 import { UpgradeModalProvider, UpgradeFab } from '@/components/premium'
+import { MornaAdminApp } from '@/components/morna-admin/MornaAdminApp'
 import { useAuth } from '@/hooks/useAuth'
 import { usePermissions } from '@/hooks/usePermissions'
+import { MornaStaffProvider, MornaStaffRoute } from '@/hooks/useMornaStaff'
 import { LoadingScreen } from '@/components/ui/LoadingScreen'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
@@ -51,6 +54,7 @@ function App() {
 
   return (
     <UpgradeModalProvider>
+      <MornaStaffProvider>
       <Routes>
         {/* Auth Routes */}
         {/* Welcome — entry point when no session */}
@@ -86,6 +90,9 @@ function App() {
 
         {/* Hubmy OAuth Callback */}
         <Route path="/auth/hubmy/callback" element={<HubmyCallbackView />} />
+
+        {/* SuperAPI OAuth Callback — recibe ?code y ?state tras autorizar instancias */}
+        <Route path="/superapi/callback" element={<SuperAPICallbackView />} />
 
         {/* Join Team Route (legacy ?token=) */}
         <Route path="/join" element={<JoinTeamWrapper />} />
@@ -204,11 +211,26 @@ function App() {
           <Route path="premium" element={<PremiumView />} />
         </Route>
 
+        {/* Morna Admin Panel — solo accesible para usuarios en morna_staff */}
+        <Route
+          path="/morna-admin/*"
+          element={
+            user ? (
+              <MornaStaffRoute>
+                <MornaAdminApp />
+              </MornaStaffRoute>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+
         {/* Fallback */}
         <Route path="*" element={<Navigate to={user ? "/dashboard" : "/welcome"} replace />} />
       </Routes>
       <Toaster />
       <UpgradeFab />
+      </MornaStaffProvider>
     </UpgradeModalProvider>
   )
 }

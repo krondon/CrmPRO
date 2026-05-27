@@ -151,7 +151,7 @@ export function SettingsView({ currentUserId, currentCompanyId, onCompanyChange,
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 md:p-8 pb-32 md:pb-8 space-y-8 bg-background/50">
+    <div className="flex-1 overflow-y-auto p-4 md:p-8 pb-32 md:pb-8 space-y-6 md:space-y-8 bg-background/50">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">

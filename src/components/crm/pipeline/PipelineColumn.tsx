@@ -235,17 +235,18 @@ export function PipelineColumn({
                                     <X size={16} weight="bold" />
                                 </Button>
                             </div>
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
                                 {predefinedColors.map(c => (
                                     <button
                                         key={c}
-                                        className={cn('w-5 h-5 rounded-full border-2 transition-all', editColor === c ? 'border-foreground scale-110' : 'border-border/50')}
+                                        type="button"
+                                        className={cn('w-5 h-5 rounded-full border-2 transition-all shrink-0', editColor === c ? 'border-foreground scale-110' : 'border-border/50')}
                                         style={{ backgroundColor: c }}
                                         onClick={() => setEditColor(c)}
                                         title="Color de etapa"
                                     />
                                 ))}
-                                <input type="color" value={editColor} onChange={(e) => setEditColor(e.target.value)} className="w-5 h-5 p-0 border-0 rounded-full cursor-pointer" title="Color personalizado" />
+                                <input type="color" value={editColor} onChange={(e) => setEditColor(e.target.value)} className="w-5 h-5 p-0 border-0 rounded-full cursor-pointer shrink-0" title="Color personalizado" />
                             </div>
                             <div className="space-y-2 border-t pt-2 mt-2">
                                 <div className="flex items-center justify-between">

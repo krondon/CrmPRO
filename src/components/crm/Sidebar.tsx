@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { House, Kanban, ChartBar, CalendarBlank, Users, Gear, Bell, SignOut, Microphone, Buildings, ChatCircleDots, AddressBook, ClockCounterClockwise, Crown } from '@phosphor-icons/react'
+import { House, Kanban, ChartBar, CalendarBlank, Users, Gear, Bell, SignOut, Microphone, Buildings, ChatCircleDots, AddressBook, ClockCounterClockwise, Crown, ShieldStar } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -9,6 +9,7 @@ import { useTranslation } from '@/lib/i18n'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Company } from './CompanyManagement'
 import { AnonymousBar } from '@/components/auth/AnonymousBar'
+import { useMornaStaff } from '@/hooks/useMornaStaff'
 
 interface User {
   id: string
@@ -34,6 +35,7 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
   const location = useLocation()
   const navigate = useNavigate()
   const [showCompanySelector, setShowCompanySelector] = useState(false)
+  const { isStaff: isMornaStaff } = useMornaStaff()
 
   const unreadCount = notificationCount || 0
 
@@ -212,6 +214,19 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
             </div>
           )}
 
+          {isMornaStaff && (
+            <NavLink
+              to="/morna-admin"
+              className="w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-semibold transition-all group bg-gradient-to-r from-zinc-900 to-zinc-800 text-amber-300 hover:from-zinc-800 hover:to-zinc-700 border border-amber-500/20 shadow-sm"
+            >
+              <ShieldStar size={20} weight="fill" className="text-amber-400" />
+              <span className="font-black tracking-wide">Panel Morna</span>
+              <Badge variant="outline" className="ml-auto text-[8px] uppercase tracking-wider bg-amber-500/10 text-amber-300 border-amber-500/30 h-4 px-1.5 font-black">
+                STAFF
+              </Badge>
+            </NavLink>
+          )}
+
           <NavLink
             to={getPath('notifications')}
             className={cn(
@@ -335,6 +350,17 @@ export function Sidebar({ currentView, onViewChange, onLogout, user, currentComp
             </div>
             <span className="text-[9px]">Alertas</span>
           </NavLink>
+
+          {/* Panel Morna - Mobile (solo staff) */}
+          {isMornaStaff && (
+            <NavLink
+              to="/morna-admin"
+              className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg text-xs font-medium transition-all min-w-fit text-amber-500"
+            >
+              <ShieldStar size={20} weight="fill" />
+              <span className="text-[9px] font-bold">Morna</span>
+            </NavLink>
+          )}
         </nav>
       </div>
 
