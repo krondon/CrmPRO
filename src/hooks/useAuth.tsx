@@ -5,9 +5,15 @@ import { createUsuario, getUsuarioById, updateLastEmpresaId } from '@/supabase/s
 import { createEmpresa, getEmpresasByUsuario, leaveCompany } from '@/supabase/services/empresa'
 import { crearSolicitud } from '@/supabase/services/solicitudes'
 import { acceptInvitation } from '@/supabase/services/invitations'
+import { startImpersonation as startImpersonationService, endImpersonation as endImpersonationService } from '@/supabase/services/mornaStaff'
 
 const PENDING_JOIN_KEY = 'pending_join_empresa_id'
 const PENDING_INVITE_TOKEN_KEY = 'pending_invite_token'
+
+// Impersonación (Panel Morna): sesión del staff guardada para poder "volver",
+// y flag de la sesión activa que dispara el banner. Solo viven en este navegador.
+const IMPERSONATION_ORIGIN_KEY = 'morna-impersonation-origin'
+const IMPERSONATION_ACTIVE_KEY = 'morna-impersonation-active'
 
 /**
  * Si hay un token de invitación pendiente en localStorage (puesto por /invitacion/:token),
@@ -95,6 +101,8 @@ interface AuthContextType {
     upgradeToOwner: (businessName: string) => Promise<void>
     upgradeAnonymousUser: (email: string, password: string, businessName?: string, userName?: string) => Promise<void>
     startAsGuest: () => Promise<void>
+    startImpersonation: (targetUserId: string, empresaId: string | null, reason: string) => Promise<void>
+    exitImpersonation: () => Promise<'restored' | 'logged_out'>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
@@ -759,6 +767,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             localStorage.removeItem('supabase.auth.token')
             localStorage.removeItem('current-user')
 
+            // Limpiar cualquier rastro de impersonación activa
+            localStorage.removeItem(IMPERSONATION_ACTIVE_KEY)
+            localStorage.removeItem(IMPERSONATION_ORIGIN_KEY)
+
             // Limpiar cache de pipelines para que al re-logear se lea de la BD
             const keysToRemove: string[] = []
             for (let i = 0; i < localStorage.length; i++) {
@@ -962,6 +974,90 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }
 
+    // ============================================================
+    // Impersonación ("entrar como cliente") — Panel Morna
+    // ============================================================
+
+    const startImpersonation = async (targetUserId: string, empresaId: string | null, reason: string) => {
+        if (!user) throw new Error('No autenticado')
+
+        // 1. Guardar la sesión del staff ANTES de cambiarla, para poder volver.
+        const { data: { session: originSession } } = await supabase.auth.getSession()
+        if (!originSession) throw new Error('No hay una sesión activa de staff')
+        const staffSnapshot = {
+            accessToken: originSession.access_token,
+            refreshToken: originSession.refresh_token,
+            userId: user.id,
+            email: user.email,
+            name: user.businessName,
+        }
+
+        // 2. Pedir el hashed_token al backend (verifica permisos y registra el log).
+        const result = await startImpersonationService({ targetUserId, empresaId, reason })
+
+        // 3. Persistir el origen antes del swap (verifyOtp reemplaza la sesión).
+        setStoredValue(IMPERSONATION_ORIGIN_KEY, staffSnapshot)
+
+        // 4. Canjear el token → la sesión pasa a ser la del objetivo.
+        const { error: otpErr } = await supabase.auth.verifyOtp({
+            token_hash: result.hashedToken,
+            type: 'email',
+        })
+        if (otpErr) {
+            localStorage.removeItem(IMPERSONATION_ORIGIN_KEY)
+            throw new Error(otpErr.message || 'No se pudo establecer la sesión del cliente')
+        }
+
+        // 5. Reconstruir el estado de la app para el objetivo.
+        await loginWithSession(result.targetUserId, result.targetEmail, result.targetName)
+
+        // 6. Flag para el banner (solo vive en esta pestaña / localStorage).
+        setStoredValue(IMPERSONATION_ACTIVE_KEY, {
+            logId: result.logId,
+            targetEmail: result.targetEmail,
+            targetName: result.targetName,
+            staffEmail: staffSnapshot.email,
+            empresaId,
+        })
+    }
+
+    const exitImpersonation = async (): Promise<'restored' | 'logged_out'> => {
+        const active = getStoredValue<{ logId?: string } | null>(IMPERSONATION_ACTIVE_KEY, null)
+        const origin = getStoredValue<{
+            accessToken?: string
+            refreshToken?: string
+            userId?: string
+            email?: string
+            name?: string
+        } | null>(IMPERSONATION_ORIGIN_KEY, null)
+
+        // 1. Cerrar el log (best-effort, no bloquea la restauración).
+        if (active?.logId) {
+            try { await endImpersonationService(active.logId) } catch { /* ignore */ }
+        }
+
+        // 2. Restaurar la sesión del staff.
+        if (origin?.accessToken && origin?.refreshToken) {
+            const { error } = await supabase.auth.setSession({
+                access_token: origin.accessToken,
+                refresh_token: origin.refreshToken,
+            })
+            if (!error) {
+                localStorage.removeItem(IMPERSONATION_ACTIVE_KEY)
+                localStorage.removeItem(IMPERSONATION_ORIGIN_KEY)
+                await loginWithSession(origin.userId!, origin.email || '', origin.name || '')
+                return 'restored'
+            }
+            console.warn('[useAuth] No se pudo restaurar la sesión del staff:', error)
+        }
+
+        // 3. Fallback: sesión origen perdida/expirada → cerrar sesión.
+        localStorage.removeItem(IMPERSONATION_ACTIVE_KEY)
+        localStorage.removeItem(IMPERSONATION_ORIGIN_KEY)
+        await logout()
+        return 'logged_out'
+    }
+
     const value: AuthContextType = {
         user,
         companies,
@@ -982,7 +1078,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         updateRecoveryEmail,
         upgradeToOwner,
         upgradeAnonymousUser,
-        startAsGuest
+        startAsGuest,
+        startImpersonation,
+        exitImpersonation
     }
 
     return (

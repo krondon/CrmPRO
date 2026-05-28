@@ -26,6 +26,7 @@ import { SuperAPICallbackView } from '@/components/crm/SuperAPICallbackView'
 import { CRMLayout } from '@/components/layout/CRMLayout'
 import { UpgradeModalProvider, UpgradeFab } from '@/components/premium'
 import { MornaAdminApp } from '@/components/morna-admin/MornaAdminApp'
+import { ImpersonationBanner } from '@/components/morna-admin/ImpersonationBanner'
 import { useAuth } from '@/hooks/useAuth'
 import { usePermissions } from '@/hooks/usePermissions'
 import { MornaStaffProvider, MornaStaffRoute } from '@/hooks/useMornaStaff'
@@ -230,6 +231,7 @@ function App() {
       </Routes>
       <Toaster />
       <UpgradeFab />
+      <ImpersonationBanner />
       </MornaStaffProvider>
     </UpgradeModalProvider>
   )

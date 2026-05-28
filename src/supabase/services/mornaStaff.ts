@@ -104,3 +104,198 @@ export async function listAdminCompanies(params: ListCompaniesParams = {}): Prom
     }
     return data as ListCompaniesResult
 }
+
+// ============================================================
+// Impersonación ("entrar como cliente")
+// ============================================================
+
+export interface StartImpersonationResult {
+    hashedToken: string
+    targetUserId: string
+    targetEmail: string
+    targetName: string
+    logId: string
+}
+
+export interface StartImpersonationParams {
+    targetUserId: string
+    empresaId?: string | null
+    reason: string
+}
+
+// Mensajes amigables para los códigos de error que devuelven las edge functions.
+const IMPERSONATION_ERROR_MESSAGES: Record<string, string> = {
+    reason_too_short: 'El motivo debe tener al menos 10 caracteres.',
+    cannot_impersonate_self: 'No puedes impersonarte a ti mismo.',
+    cannot_impersonate_staff: 'No puedes impersonar a otro miembro del staff.',
+    cannot_impersonate_anonymous: 'Esta cuenta no se puede impersonar (es anónima).',
+    target_has_no_email: 'Esta cuenta no tiene correo, no se puede impersonar.',
+    target_not_found: 'No se encontró el usuario objetivo.',
+    missing_target: 'Falta indicar a quién impersonar.',
+    forbidden: 'No tienes permiso para esta acción.',
+    server_misconfigured: 'El servidor no está configurado para impersonación.',
+}
+
+/**
+ * functions.invoke envuelve las respuestas no-2xx en un FunctionsHttpError cuyo
+ * `context` es el Response original. Leemos el código de error del body para dar
+ * un mensaje claro al usuario.
+ */
+async function readFnErrorCode(error: unknown): Promise<string | null> {
+    try {
+        const ctx = (error as { context?: { json?: () => Promise<{ error?: string }> } })?.context
+        if (ctx && typeof ctx.json === 'function') {
+            const body = await ctx.json()
+            return body?.error ?? null
+        }
+    } catch {
+        // body ya consumido o no-JSON
+    }
+    return null
+}
+
+/**
+ * Inicia una sesión de impersonación. Devuelve el hashed_token que el front
+ * intercambia por la sesión del objetivo vía verifyOtp.
+ */
+export async function startImpersonation(
+    params: StartImpersonationParams,
+): Promise<StartImpersonationResult> {
+    const supabase = requireSupabase()
+    const { data, error } = await supabase.functions.invoke('admin-start-impersonation', {
+        body: {
+            targetUserId: params.targetUserId,
+            empresaId: params.empresaId ?? null,
+            reason: params.reason,
+        },
+    })
+    if (error) {
+        const code = await readFnErrorCode(error)
+        throw new Error(
+            (code && IMPERSONATION_ERROR_MESSAGES[code]) || 'No se pudo iniciar la impersonación',
+        )
+    }
+    if (!data?.hashed_token) throw new Error('Respuesta inválida del servidor')
+    return {
+        hashedToken: data.hashed_token,
+        targetUserId: data.targetUserId,
+        targetEmail: data.targetEmail,
+        targetName: data.targetName,
+        logId: data.logId,
+    }
+}
+
+/**
+ * Termina una sesión de impersonación (cierra ended_at). No lanza si falla: el
+ * front debe poder restaurar la sesión del staff aunque el cierre del log falle.
+ */
+export async function endImpersonation(logId: string): Promise<void> {
+    const supabase = requireSupabase()
+    const { error } = await supabase.functions.invoke('admin-end-impersonation', {
+        body: { logId },
+    })
+    if (error) {
+        console.warn('[mornaStaff] admin-end-impersonation falló:', error)
+    }
+}
+
+// ============================================================
+// Gestión de staff + auditoría (PR 3)
+// ============================================================
+
+export interface MornaStaffMember {
+    userId: string
+    email: string | null
+    nombre: string | null
+    role: MornaStaffRole
+    createdAt: string
+    createdByEmail: string | null
+    notes: string | null
+}
+
+export interface AuditAction {
+    id: string
+    action: string
+    staffEmail: string | null
+    targetEmail: string | null
+    targetEmpresaId: string | null
+    payload: Record<string, unknown> | null
+    createdAt: string
+}
+
+export interface AuditImpersonation {
+    id: string
+    staffEmail: string | null
+    targetEmail: string | null
+    targetEmpresaId: string | null
+    reason: string
+    startedAt: string
+    endedAt: string | null
+    active: boolean
+}
+
+export interface AuditLogResult {
+    actions: AuditAction[]
+    impersonations: AuditImpersonation[]
+}
+
+const STAFF_ERROR_MESSAGES: Record<string, string> = {
+    user_not_found: 'Ese correo no tiene una cuenta en el CRM. La persona debe registrarse primero.',
+    invalid_role: 'Rol inválido.',
+    missing_email: 'Falta el correo.',
+    cannot_remove_self: 'No puedes quitarte a ti mismo del staff.',
+    cannot_remove_last_admin: 'No puedes quitar al último super_admin.',
+    not_staff: 'Ese usuario no es parte del staff.',
+    forbidden: 'Solo un super_admin puede modificar el staff.',
+}
+
+/** Lista los miembros del staff Morna (con emails). Cualquier staff puede verla. */
+export async function listMornaStaff(): Promise<MornaStaffMember[]> {
+    const supabase = requireSupabase()
+    const { data, error } = await supabase.functions.invoke('admin-list-staff', { body: {} })
+    if (error) {
+        const code = await readFnErrorCode(error)
+        throw new Error((code && STAFF_ERROR_MESSAGES[code]) || 'No se pudo listar el staff')
+    }
+    if (!data || !Array.isArray(data.staff)) throw new Error('Respuesta inválida del servidor')
+    return data.staff as MornaStaffMember[]
+}
+
+/** Agrega (o actualiza el rol de) un miembro del staff por email. Solo super_admin. */
+export async function addMornaStaff(email: string, role: MornaStaffRole): Promise<void> {
+    const supabase = requireSupabase()
+    const { error } = await supabase.functions.invoke('admin-manage-staff', {
+        body: { action: 'add', email, role },
+    })
+    if (error) {
+        const code = await readFnErrorCode(error)
+        throw new Error((code && STAFF_ERROR_MESSAGES[code]) || 'No se pudo agregar el staff')
+    }
+}
+
+/** Quita un miembro del staff. Solo super_admin. */
+export async function removeMornaStaff(userId: string): Promise<void> {
+    const supabase = requireSupabase()
+    const { error } = await supabase.functions.invoke('admin-manage-staff', {
+        body: { action: 'remove', userId },
+    })
+    if (error) {
+        const code = await readFnErrorCode(error)
+        throw new Error((code && STAFF_ERROR_MESSAGES[code]) || 'No se pudo quitar el staff')
+    }
+}
+
+/** Devuelve el rastro de auditoría: acciones admin + sesiones de impersonación. */
+export async function listAuditLog(): Promise<AuditLogResult> {
+    const supabase = requireSupabase()
+    const { data, error } = await supabase.functions.invoke('admin-list-audit', { body: {} })
+    if (error) {
+        const code = await readFnErrorCode(error)
+        throw new Error((code && STAFF_ERROR_MESSAGES[code]) || 'No se pudo cargar la auditoría')
+    }
+    if (!data) throw new Error('Respuesta inválida del servidor')
+    return {
+        actions: (data.actions ?? []) as AuditAction[],
+        impersonations: (data.impersonations ?? []) as AuditImpersonation[],
+    }
+}
