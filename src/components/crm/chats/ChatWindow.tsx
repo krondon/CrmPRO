@@ -16,6 +16,8 @@ import { safeFormatDate } from '@/hooks/useDateFormat'
 import { detectChannel } from '@/hooks/useLeadsList'
 import { getMessages, subscribeToMessages, markMessagesAsRead, deleteMessage, deleteConversation } from '@/supabase/services/mensajes'
 import type { Message as DbMessage } from '@/supabase/services/mensajes'
+import { updateLead } from '@/supabase/services/leads'
+import { toast } from 'sonner'
 import { MessageInput } from './MessageInput'
 import { AiAgentPanel } from './AiAgentPanel'
 import { LeadTags } from './LeadTags'
@@ -108,6 +110,55 @@ export function ChatWindow({
     const [chatSearchIndex, setChatSearchIndex] = useState(0)
     const [showAiPanel, setShowAiPanel] = useState(false)
     const [pendingSuggestion, setPendingSuggestion] = useState<{ text: string; ts: number } | null>(null)
+
+    // Edición inline del nombre del lead en la tarjeta de info.
+    // Útil cuando el lead llega con un nombre genérico ("Nueva oportunidad")
+    // y el asesor quiere ponerle el nombre real sin abrir el detail sheet.
+    const [isEditingName, setIsEditingName] = useState(false)
+    const [nameDraft, setNameDraft] = useState('')
+    const [isSavingName, setIsSavingName] = useState(false)
+    const nameInputRef = useRef<HTMLInputElement>(null)
+
+    const startEditName = () => {
+        if (!lead) return
+        setNameDraft(lead.name || '')
+        setIsEditingName(true)
+        setTimeout(() => {
+            nameInputRef.current?.focus()
+            nameInputRef.current?.select()
+        }, 0)
+    }
+
+    const cancelEditName = () => {
+        setIsEditingName(false)
+        setNameDraft('')
+    }
+
+    const saveEditName = async () => {
+        if (!lead) return
+        const trimmed = nameDraft.trim()
+        if (!trimmed) {
+            toast.error('El nombre no puede estar vacío.')
+            return
+        }
+        if (trimmed === lead.name) {
+            cancelEditName()
+            return
+        }
+        setIsSavingName(true)
+        try {
+            await updateLead(lead.id, { nombre_completo: trimmed })
+            onLeadUpdate?.({ ...lead, name: trimmed })
+            setIsEditingName(false)
+            setNameDraft('')
+            toast.success('Nombre actualizado.')
+        } catch (err) {
+            console.error('[ChatWindow] Error actualizando nombre:', err)
+            toast.error('No se pudo actualizar el nombre.')
+        } finally {
+            setIsSavingName(false)
+        }
+    }
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const chatSearchInputRef = useRef<HTMLInputElement>(null)
@@ -290,6 +341,8 @@ export function ChatWindow({
     useEffect(() => {
         setShowChatSearch(false)
         setChatSearchTerm('')
+        setIsEditingName(false)
+        setNameDraft('')
     }, [lead?.id])
 
     // Helper para resaltar texto de búsqueda en mensajes
@@ -818,7 +871,61 @@ export function ChatWindow({
                                 })()}
                             </div>
 
-                            <h2 className="text-2xl font-black text-center text-foreground tracking-tight px-4 line-clamp-2">{lead.name}</h2>
+                            {isEditingName ? (
+                                <div className="w-full px-4 flex items-center justify-center gap-2">
+                                    <input
+                                        ref={nameInputRef}
+                                        type="text"
+                                        value={nameDraft}
+                                        onChange={(e) => setNameDraft(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault()
+                                                void saveEditName()
+                                            } else if (e.key === 'Escape') {
+                                                e.preventDefault()
+                                                cancelEditName()
+                                            }
+                                        }}
+                                        disabled={isSavingName}
+                                        maxLength={120}
+                                        className="flex-1 min-w-0 text-2xl font-black text-center bg-background border border-border/60 rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-60"
+                                        placeholder="Nombre del contacto"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={saveEditName}
+                                        disabled={isSavingName || !nameDraft.trim()}
+                                        className="p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title="Guardar"
+                                    >
+                                        {isSavingName
+                                            ? <Spinner size={16} className="animate-spin" />
+                                            : <Check size={16} weight="bold" />}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={cancelEditName}
+                                        disabled={isSavingName}
+                                        className="p-2 rounded-lg bg-muted text-muted-foreground hover:bg-muted/70 active:scale-95 transition disabled:opacity-50"
+                                        title="Cancelar"
+                                    >
+                                        <X size={16} weight="bold" />
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="flex items-center justify-center gap-1.5 px-4 group/name">
+                                    <h2 className="text-2xl font-black text-center text-foreground tracking-tight line-clamp-2">{lead.name}</h2>
+                                    <button
+                                        type="button"
+                                        onClick={startEditName}
+                                        className="p-1.5 rounded-full text-muted-foreground hover:text-primary hover:bg-primary/10 opacity-60 group-hover/name:opacity-100 transition-all active:scale-95 shrink-0"
+                                        title="Editar nombre"
+                                    >
+                                        <PencilSimple size={16} weight="bold" />
+                                    </button>
+                                </div>
+                            )}
                             <p className="text-muted-foreground mt-1.5 text-sm font-bold tracking-wide">{lead.phone}</p>
 
                             <div className="mt-6 w-full px-6">
