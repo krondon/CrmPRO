@@ -312,6 +312,44 @@ export function ChatWindow({
         }).filter(m => m.url).reverse();
     }, [messages]);
 
+    // ============================================================
+    // Ventana de servicio 24h de Meta (Instagram / Facebook)
+    // Meta solo permite responder dentro de las 24h siguientes al
+    // último mensaje del cliente. Pasado ese tiempo bloqueamos el
+    // envío y mostramos un aviso. La ventana se reabre sola cuando
+    // el cliente vuelve a escribir (nuevo mensaje 'lead' por realtime
+    // → cambia `messages` → se recalcula). WhatsApp NO se restringe.
+    // ============================================================
+    const META_WINDOW_MS = 24 * 60 * 60 * 1000
+
+    const chatChannel = useMemo(() => (lead ? detectChannel(lead) : 'whatsapp'), [lead])
+    const isMetaRestrictedChannel = chatChannel === 'instagram' || chatChannel === 'facebook'
+
+    // Tick periódico para reevaluar mientras el chat está abierto (un chat
+    // puede cruzar el umbral de 24h sin recargar). Solo para IG/FB.
+    const [nowTick, setNowTick] = useState(() => Date.now())
+    useEffect(() => {
+        if (!isMetaRestrictedChannel) return
+        setNowTick(Date.now())
+        const id = setInterval(() => setNowTick(Date.now()), 60_000)
+        return () => clearInterval(id)
+    }, [isMetaRestrictedChannel, lead?.id])
+
+    const windowClosed = useMemo(() => {
+        if (!isMetaRestrictedChannel || isLoadingMessages) return false
+        // Buscar el último mensaje entrante del cliente
+        let lastClientAt: number | null = null
+        for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i].sender === 'lead') {
+                lastClientAt = new Date(messages[i].created_at).getTime()
+                break
+            }
+        }
+        // Sin mensaje del cliente, o pasaron >=24h => ventana cerrada
+        if (lastClientAt === null) return true
+        return (nowTick - lastClientAt) >= META_WINDOW_MS
+    }, [isMetaRestrictedChannel, isLoadingMessages, messages, nowTick])
+
     // Buscar mensajes que coinciden con el término de búsqueda
     const chatSearchMatches = useMemo(() => {
         if (!chatSearchTerm.trim()) return [] as string[]
@@ -602,6 +640,19 @@ export function ChatWindow({
                     </div>
                 )}
 
+                {/* Aviso de ventana de 24h cerrada (Meta: Instagram / Facebook) */}
+                {windowClosed && (
+                    <div className="shrink-0 px-3 sm:px-4 py-2.5 border-b bg-amber-500/10 border-amber-500/20 flex items-start gap-2.5 animate-in slide-in-from-top-2 duration-200">
+                        <WarningCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" weight="fill" />
+                        <p className="text-[12px] sm:text-[13px] leading-relaxed text-amber-800 dark:text-amber-200 font-medium">
+                            Han pasado más de <strong>24 horas</strong> desde el último mensaje de este contacto.
+                            Por políticas de Meta, responder fuera de esta ventana puede ocasionar la suspensión de tu
+                            cuenta de <strong>{chatChannel === 'instagram' ? 'Instagram' : 'Facebook'}</strong>. Espera a
+                            que el cliente vuelva a escribir para reanudar la conversación.
+                        </p>
+                    </div>
+                )}
+
                 {/* Messages Area */}
                 <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 scrollbar-thin scrollbar-thumb-muted-foreground/10" id="chat-scroll-area">
                     <div className="space-y-6 w-full max-w-3xl mx-auto pb-4">
@@ -807,7 +858,8 @@ export function ChatWindow({
                 <MessageInput
                     leadId={lead.id}
                     leadData={{ name: lead.name, company: lead.company, phone: lead.phone }}
-                    channel={detectChannel(lead)}
+                    channel={chatChannel}
+                    windowClosedChannel={windowClosed ? (chatChannel as 'instagram' | 'facebook') : null}
                     disabled={isLoadingMessages}
                     instanceLabel={activeInstance ? (activeInstance.label || activeInstance.client_id || 'WhatsApp') : null}
                     empresaId={companyId}

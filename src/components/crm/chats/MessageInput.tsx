@@ -29,7 +29,10 @@ import {
     Plus,
     PencilSimple,
     Trash,
-    Check
+    Check,
+    Clock,
+    InstagramLogo,
+    FacebookLogo
 } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -65,6 +68,13 @@ interface MessageInputProps {
      * en los mensajes predeterminados cuando se seleccionan.
      */
     leadData?: { name?: string | null; company?: string | null; phone?: string | null }
+    /**
+     * Si la ventana de servicio de 24h de Meta está cerrada para este chat
+     * (Instagram/Facebook sin mensaje del cliente en las últimas 24h). Cuando
+     * no es null, se bloquea el envío y se muestra una barra de estado en lugar
+     * del input. Se rehabilita solo cuando el cliente vuelve a escribir.
+     */
+    windowClosedChannel?: 'instagram' | 'facebook' | null
 }
 
 export function MessageInput({
@@ -78,7 +88,10 @@ export function MessageInput({
     onAiClick,
     suggestion,
     leadData,
+    windowClosedChannel = null,
 }: MessageInputProps) {
+    // Ventana de 24h de Meta cerrada: bloquea todo envío en este chat.
+    const isWindowClosed = windowClosedChannel !== null
     // Solo admin/owner pueden crear, editar y eliminar mensajes predeterminados.
     // Cualquier miembro del equipo puede leer y usarlos.
     const { user, companies, currentCompanyId } = useAuth()
@@ -286,6 +299,7 @@ export function MessageInput({
 
     // Hook de grabación de audio
     const handleAudioReady = useCallback(async (audioBlob: Blob, audioFile: File) => {
+        if (isWindowClosed) return
         setIsUploading(true)
         try {
             const mediaData = await uploadChatAttachment(audioFile, leadId)
@@ -300,7 +314,7 @@ export function MessageInput({
         } finally {
             setIsUploading(false)
         }
-    }, [leadId, channel, onMessageSent])
+    }, [leadId, channel, onMessageSent, isWindowClosed])
 
     const { isRecording, recordingTime, startRecording, stopRecording } = useAudioRecorder({
         onAudioReady: handleAudioReady,
@@ -343,6 +357,7 @@ export function MessageInput({
     // Enviar mensaje
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault()
+        if (isWindowClosed) return
         if (!messageInput.trim() && pendingImages.length === 0) return
         setIsUploading(true)
         try {
@@ -371,6 +386,7 @@ export function MessageInput({
 
     // Selección de archivos (cualquier tipo, máximo 16MB)
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (isWindowClosed) { e.target.value = ''; return }
         const file = e.target.files?.[0]
         if (!file) return
 
@@ -395,6 +411,35 @@ export function MessageInput({
             setIsUploading(false)
             e.target.value = ''
         }
+    }
+
+    // Ventana de 24h cerrada (Instagram/Facebook): sustituir el input por una
+    // barra de estado bloqueado. El asesor no puede enviar nada hasta que el
+    // cliente vuelva a escribir (lo que reabre la ventana automáticamente).
+    if (isWindowClosed) {
+        const isInstagram = windowClosedChannel === 'instagram'
+        const platformName = isInstagram ? 'Instagram' : 'Facebook'
+        const PlatformIcon = isInstagram ? InstagramLogo : FacebookLogo
+        return (
+            <div className="shrink-0 border-t bg-background px-4 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+                <div className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                    <div className="shrink-0 mt-0.5 p-1.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                        <Clock size={18} weight="fill" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+                            <PlatformIcon size={14} weight="fill" className="shrink-0" />
+                            Ventana de 24 h cerrada
+                        </p>
+                        <p className="text-[12px] leading-relaxed text-amber-700/90 dark:text-amber-200/80 mt-0.5">
+                            No puedes escribir a este contacto de {platformName} hasta que vuelva a
+                            enviarte un mensaje. Responder fuera de esta ventana va contra las políticas
+                            de Meta y puede ocasionar la suspensión de la cuenta.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        )
     }
 
     return (
